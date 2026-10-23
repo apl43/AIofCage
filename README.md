@@ -8,14 +8,14 @@ Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开
 
 ## 开发启动
 
-桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本和 Xcode Command Line Tools。前端采用 Wails 的纯静态资源方式，不依赖 Node、npm 或前端打包步骤。Wails 固定为 v2.17.0。
+桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本、Xcode Command Line Tools，以及 Docker CLI 和 Colima（`brew install colima docker`）。前端用固定版本的 Preact + htm（放在 `frontend/src/vendor`），不依赖 Node、npm 或打包步骤。Wails 固定为 v2.17.0。
 
 ```bash
 make desktop
 ./bin/AIofCage
 ```
 
-界面可以选择文件夹并创建会话草稿；选择动作不会复制或挂载文件夹，草稿在退出应用后清除。启动按钮保持禁用，后端启动方法也返回未就绪。服务连接、策略、审计页标明待实现，不接受真实密钥。
+界面已有“供应商”页：从预设添加供应商、把 API Key 存进钥匙串、测试连接、编辑与删除；“沙箱”页可查看已有沙箱的状态（创建与启停在下一步接入，目前可用 `cagectl`）。
 
 ```bash
 make gatekeeper   # 构建独立门卫二进制

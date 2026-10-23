@@ -6,26 +6,24 @@
 
 ```text
 main.go / Wails
-    ├── frontend/src：会话、服务连接、策略、审计、环境设置
-    └── internal/service.App
-          ├── session.MemoryStore：内存草稿
-          └── runtime.Unavailable：依赖探测；启动始终返回未就绪
+    ├── frontend/src：Preact + htm（vendor 目录内固定版本，无 npm 构建）
+    │     沙箱 / 供应商 / MCP / 日志 / 设置
+    └── internal/service.App（唯一暴露给前端的 API，不返回任何密钥）
+          ├── store：供应商与沙箱元数据
+          ├── vault.Keychain：密钥只写入、只由运行时读取
+          └── runtime.Manager：专用虚拟机与沙箱生命周期
 
-cmd/gatekeeper
-    └── internal/gatekeeper
-          ├── management：鉴权、/health、PUT /config、GET /events（SSE）、GET /usage、GET /ca
-          ├── proxy：goproxy MITM；按 policy 授权、占位符换真 key、额度、脱敏事件
-          └── mcp：尚未实现，拒绝所有请求
+cmd/cagectl ──> runtime.Manager（与桌面应用共用）
+cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
+    └── internal/gatekeeper：管理 / 代理 / MCP 三个监听
 ```
-
-桌面与门卫目前是两个独立入口，桌面不会自动启动或连接门卫。前端直接使用 Wails 注入的 `window.go.service.App`，不依赖生成的前端绑定文件，也不运行 Node 服务。静态资源编译进桌面二进制。
 
 ## 模块边界与实际状态
 
 | 模块 | 已有内容 | 下一步及限制 |
 |---|---|---|
-| `service` | 环境概览、选择目录、创建/列出会话草稿、拒绝启动 | 生命周期协调、持久化、控制面和用户授权；不绑定 vault 的读方法 |
-| `session` | 会话/Agent/状态类型、线程安全内存存储 | 持久化与重启对账；草稿不代表任何容器存在 |
+| `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱列表（只读）；目录选择 | 沙箱创建与启停（S5）；`existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
+| `session` | Agent 枚举（codex / claude-code / dsh） | 原“会话草稿”已由 `sandbox` 取代 |
 | `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量 | 桌面应用尚未接入（S5）；永不回退宿主执行 |
 | `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
 | `sandbox` | 沙箱元数据、Agent→供应商绑定、每个沙箱+供应商一个占位符、项目必须位于 `~/CageWorkspace` 且无符号链接 | 改变已装 Agent 需重建 Agent 容器（home 数据卷保留） |
@@ -41,15 +39,20 @@ cmd/gatekeeper
 
 ## 桌面开发接口
 
-| 方法 | 输入/输出 | 当前行为 |
-|---|---|---|
-| `GetOverview()` | 版本、阶段、环境检查和目标 Agent 列表 | 只探测平台及 PATH；发现 colima/docker 命令不代表服务可用 |
-| `SelectProject()` | 返回系统目录选择结果；取消返回空字符串 | 不扫描文件、不复制、不挂载 |
-| `CreateSession(request)` | `name`、`project_path`、`agent` → 会话草稿 | 名称 1—80 字符、绝对路径、固定 Agent 枚举；只存内存 |
-| `ListSessions()` | 会话列表 | 新建优先；初始为空，不返回演示会话 |
-| `StartSession(id)` | 错误 | 会话不存在报错；存在也始终返回未就绪，不改变草稿状态 |
+前端通过 Wails 注入的 `window.go.service.App` 调用，所有方法返回 Promise。
 
-例如登记 `/example/project` 和 `codex` 只保存路径文字；并不验证目录内容或授予文件权限。未来接入运行时前必须重新解析真实路径、符号链接、导入状态和共享范围，不能信任草稿的路径文字直接挂载。
+| 方法 | 说明 |
+|---|---|
+| `GetOverview()` | 版本、运行环境检查（会访问专用虚拟机）、可安装的 Agent 及版本、数据目录与工作区 |
+| `ListPresets()` | 供应商预设（`internal/provider/presets.json`，模型名可能过时，可随时修改） |
+| `ListProviders()` | 供应商列表，只返回“密钥是否已保存”和使用它的沙箱，不返回密钥 |
+| `SaveProvider(request)` | 新建或编辑；`api_key` 只写入钥匙串；编辑时留空表示不改密钥；改动会立即同步到运行中的沙箱 |
+| `DeleteProvider(id)` | 仍有沙箱在用时拒绝；同时删除 AIofCage 保存的钥匙串条目 |
+| `TestProvider(id)` | 由桌面进程直连供应商的模型列表接口，返回是否可达、密钥是否有效与耗时 |
+| `ListSandboxes()` | 沙箱、实际容器状态、Agent→供应商、累计用量 |
+| `SelectProject()` | 系统目录选择框 |
+
+界面自测：`frontend/src` 是静态文件，可以用任意静态服务器打开，并在加载 `main.js` 前定义假的 `window.go.service.App`，用无头浏览器截图检查各页面；地址里的 `#providers` 等锚点会直接打开对应页面。
 
 ## 沙箱运行时与 cagectl
 

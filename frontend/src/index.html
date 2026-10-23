@@ -5,68 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AIofCage</title>
     <link rel="stylesheet" href="/main.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "preact": "/vendor/preact-10.29.8.module.js",
+          "preact/hooks": "/vendor/preact-hooks-10.29.8.module.js",
+          "htm": "/vendor/htm-3.1.1.module.js"
+        }
+      }
+    </script>
   </head>
   <body>
-    <aside class="sidebar">
-      <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>Agent 的安全工作区</small></span></div>
-      <nav aria-label="主导航">
-        <button class="nav-item active" data-page="sessions">会话<span>01</span></button>
-        <button class="nav-item" data-page="connections">服务连接<span>02</span></button>
-        <button class="nav-item" data-page="policies">权限策略<span>03</span></button>
-        <button class="nav-item" data-page="audit">审计记录<span>04</span></button>
-        <button class="nav-item" data-page="settings">环境设置<span>05</span></button>
-      </nav>
-      <div class="sidebar-footer"><span class="dot"></span> 开发骨架<small id="version">正在连接后端…</small></div>
-    </aside>
-    <main>
-      <header><div><p class="eyebrow">YOUR AGENTS. YOUR BOUNDARIES.</p><h1 id="page-title">会话</h1></div><span class="badge">运行时未就绪</span></header>
-      <div class="notice">当前可登记项目和查看环境。沙箱、账号连接与审计采集尚未接入，登记项目不会复制、挂载或运行代码。</div>
-      <p id="feedback" class="feedback" role="status" aria-live="polite" hidden></p>
-
-      <section id="sessions" class="page">
-        <div class="section-heading"><div><h2>项目会话</h2><p>为每个项目保留独立的工作边界。</p></div><button class="primary" id="new-session">＋ 登记项目</button></div>
-        <div class="panel" id="session-list"><div class="empty"><span class="empty-icon">◇</span><h3>从一个项目开始</h3><p>选择文件夹和 Agent，建立会话草稿。<br />草稿仅保存在本次应用进程中。</p></div></div>
-        <div class="section-heading compact"><div><h2>启动前检查</h2><p>命令已找到不代表隔离环境已经通过验收。</p></div><button id="refresh" class="secondary">重新检查</button></div>
-        <div class="panel checks" id="environment"><p>正在读取环境信息…</p></div>
-      </section>
-
-      <section id="connections" class="page" hidden>
-        <div class="section-heading"><div><h2>把服务交给可信接入层</h2><p>Agent 仅获得获准的调用能力，上游秘密由可信组件代持。</p></div></div>
-        <div class="card-grid">
-          <article class="panel info-card"><span class="tag">模型 API</span><h3>模型连接</h3><p>后续由系统钥匙串保存密钥，门卫完成目标授权与凭据注入。</p><button disabled>钥匙串尚未接入</button></article>
-          <article class="panel info-card"><span class="tag">MCP</span><h3>工具与账号</h3><p>计划覆盖 HTTP Token、OAuth、stdio 和数据库密码四类基线。</p><button disabled>MCP 网关尚未接入</button></article>
-        </div>
-        <p class="caption">当前页面不接受或保存任何密钥。连接器、OAuth 注册与安全交付通道仍待验证。</p>
-      </section>
-
-      <section id="policies" class="page" hidden>
-        <div class="section-heading"><div><h2>每份权限都应该有边界</h2><p>以下是设计中的执行层，尚不能在这里激活规则。</p></div></div>
-        <div class="panel list"><article><h3>项目文件</h3><p>专用 VM 共享白名单 + 单项目挂载；可写目录仍可能被修改或删除。</p><span class="tag">待实现</span></article><article><h3>网络请求</h3><p>默认拒绝；按域名、端口、方法和路径授权。当前门卫拒绝全部转发。</p><span class="tag">始终拒绝</span></article><article><h3>MCP 工具</h3><p>服务、工具、类型化参数和资源授权，不以 HTTP POST 代替工具权限。</p><span class="tag">待实现</span></article></div>
-      </section>
-
-      <section id="audit" class="page" hidden>
-        <div class="section-heading"><div><h2>审计记录</h2><p>仅记录可信执行方确认的脱敏事件。</p></div></div>
-        <div class="panel empty"><span class="empty-icon">≡</span><h3>审计采集尚未接入</h3><p>JSONL 落盘、事件订阅和缺口检测待实现。<br />此处不展示模拟事件，也不把终端文本当作操作证明。</p></div>
-      </section>
-
-      <section id="settings" class="page" hidden>
-        <div class="section-heading"><div><h2>专用运行环境</h2><p>预留的配置目标；应用当前不会创建或修改这些资源。</p></div></div>
-        <dl class="panel settings-list"><div><dt>支持目标</dt><dd>macOS · Apple Silicon</dd></div><div><dt>Colima profile</dt><dd>aiofcage</dd></div><div><dt>Docker context</dt><dd>colima-aiofcage</dd></div><div><dt>唯一 VM 共享目录</dt><dd>~/CageWorkspace</dd></div><div><dt>资源规划</dt><dd>4 CPU / 6 GiB RAM / 40 GiB disk</dd></div></dl>
-      </section>
-    </main>
-
-    <dialog id="session-dialog">
-      <form id="session-form">
-        <div class="dialog-heading"><h2>登记项目</h2><button type="button" id="close-dialog" class="icon-button" aria-label="关闭">×</button></div>
-        <p class="caption">仅创建内存草稿。项目导入、隔离运行与持久化尚未接入。</p>
-        <label for="session-name">会话名称</label><input id="session-name" maxlength="80" required placeholder="例如：我的网站" />
-        <label for="project-path">项目文件夹</label><div class="input-row"><input id="project-path" readonly required placeholder="请选择文件夹" /><button type="button" id="choose-project" class="secondary">选择</button></div>
-        <label for="agent">Agent</label><select id="agent" required><option value="">正在读取…</option></select>
-        <p class="caption">列表是接入目标，各 Agent 尚未完成兼容验证。</p>
-        <p id="form-error" class="form-error" role="alert" hidden></p>
-        <button class="primary full-width" id="create-session" type="submit">保存草稿</button>
-      </form>
-    </dialog>
+    <div id="app"></div>
     <script type="module" src="/main.js"></script>
   </body>
 </html>
