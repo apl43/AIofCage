@@ -73,7 +73,7 @@ func serve(args []string) error {
 // watchLaunch picks up launch files delivered by the desktop app. Each file is removed as soon as
 // it is read, so the secret stays only in this process and its MCP server processes.
 func watchLaunch(ctx context.Context, path string, server *connector.Server, logger *log.Logger) {
-	ticker := time.NewTicker(200 * time.Millisecond)
+	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
@@ -99,7 +99,9 @@ func watchLaunch(ctx context.Context, path string, server *connector.Server, log
 	}
 }
 
-// deliver writes the launch JSON from stdin atomically, readable only by the connector user.
+// deliver writes the launch JSON from stdin atomically, readable only by the connector user, and
+// waits until the serving process has taken it, so the sandbox is never started before its
+// connector can answer.
 func deliver(path string, stdin io.Reader) error {
 	data, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
 	if err != nil {
@@ -128,5 +130,14 @@ func deliver(path string, stdin io.Reader) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), path)
+	if err := os.Rename(file.Name(), path); err != nil {
+		return err
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+	}
+	_ = os.Remove(path)
+	return errors.New("连接器没有加载启动配置（服务进程未运行？）")
 }

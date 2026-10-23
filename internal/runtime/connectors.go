@@ -135,7 +135,7 @@ func (m *Manager) ensureConnector(ctx context.Context, sandboxID, name, image, n
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", name); err != nil {
 			return err
 		}
-		info.exists = false
+		info = containerInfo{} // the replacement still has to be created and started
 		m.mu.Lock()
 		delete(m.connectorTokens, name)
 		m.mu.Unlock()
