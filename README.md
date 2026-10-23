@@ -11,8 +11,8 @@ Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开
 桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本、Xcode Command Line Tools，以及 Docker CLI 和 Colima（`brew install colima docker`）。前端用固定版本的 Preact + htm（放在 `frontend/src/vendor`），不依赖 Node、npm 或打包步骤。Wails 固定为 v2.17.0。
 
 ```bash
-make desktop
-./bin/AIofCage
+make app                  # 生成 bin/AIofCage.app（会先编译门卫和连接器）
+open bin/AIofCage.app     # 或在访达里双击
 ```
 
 界面已有“供应商”页（从预设添加、API Key 存进钥匙串、测试连接、编辑与删除）、“沙箱”页（创建时选项目文件夹、勾选 Agent 并绑定供应商；启动、停止、在终端里打开 Agent、切换供应商、删除；实时用量与 CPU/内存）和“日志”页（每个经过门卫的请求实时显示，拦截标红，同时写入本地审计日志）。
