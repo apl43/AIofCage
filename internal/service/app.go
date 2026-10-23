@@ -30,12 +30,15 @@ type App struct {
 	picker     DirectoryPicker
 	client     *http.Client
 	now        func() time.Time
+	emit       Emitter
+	terminal   TerminalOpener
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then
 // explains why, and environment checks surface it to the user.
 func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, managerErr error, picker DirectoryPicker) *App {
 	return &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
+		emit: func(string, any) {}, terminal: openInTerminal,
 		// Connection tests go straight to the provider; shell proxy settings are ignored on purpose.
 		client: &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}}
 }

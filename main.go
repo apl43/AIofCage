@@ -57,7 +57,10 @@ func run() error {
 		Title: "AIofCage", Width: 1180, Height: 800, MinWidth: 900, MinHeight: 640,
 		BackgroundColour: options.NewRGB(245, 246, 248),
 		AssetServer:      &assetserver.Options{Assets: frontend},
-		OnStartup:        func(ctx context.Context) { desktopContext = ctx },
-		Bind:             []interface{}{app},
+		OnStartup: func(ctx context.Context) {
+			desktopContext = ctx
+			app.SetEmitter(func(event string, data any) { wailsruntime.EventsEmit(ctx, event, data) })
+		},
+		Bind: []interface{}{app},
 	})
 }
