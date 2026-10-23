@@ -109,9 +109,10 @@ func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sand
 	if err := sbx.Validate(); err != nil {
 		return sbx, err
 	}
-	if err := m.applyMCP(&sbx, request.MCP); err != nil {
+	if err := m.checkServices(request.MCP); err != nil {
 		return sbx, err
 	}
+	applyMCP(&sbx, request.MCP)
 	for _, binding := range sbx.Bindings {
 		if binding.ProviderID == "" {
 			continue
@@ -126,31 +127,41 @@ func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sand
 	return sbx, m.store.SaveSandbox(sbx)
 }
 
-// applyMCP sets the enabled MCP services, creating placeholders for new ones.
-func (m *Manager) applyMCP(sbx *sandbox.Sandbox, ids []string) error {
-	var enabled []string
+func (m *Manager) checkServices(ids []string) error {
 	for _, id := range ids {
 		if _, err := m.store.MCPService(id); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// applyMCP sets the enabled MCP services, creating placeholders for new ones. It must not touch
+// the store: SetMCP runs it inside a store update, whose lock is not reentrant.
+func applyMCP(sbx *sandbox.Sandbox, ids []string) {
+	var enabled []string
+	for _, id := range ids {
 		if sbx.Placeholders[mcp.PlaceholderKey(id)] == "" {
 			sbx.Placeholders[mcp.PlaceholderKey(id)] = sandbox.NewPlaceholder()
 		}
 		enabled = append(enabled, id)
 	}
 	sbx.MCP = enabled
-	return nil
 }
 
 // SetMCP changes which MCP services a sandbox can use; a running sandbox is updated at once.
 func (m *Manager) SetMCP(ctx context.Context, id string, ids []string, filesystem bool) error {
 	defer m.lock(id)()
+	if err := m.checkServices(ids); err != nil {
+		return err
+	}
 	err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
 		if s.Placeholders == nil {
 			s.Placeholders = map[string]string{}
 		}
 		s.FilesystemMCP = filesystem
-		return m.applyMCP(s, ids)
+		applyMCP(s, ids)
+		return nil
 	})
 	if err != nil {
 		return err

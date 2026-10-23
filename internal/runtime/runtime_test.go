@@ -1,13 +1,17 @@
 package runtime
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
+	"github.com/shaoxier/AIofCage/internal/store"
 )
 
 func TestAgentFilesContainOnlyPlaceholders(t *testing.T) {
@@ -119,5 +123,40 @@ func TestMCPConfigUsesPlaceholdersOnly(t *testing.T) {
 		!strings.Contains(claude.Content, `"command":"mcp-server-filesystem"`) ||
 		!strings.Contains(claude.Content, `"url":"http://gatekeeper:8890/mcp/shop"`) || strings.Contains(claude.Content, "postgresql://") {
 		t.Errorf("claude state: %+v", claude)
+	}
+}
+
+// SetMCP once deadlocked: it read the store inside the store's own update callback.
+func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{store: st, docker: runner{path: "/usr/bin/false"}, gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}}
+	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
+	if err := st.SaveMCPService(github); err != nil {
+		t.Fatal(err)
+	}
+	sbx := sandbox.Sandbox{ID: "sbx-test0001", Name: "t", ProjectPath: "/Users/u/CageWorkspace/p",
+		Bindings: []sandbox.Binding{{Agent: session.Codex}}, Placeholders: map[string]string{}}
+	if err := st.SaveSandbox(sbx); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.SetMCP(context.Background(), sbx.ID, []string{"github"}, true) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SetMCP deadlocked")
+	}
+	saved, _ := st.Sandbox(sbx.ID)
+	if len(saved.MCP) != 1 || !saved.FilesystemMCP || !strings.HasPrefix(saved.Placeholders["mcp:github"], "cage-") {
+		t.Fatalf("%+v", saved)
+	}
+	if err := m.SetMCP(context.Background(), sbx.ID, []string{"missing"}, false); err == nil {
+		t.Fatal("unknown services must be rejected")
 	}
 }
