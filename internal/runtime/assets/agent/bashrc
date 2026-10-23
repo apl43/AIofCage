@@ -1,0 +1,4 @@
+# AIofCage：加载为 Agent 生成的设置（占位符、接口地址）。这里没有真实密钥。
+if [ -f "$HOME/.aiofcage/env" ]; then . "$HOME/.aiofcage/env"; fi
+PS1='\[\e[1;32m\]aiofcage\[\e[0m\]:\w\$ '
+alias ll='ls -alF'
