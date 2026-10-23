@@ -15,7 +15,9 @@ import (
 type Kind string
 
 const (
-	KindHTTP     Kind = "http"
+	KindHTTP Kind = "http"
+	// KindOAuth is a remote HTTP service whose token comes from an OAuth login on the host.
+	KindOAuth    Kind = "oauth"
 	KindPostgres Kind = "postgres"
 )
 
@@ -60,7 +62,12 @@ func GatewayURL(id string) string { return fmt.Sprintf("http://gatekeeper:%d/mcp
 // LocalHost is how a connector inside the VM reaches services listening on the Mac's loopback.
 const LocalHost = "host.lima.internal"
 
-func (s Service) IsConnector() bool { return s.Kind != "" && s.Kind != KindHTTP }
+func (s Service) IsConnector() bool {
+	_, ok := ConnectorFor(s.Kind)
+	return ok
+}
+
+func (s Service) IsOAuth() bool { return s.Kind == KindOAuth }
 
 // AgentURL is the address written into agent configurations.
 func (s Service) AgentURL() string {

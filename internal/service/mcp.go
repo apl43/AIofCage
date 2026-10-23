@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/mcp"
+	"github.com/shaoxier/AIofCage/internal/oauth"
 )
 
-// MCPServiceView never contains the token, only whether one is saved.
+// MCPServiceView never contains the token, only whether one is saved. For OAuth services
+// KeySaved means the login is still usable (a valid access token or a refresh token).
 type MCPServiceView struct {
 	mcp.Service
 	KeySaved bool     `json:"key_saved"`
@@ -46,8 +48,12 @@ func (a *App) mcpView(s mcp.Service) (MCPServiceView, error) {
 	view := MCPServiceView{Service: s, UsedBy: []string{}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err := a.vault.Read(ctx, s.KeyRef)
+	data, err := a.vault.Read(ctx, s.KeyRef)
 	view.KeySaved = err == nil
+	if s.IsOAuth() && err == nil {
+		creds, err := oauth.Parse(data)
+		view.KeySaved = err == nil && creds.Usable(a.now())
+	}
 	sandboxes, err := a.store.Sandboxes()
 	if err != nil {
 		return view, err
@@ -112,6 +118,8 @@ func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, err
 		return MCPServiceView{}, err
 	}
 	switch {
+	case service.IsOAuth():
+		// Credentials come only from AuthorizeMCPService; a pasted token is ignored.
 	case token != "":
 		if err := a.vault.Put(ctx, service.KeyRef, []byte(token)); err != nil {
 			return MCPServiceView{}, err
@@ -126,17 +134,8 @@ func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, err
 	if err != nil {
 		return view, err
 	}
-	if existing && a.manager != nil {
-		sandboxes, _ := a.store.Sandboxes()
-		for _, sbx := range sandboxes {
-			for _, id := range sbx.MCP {
-				if id == service.ID {
-					if err := a.manager.Refresh(ctx, sbx.ID); err != nil {
-						return view, fmt.Errorf("已保存，但更新运行中的沙箱「%s」失败：%w", sbx.Name, err)
-					}
-				}
-			}
-		}
+	if existing {
+		return view, a.refreshSandboxesUsing(ctx, service.ID)
 	}
 	return view, nil
 }
@@ -151,7 +150,7 @@ func (a *App) newMCPID(preset string) (string, error) {
 	for _, s := range services {
 		taken[s.ID] = true
 	}
-	if preset != "" && preset != "custom" && mcp.ValidID(preset) && !taken[preset] {
+	if preset != "" && !strings.HasPrefix(preset, "custom") && mcp.ValidID(preset) && !taken[preset] {
 		return preset, nil
 	}
 	for {
@@ -192,8 +191,14 @@ func (a *App) TestMCPService(id string) (TestResult, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	token, err := a.vault.Read(ctx, service.KeyRef)
-	if err != nil {
+	var token []byte
+	if service.IsOAuth() {
+		creds, _, err := a.oauth.AccessToken(ctx, a.vault, service.KeyRef, time.Minute)
+		if err != nil {
+			return TestResult{Message: err.Error()}, nil
+		}
+		token = []byte(creds.AccessToken)
+	} else if token, err = a.vault.Read(ctx, service.KeyRef); err != nil {
 		return TestResult{Message: "钥匙串中没有这个服务的令牌"}, nil
 	}
 	if service.IsConnector() {

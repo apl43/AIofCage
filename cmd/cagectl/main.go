@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/audit"
 	"github.com/shaoxier/AIofCage/internal/mcp"
+	"github.com/shaoxier/AIofCage/internal/oauth"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
@@ -39,6 +42,8 @@ const usage = `用法：
   cagectl mcp add --id ID --name 名称 --url URL --token-stdin   保存远程 MCP 服务（令牌进钥匙串）
   cagectl mcp add --kind postgres --id ID --name 名称 --url postgresql://用户@主机:5432/库 --token-stdin
                                                      保存数据库 MCP（密码进钥匙串，由可信连接器代持）
+  cagectl mcp add --kind oauth --id ID --name 名称 --url URL      保存 OAuth 类远程 MCP（例如 https://mcp.notion.com/mcp）
+  cagectl mcp login ID                                  在浏览器里登录授权，令牌进钥匙串
   cagectl mcp ls
   cagectl mcp rm ID
 
@@ -125,13 +130,18 @@ func run(args []string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 		fmt.Fprintln(w, "ID\t名称\t类型\t地址\t钥匙串条目")
 		for _, s := range items {
-			kind := "http"
-			if s.IsConnector() {
-				kind = string(s.Kind)
+			kind := string(s.Kind)
+			if kind == "" {
+				kind = "http"
 			}
 			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Name, kind, s.URL, s.KeyRef)
 		}
 		return w.Flush()
+	case "mcp login":
+		if len(args) != 3 {
+			return errors.New("用法：cagectl mcp login ID")
+		}
+		return mcpLogin(ctx, st, keychain, args[2])
 	case "mcp rm":
 		if len(args) != 3 {
 			return errors.New("用法：cagectl mcp rm ID")
@@ -325,13 +335,41 @@ func tokens(event audit.Event) string {
 	return fmt.Sprintf("tokens=%d/%d", event.InputTokens, event.OutputTokens)
 }
 
+// mcpLogin runs the OAuth login in the browser; a running sandbox picks the token up on its next
+// start or refresh (the desktop app refreshes running sandboxes at once).
+func mcpLogin(ctx context.Context, st *store.Store, keychain *vault.Keychain, id string) error {
+	service, err := st.MCPService(id)
+	if err != nil {
+		return err
+	}
+	if !service.IsOAuth() {
+		return errors.New("这个服务不使用 OAuth 登录")
+	}
+	client := oauth.NewClient(&http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil}},
+		func(target string) error { return exec.Command("/usr/bin/open", target).Run() })
+	fmt.Fprintln(os.Stderr, "正在打开浏览器，请在页面里完成授权…")
+	creds, err := client.Login(ctx, service.URL)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(creds)
+	if err != nil {
+		return err
+	}
+	if err := keychain.Put(ctx, service.KeyRef, data); err != nil {
+		return err
+	}
+	fmt.Println("已授权，令牌保存在钥匙串（会自动续期）")
+	return nil
+}
+
 func mcpAdd(ctx context.Context, st *store.Store, keychain *vault.Keychain, args []string) error {
 	flags := flag.NewFlagSet("mcp add", flag.ContinueOnError)
 	var service mcp.Service
 	flags.StringVar(&service.ID, "id", "", "服务 ID（也是 Agent 配置里的服务名）")
 	flags.StringVar(&service.Name, "name", "", "显示名称")
 	flags.StringVar(&service.URL, "url", "", "streamable HTTP 地址；数据库为不含密码的连接串")
-	kind := flags.String("kind", "http", "http 或 postgres")
+	kind := flags.String("kind", "http", "http、oauth 或 postgres")
 	tokenStdin := flags.Bool("token-stdin", false, "从标准输入读取令牌或数据库密码并保存到钥匙串")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -341,6 +379,13 @@ func mcpAdd(ctx context.Context, st *store.Store, keychain *vault.Keychain, args
 	service.Normalize()
 	if err := service.Validate(); err != nil {
 		return err
+	}
+	if service.IsOAuth() {
+		if err := st.SaveMCPService(service); err != nil {
+			return err
+		}
+		fmt.Printf("已保存。用 cagectl mcp login %s 在浏览器里登录授权\n", service.ID)
+		return nil
 	}
 	if !*tokenStdin {
 		return errors.New("请用 --token-stdin 输入令牌或密码")

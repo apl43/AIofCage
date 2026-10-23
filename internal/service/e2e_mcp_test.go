@@ -27,7 +27,8 @@ func TestEndToEndDatabaseMCP(t *testing.T) {
 	}
 	var raw [12]byte
 	_, _ = rand.Read(raw[:])
-	password := "pw-" + hex.EncodeToString(raw[:])
+	// Spaces and quotes exercise the Keychain encoding and the URL escaping in the connector.
+	password := "pw " + hex.EncodeToString(raw[:]) + ` "q'`
 	docker := func(args ...string) ([]byte, error) {
 		return exec.Command("docker", append([]string{"--context", runtime.DockerContext}, args...)...).CombinedOutput()
 	}
@@ -62,9 +63,8 @@ func TestEndToEndDatabaseMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := NewApp(st, keychain, manager, nil, nil)
-	// The password is pasted inside the connection URL and must be moved to the Keychain.
 	service, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "e2e 数据库", Kind: "postgres", Preset: "custom",
-		URL: "postgresql://e2e:" + password + "@localhost:55433/e2e?sslmode=disable"})
+		URL: "postgresql://e2e@localhost:55433/e2e?sslmode=disable", Token: password})
 	if err != nil || !service.KeySaved || strings.Contains(service.URL, password) {
 		t.Fatalf("service: %+v %v", service, err)
 	}

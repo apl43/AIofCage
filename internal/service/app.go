@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/buildinfo"
+	"github.com/shaoxier/AIofCage/internal/oauth"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
@@ -29,6 +30,7 @@ type App struct {
 	managerErr error
 	picker     DirectoryPicker
 	client     *http.Client
+	oauth      *oauth.Client
 	now        func() time.Time
 	emit       Emitter
 	terminal   TerminalOpener
@@ -39,10 +41,11 @@ type App struct {
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then
 // explains why, and environment checks surface it to the user.
 func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, managerErr error, picker DirectoryPicker) *App {
+	// Connection tests and OAuth go straight to the service; shell proxy settings are ignored on purpose.
+	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}
 	return &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
 		emit: func(string, any) {}, terminal: openInTerminal, monitor: newMonitor(), explain: explainCache{items: map[string]Explanation{}},
-		// Connection tests go straight to the provider; shell proxy settings are ignored on purpose.
-		client: &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}}
+		client: client, oauth: oauth.NewClient(client, openURL)}
 }
 
 type AgentInfo struct {

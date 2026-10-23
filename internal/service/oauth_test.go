@@ -1,0 +1,80 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/shaoxier/AIofCage/internal/oauth"
+)
+
+func TestOAuthServiceRefreshesBeforeUse(t *testing.T) {
+	app, secrets, _ := newApp(t)
+	var mcpAuth string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			r.ParseForm()
+			if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "refresh-1" {
+				w.WriteHeader(400)
+				w.Write([]byte(`{"error":"invalid_grant"}`))
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"access_token": "access-2", "refresh_token": "refresh-2", "expires_in": 3600, "token_type": "Bearer"})
+		case "/mcp":
+			mcpAuth = r.Header.Get("Authorization")
+			w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"fake"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	// httptest's certificate covers example.com; route that name to the test server.
+	transport := server.Client().Transport.(*http.Transport).Clone()
+	address := server.Listener.Addr().String()
+	transport.DialContext = func(ctx context.Context, network, _ string) (netConn, error) {
+		return (&dialer{}).DialContext(ctx, network, address)
+	}
+	app.client = &http.Client{Transport: transport}
+	app.oauth = oauth.NewClient(app.client, func(string) error { return nil })
+
+	view, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "Notion", Kind: "oauth", URL: "https://example.com/mcp",
+		Preset: "notion", Token: "pasted-token-is-ignored"})
+	if err != nil || view.KeySaved || view.ID != "notion" {
+		t.Fatalf("an OAuth service has no credentials until login: %+v %v", view, err)
+	}
+	if _, ok := secrets[view.KeyRef]; ok {
+		t.Fatal("a pasted token must not be stored for OAuth services")
+	}
+	expired, _ := json.Marshal(oauth.Credentials{ClientID: "c", TokenEndpoint: "https://example.com/token",
+		AccessToken: "access-1", RefreshToken: "refresh-1", ExpiresAt: time.Now().Add(-time.Minute)})
+	secrets[view.KeyRef] = expired
+	views, _ := app.ListMCPServices()
+	if len(views) != 1 || !views[0].KeySaved {
+		t.Fatalf("a refresh token keeps the login usable: %+v", views)
+	}
+	result, err := app.TestMCPService(view.ID)
+	if err != nil || !result.OK || mcpAuth != "Bearer access-2" {
+		t.Fatalf("test must refresh first: %+v %v %q", result, err, mcpAuth)
+	}
+	saved, _ := oauth.Parse(secrets[view.KeyRef])
+	if saved.AccessToken != "access-2" || saved.RefreshToken != "refresh-2" {
+		t.Fatalf("refreshed credentials must be saved: %+v", saved)
+	}
+	saved.RefreshToken, saved.ExpiresAt = "", time.Now().Add(-time.Minute)
+	secrets[view.KeyRef], _ = json.Marshal(saved)
+	if views, _ = app.ListMCPServices(); views[0].KeySaved {
+		t.Fatal("an expired login without refresh token needs a new login")
+	}
+	if result, _ = app.TestMCPService(view.ID); result.OK || !strings.Contains(result.Message, "重新登录") {
+		t.Fatalf("expired login: %+v", result)
+	}
+	github, _ := app.SaveMCPService(SaveMCPServiceRequest{Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Preset: "github", Token: "t"})
+	if _, err := app.AuthorizeMCPService(github.ID); err == nil {
+		t.Fatal("token services have no OAuth login")
+	}
+}
