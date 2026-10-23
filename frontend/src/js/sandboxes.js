@@ -2,9 +2,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes } from "./core.js";
 import { MCPChoices } from "./mcp.js";
+import { AttackDialog } from "./ai.js";
 
 export function SandboxesPage({ sandboxes, providers, services, overview, summary, reload, notify, onAddProvider, onLogs }) {
   const [editingMCP, setEditingMCP] = useState(null);
+  const [attacking, setAttacking] = useState(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState({}); // id → 正在进行的操作
   const [progress, setProgress] = useState({}); // id → 最近一条进度
@@ -50,11 +52,13 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
         : html`<div class="sandbox-list">
             ${sandboxes.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
-              services=${services} onEditMCP=${() => setEditingMCP(s)}
+              services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id]} progress=${progress[s.id]} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} />`)}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
+      ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
+        onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id); }} />`}
       ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
         onSave=${async (ids, filesystem) => {
           const target = editingMCP;
@@ -76,7 +80,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
     </section>`;
 }
 
-function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP }) {
+function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP, onAttack }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
   const maxRequests = usage?.max_requests || sandbox.limits.max_requests;
@@ -142,6 +146,7 @@ function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, 
           </select>
           <button onClick=${openTerminal} disabled=${!running || Boolean(busy)}>打开终端</button>
         </div>
+        <button onClick=${onAttack} disabled=${!running || Boolean(busy)} title=${running ? "" : "先启动沙箱"}>模拟攻击</button>
         <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除</button>
       </div>
     </article>`;
