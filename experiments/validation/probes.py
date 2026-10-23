@@ -46,8 +46,10 @@ for family in ("-4", "-6"):
            "检查实际路由表，不以代理环境变量代替隔离")
 
 # 自建 socket，不依赖 curl 是否支持代理或 IPv6。固定公共地址不发送应用数据。
-for name, family, address in (("direct-ipv4", socket.AF_INET, "1.1.1.1"),
-                              ("direct-ipv6", socket.AF_INET6, "2606:4700:4700::1111")):
+control_ipv4 = cfg.get("control_ipv4", "1.1.1.1")
+control_ipv6 = cfg.get("control_ipv6", "2606:4700:4700::1111")
+for name, family, address in (("direct-ipv4", socket.AF_INET, control_ipv4),
+                              ("direct-ipv6", socket.AF_INET6, control_ipv6)):
     sock = socket.socket(family, socket.SOCK_STREAM)
     sock.settimeout(2)
     try:
@@ -59,7 +61,7 @@ for name, family, address in (("direct-ipv4", socket.AF_INET, "1.1.1.1"),
         sock.close()
     record(name, not connected, "自建 TCP socket 无法直连公共 IP")
 direct = execute(["curl", "--noproxy", "*", "--connect-timeout", "2", "--max-time", "3",
-                  "--silent", "https://1.1.1.1"], env=clean_env)
+                  "--silent", "https://" + control_ipv4], env=clean_env)
 record("unset-proxy-direct", direct.returncode != 0, "清空全部大小写代理变量后仍无法直连")
 
 for name, host, port in (("admin-via-agent-interface", "gatekeeper", 8899),
@@ -79,7 +81,7 @@ try:
 except OSError:
     resolved = False
 record("internal-service-discovery", resolved, "内部别名可解析，排除所有探针因网络完全故障而失败")
-for name, server in (("docker-dns-external", "127.0.0.11"), ("direct-dns", "1.1.1.1")):
+for name, server in (("docker-dns-external", "127.0.0.11"), ("direct-dns", control_ipv4)):
     result = execute(["dig", "@" + server, "example.com", "A", "+time=1", "+tries=1", "+short"])
     # 没有答案不能证明没有 DNS 报文离开 VM；完整泄漏证据由宿主单独记录。
     answered = result.returncode == 0 and any(line and not line.startswith(b";") for line in result.stdout.splitlines())

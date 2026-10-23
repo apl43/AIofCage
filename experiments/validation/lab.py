@@ -116,6 +116,9 @@ def main() -> int:
     parser.add_argument("--model", default="gpt-6.1-sol")
     parser.add_argument("--keychain-service", default="sbx-builderday-key")
     parser.add_argument("--run-id", help="清理被中断的本次实验资源；不删除工作区")
+    # 公共对照地址只用于 TCP 建连，不发送应用数据；默认值在部分网络不可达时可替换为当地可达的公共 IP。
+    parser.add_argument("--control-ipv4", default="1.1.1.1", help="出网正向对照及 Agent 直连探测用的公共 IPv4")
+    parser.add_argument("--control-ipv6", default="2606:4700:4700::1111", help="出网正向对照及 Agent 直连探测用的公共 IPv6")
     args = parser.parse_args()
     try:
         if args.action == "doctor":

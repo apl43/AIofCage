@@ -273,18 +273,22 @@ def run_experiment(args) -> int:
         docker("network", "create", "--internal", "--ipv6", "--subnet", ipv6, "--label", label, inside)
         docker("network", "create", "--label", label, outside)
         # 在同一 VM 的出网网段做正向对照，避免把测试环境本身不通误认为隔离成功。
-        control_code = '''import json,socket
+        # 对照地址可配置：部分网络无法访问 1.1.1.1，对照失败时直连检查只能记为阻塞。
+        control_code = '''import json,socket,sys
 result={}
-for name,family,address in [("ipv4",socket.AF_INET,"1.1.1.1"),("ipv6",socket.AF_INET6,"2606:4700:4700::1111")]:
+cfg=json.load(sys.stdin)
+for name,family,address in [("ipv4",socket.AF_INET,cfg["ipv4"]),("ipv6",socket.AF_INET6,cfg["ipv6"])]:
     s=socket.socket(family,socket.SOCK_STREAM);s.settimeout(2)
     try: s.connect((address,443));result[name]=True
     except OSError: result[name]=False
     finally: s.close()
 print(json.dumps(result))
 '''
-        controls = json.loads(docker("run", "--rm", "--label", label, "--network", outside,
+        controls = json.loads(docker("run", "--rm", "--interactive", "--label", label, "--network", outside,
                                      "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                                     AGENT_IMAGE, "python3", "-c", control_code).stdout)
+                                     AGENT_IMAGE, "python3", "-c", control_code,
+                                     data=json.dumps({"ipv4": args.control_ipv4, "ipv6": args.control_ipv6}).encode()).stdout)
+        report["controls"] = {"ipv4": args.control_ipv4, "ipv6": args.control_ipv6}
         record(report, "public-ipv4-control", "pass" if controls["ipv4"] else "blocked", "同一 VM 出网网段的 TCP 正向对照")
         record(report, "public-ipv6-control", "pass" if controls["ipv6"] else "blocked", "无可用 IPv6 外网时，IPv6 直连失败不计为隔离通过")
         def subnet(name):
@@ -341,7 +345,9 @@ print(json.dumps(result))
         report["agent"] = {"version": version, "model": args.model, "provider": "https://xapi.qiniu.io/v1"}
         probes = docker("exec", "--interactive", agent_name, "python3", "/opt/validation/probes.py",
                         data=json.dumps({"sentinel": str(sentinel), "admin_ip": admin_ip,
-                                         "gateway": internal["Gateway"]}).encode(), timeout=90)
+                                         "gateway": internal["Gateway"],
+                                         "control_ipv4": args.control_ipv4,
+                                         "control_ipv6": args.control_ipv6}).encode(), timeout=90)
         for result in json.loads(probes.stdout):
             if result["name"] == "direct-ipv6" and not controls["ipv6"]:
                 result.update(status="blocked", detail="Agent IPv6 直连失败，但出网正向对照也失败，不能据此证明隔离")

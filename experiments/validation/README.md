@@ -65,6 +65,8 @@ python3 experiments/validation/lab.py build
 python3 experiments/validation/lab.py run
 ```
 
+出网正向对照默认连接 `1.1.1.1:443` 和 `2606:4700:4700::1111`。所在网络访问不到默认地址时，用 `--control-ipv4` / `--control-ipv6` 换成当地可达的公共地址（例如 `--control-ipv4 223.5.5.5`），否则直连检查只能记为阻塞。对照地址同时用作 Agent 的直连 DNS 探测目标，只做 TCP 建连和 DNS 查询，不发送应用数据。
+
 `tools` 固定 Colima 0.10.3、Lima 2.1.2，校验官方发布的 SHA-256。若 `.validation-runs/tools/bin` 存在，后续脚本优先使用其中的原生工具，避免 `/usr/local` Homebrew 在 Apple Silicon 上安装 x86_64 版本。不会替换全局二进制或注册登录启动服务。
 
 `setup` 禁用用户 Colima 模板、默认 context 切换和 SSH agent 转发。已有配置只读校验，不覆写、不自动重启；已有实例停止时，先检查其共享配置，再由操作者启动原配置。运行前从 Lima JSON、VM `/proc/mounts` 和 Docker context socket 复核实际边界；不接受同名但指向其他引擎的 context。
