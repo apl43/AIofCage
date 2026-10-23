@@ -20,6 +20,9 @@ PROFILE = "aiofcage"
 CONTEXT = "colima-aiofcage"
 LABEL = "io.aiofcage.validation"
 RUNS = ROOT / ".validation-runs"
+TOOLS = RUNS / "tools" / "bin"
+if TOOLS.is_dir():
+    os.environ["PATH"] = str(TOOLS) + os.pathsep + os.environ.get("PATH", "")
 
 
 class LabError(Exception):
@@ -108,14 +111,23 @@ def doctor() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["doctor"])
+    parser.add_argument("action", choices=["doctor", "tools", "setup", "build", "run", "cleanup"])
+    parser.add_argument("--live", action="store_true", help="使用 Keychain 中的实验 key 运行 Codex 真实任务")
+    parser.add_argument("--model", default="gpt-6.1-sol")
+    parser.add_argument("--keychain-service", default="sbx-builderday-key")
+    parser.add_argument("--run-id", help="清理被中断的本次实验资源；不删除工作区")
     args = parser.parse_args()
     try:
-        return {"doctor": doctor}[args.action]()
+        if args.action == "doctor":
+            return doctor()
+        import runtime
+        return runtime.dispatch(args)
     except LabError as error:
         print(f"实验停止：{error}", file=sys.stderr)
         return 1
 
 
 if __name__ == "__main__":
+    # runtime 导入同一个模块实例，避免 LabError 因 __main__/lab 双载入而不被捕获。
+    sys.modules["lab"] = sys.modules[__name__]
     raise SystemExit(main())

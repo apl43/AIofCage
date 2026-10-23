@@ -6,6 +6,8 @@ Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开
 
 当前仓库处于设计阶段，下面均为规划能力。先按[产品目标与验收](docs/requirements-and-acceptance.md)确认目标和可行性，再冻结[架构设计](docs/architecture.md)并开始功能编码；[比赛规则](docs/competition-rules.md)区分题目要求与团队实现选择。目前没有可运行的产品入口。
 
+独立的[第一批验证包](experiments/validation/README.md)提供环境检查、最小门卫测试、容器隔离探针和可选 Codex 真实任务；[验证记录](docs/validation/README.md)区分实测结果与阻塞项。实验通过不等于产品功能已完成或设计已冻结。
+
 ## 要解决的问题
 
 Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令。它们会犯错，也可能被网页或 README 里藏的恶意指令"下套"（提示词注入），结果可能是删错文件，或者把 `~/.ssh`、环境变量里的 API Key 发到外面。
