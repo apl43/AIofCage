@@ -1,8 +1,10 @@
 // 沙箱页：参考 Docker Desktop 的容器列表——创建、启停、打开终端、切换供应商、删除。
 import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes } from "./core.js";
+import { MCPChoices } from "./mcp.js";
 
-export function SandboxesPage({ sandboxes, providers, overview, summary, reload, notify, onAddProvider, onLogs }) {
+export function SandboxesPage({ sandboxes, providers, services, overview, summary, reload, notify, onAddProvider, onLogs }) {
+  const [editingMCP, setEditingMCP] = useState(null);
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState({}); // id → 正在进行的操作
   const [progress, setProgress] = useState({}); // id → 最近一条进度
@@ -48,11 +50,18 @@ export function SandboxesPage({ sandboxes, providers, overview, summary, reload,
         : html`<div class="sandbox-list">
             ${sandboxes.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
+              services=${services} onEditMCP=${() => setEditingMCP(s)}
               busy=${busy[s.id]} progress=${progress[s.id]} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} />`)}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
-      ${creating && html`<${CreateSandboxDialog} providers=${providers} overview=${overview} onAddProvider=${onAddProvider}
+      ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
+        onSave=${async (ids, filesystem) => {
+          const target = editingMCP;
+          setEditingMCP(null);
+          if (await run(target, "更新 MCP", "SetSandboxMCP", target.id, ids, filesystem)) notify(`已更新「${target.name}」的 MCP 服务`);
+        }} />`}
+      ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider}
         onClose=${() => setCreating(false)} onCreated=${async (created, start) => {
           setCreating(false);
           notify(`已创建沙箱「${created.name}」`);
@@ -67,7 +76,7 @@ export function SandboxesPage({ sandboxes, providers, overview, summary, reload,
     </section>`;
 }
 
-function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, onDelete, onLogs }) {
+function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
   const maxRequests = usage?.max_requests || sandbox.limits.max_requests;
@@ -97,6 +106,13 @@ function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, on
         <button class="link mono" onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}
           title="在访达中打开">${sandbox.project_path}</button>
         ${busy && progress && html`<p class="progress" role="status">${progress}</p>`}
+        <div class="mcp-line">
+          <span class="faint">MCP</span>
+          ${sandbox.filesystem_mcp && html`<span class="binding">filesystem</span>`}
+          ${sandbox.mcp.map((id) => html`<span class="binding">${services.find((s) => s.id === id)?.name ?? id}</span>`)}
+          ${!sandbox.filesystem_mcp && sandbox.mcp.length === 0 && html`<span class="faint">未启用</span>`}
+          <button class="link" onClick=${onEditMCP} disabled=${Boolean(busy)}>设置</button>
+        </div>
       </div>
       <div class="bindings">
         ${sandbox.bindings.map((b) => html`<label class="binding-select">
@@ -131,7 +147,7 @@ function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, on
     </article>`;
 }
 
-function CreateSandboxDialog({ providers, overview, onClose, onCreated, onAddProvider }) {
+function CreateSandboxDialog({ providers, services, overview, onClose, onCreated, onAddProvider }) {
   const workspace = overview?.workspace ?? "";
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -141,6 +157,8 @@ function CreateSandboxDialog({ providers, overview, onClose, onCreated, onAddPro
     const first = (agent) => providers.find((p) => p.agent === agent)?.id ?? "";
     return Object.fromEntries(AGENTS.map((a) => [a.id, first(a.id)]));
   });
+  const [mcp, setMcp] = useState([]);
+  const [filesystem, setFilesystem] = useState(true);
   const [maxRequests, setMaxRequests] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
   const [error, setError] = useState("");
@@ -168,7 +186,7 @@ function CreateSandboxDialog({ providers, overview, onClose, onCreated, onAddPro
       const created = await call("CreateSandbox", {
         name, project_path: mode === "new" ? "" : path, project_mode: mode,
         bindings: selected.map((a) => ({ agent: a.id, provider_id: bindings[a.id] })),
-        max_requests: Number(maxRequests) || 0, max_tokens: Number(maxTokens) || 0,
+        max_requests: Number(maxRequests) || 0, max_tokens: Number(maxTokens) || 0, mcp, filesystem_mcp: filesystem,
       });
       onCreated(created, start);
     } catch (e) {
@@ -217,6 +235,9 @@ function CreateSandboxDialog({ providers, overview, onClose, onCreated, onAddPro
               </div>`;
             })}
           </div>
+
+          <label>MCP 服务</label>
+          <${MCPChoices} services=${services} selected=${mcp} filesystem=${filesystem} onChange=${(ids, fs) => { setMcp(ids); setFilesystem(fs); }} />
 
           <details>
             <summary>用量上限（可选）</summary>
@@ -278,4 +299,22 @@ function quotaPercent(used, limit) {
   if (!limit || !used) return "";
   const percent = Math.min(100, Math.round((used / limit) * 100));
   return html`<span class=${percent >= 100 ? "quota bad" : percent >= 80 ? "quota warn" : "quota"}>${percent}%</span>`;
+}
+
+function MCPDialog({ sandbox, services, onClose, onSave }) {
+  const [selected, setSelected] = useState(sandbox.mcp);
+  const [filesystem, setFilesystem] = useState(sandbox.filesystem_mcp);
+  return html`
+    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+      <div class="dialog" role="dialog" aria-modal="true" aria-label="MCP 设置">
+        <div class="dialog-heading"><h2>「${sandbox.name}」的 MCP 服务</h2>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+        <${MCPChoices} services=${services} selected=${selected} filesystem=${filesystem} onChange=${(ids, fs) => { setSelected(ids); setFilesystem(fs); }} />
+        <p class="caption">运行中的沙箱会立即更新配置，Agent 下次启动时生效。</p>
+        <div class="dialog-actions">
+          <button onClick=${onClose}>取消</button>
+          <button class="primary" onClick=${() => onSave(selected, filesystem)}>保存</button>
+        </div>
+      </div>
+    </div>`;
 }

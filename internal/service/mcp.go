@@ -1,0 +1,223 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/shaoxier/AIofCage/internal/mcp"
+)
+
+// MCPServiceView never contains the token, only whether one is saved.
+type MCPServiceView struct {
+	mcp.Service
+	KeySaved bool     `json:"key_saved"`
+	UsedBy   []string `json:"used_by"`
+}
+
+func (a *App) ListMCPPresets() []mcp.Preset { return mcp.Presets() }
+
+func (a *App) ListMCPServices() ([]MCPServiceView, error) {
+	services, err := a.store.MCPServices()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]MCPServiceView, 0, len(services))
+	for _, s := range services {
+		view, err := a.mcpView(s)
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}
+
+func (a *App) mcpView(s mcp.Service) (MCPServiceView, error) {
+	view := MCPServiceView{Service: s, UsedBy: []string{}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := a.vault.Read(ctx, s.KeyRef)
+	view.KeySaved = err == nil
+	sandboxes, err := a.store.Sandboxes()
+	if err != nil {
+		return view, err
+	}
+	for _, sbx := range sandboxes {
+		for _, id := range sbx.MCP {
+			if id == s.ID {
+				view.UsedBy = append(view.UsedBy, sbx.Name)
+			}
+		}
+	}
+	return view, nil
+}
+
+type SaveMCPServiceRequest struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	URL    string `json:"url"`
+	Preset string `json:"preset"`
+	// Token is write-only: it goes straight to the Keychain.
+	Token string `json:"token"`
+}
+
+func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	existing := request.ID != ""
+	var service mcp.Service
+	if existing {
+		current, err := a.store.MCPService(request.ID)
+		if err != nil {
+			return MCPServiceView{}, err
+		}
+		service = current
+	} else {
+		id, err := a.newMCPID(request.Preset)
+		if err != nil {
+			return MCPServiceView{}, err
+		}
+		service = mcp.Service{ID: id, KeyRef: mcp.KeyRefFor(id), CreatedAt: a.now().UTC()}
+	}
+	service.Name, service.URL, service.Preset = request.Name, request.URL, request.Preset
+	service.Normalize()
+	if err := service.Validate(); err != nil {
+		return MCPServiceView{}, err
+	}
+	token := strings.TrimSpace(request.Token)
+	switch {
+	case token != "":
+		if err := a.vault.Put(ctx, service.KeyRef, []byte(token)); err != nil {
+			return MCPServiceView{}, err
+		}
+	case !existing:
+		return MCPServiceView{}, errors.New("请填写访问令牌")
+	}
+	if err := a.store.SaveMCPService(service); err != nil {
+		return MCPServiceView{}, err
+	}
+	view, err := a.mcpView(service)
+	if err != nil {
+		return view, err
+	}
+	if existing && a.manager != nil {
+		sandboxes, _ := a.store.Sandboxes()
+		for _, sbx := range sandboxes {
+			for _, id := range sbx.MCP {
+				if id == service.ID {
+					if err := a.manager.Refresh(ctx, sbx.ID); err != nil {
+						return view, fmt.Errorf("已保存，但更新运行中的沙箱「%s」失败：%w", sbx.Name, err)
+					}
+				}
+			}
+		}
+	}
+	return view, nil
+}
+
+// newMCPID reuses the preset ID (e.g. "github") when free, so agents see a readable server name.
+func (a *App) newMCPID(preset string) (string, error) {
+	services, err := a.store.MCPServices()
+	if err != nil {
+		return "", err
+	}
+	taken := map[string]bool{"filesystem": true}
+	for _, s := range services {
+		taken[s.ID] = true
+	}
+	if preset != "" && preset != "custom" && mcp.ValidID(preset) && !taken[preset] {
+		return preset, nil
+	}
+	for {
+		var b [4]byte
+		_, _ = rand.Read(b[:])
+		id := fmt.Sprintf("mcp-%x", b)
+		if !taken[id] {
+			return id, nil
+		}
+	}
+}
+
+func (a *App) DeleteMCPService(id string) error {
+	service, err := a.store.MCPService(id)
+	if err != nil {
+		return err
+	}
+	view, err := a.mcpView(service)
+	if err != nil {
+		return err
+	}
+	if len(view.UsedBy) > 0 {
+		return fmt.Errorf("还有沙箱在用这个 MCP 服务（%s），请先在沙箱里停用它", strings.Join(view.UsedBy, "、"))
+	}
+	if err := a.store.DeleteMCPService(id); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return a.vault.Delete(ctx, service.KeyRef)
+}
+
+// TestMCPService sends an MCP initialize request from the desktop process.
+func (a *App) TestMCPService(id string) (TestResult, error) {
+	service, err := a.store.MCPService(id)
+	if err != nil {
+		return TestResult{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	token, err := a.vault.Read(ctx, service.KeyRef)
+	if err != nil {
+		return TestResult{Message: "钥匙串中没有这个服务的令牌"}, nil
+	}
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{
+		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
+		"clientInfo": map[string]string{"name": "AIofCage", "version": "0.1"}}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, service.URL, bytes.NewReader(body))
+	if err != nil {
+		return TestResult{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+string(token))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	started := a.now()
+	resp, err := a.client.Do(req)
+	result := TestResult{LatencyMS: a.now().Sub(started).Milliseconds()}
+	if err != nil {
+		host, _, _ := service.Endpoint()
+		result.Message = "无法连接到 " + host + "（" + networkReason(err) + "）"
+		return result, nil
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	result.Status = resp.StatusCode
+	switch {
+	case resp.StatusCode == 200 && bytes.Contains(data, []byte(`"serverInfo"`)):
+		result.OK, result.Message = true, "连接正常，MCP 服务已响应"
+	case resp.StatusCode == 200:
+		result.OK, result.Message = true, "服务可达"
+	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		result.Message = "服务可达，但令牌无效或没有权限"
+	default:
+		result.Message = fmt.Sprintf("服务返回了 %d", resp.StatusCode)
+	}
+	return result, nil
+}
+
+// SetSandboxMCP chooses the MCP services a sandbox may use; running sandboxes update at once.
+func (a *App) SetSandboxMCP(id string, ids []string, filesystem bool) error {
+	if err := a.runtimeReady(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	return a.manager.SetMCP(ctx, id, ids, filesystem)
+}

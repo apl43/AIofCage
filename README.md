@@ -65,7 +65,7 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 - [ ] 桌面应用：密钥管理、沙箱启停、一键打开 Agent 终端
 - [x] 实时请求面板：放行 / 拦截 / 已注入密钥
 - [ ] 支持 Codex、Claude Code、dsh（三者已接入，请求经门卫换成真 key 后到达上游已验证；真实模型应答待用真 key 验证）
-- [ ] MCP 免填上游秘密：HTTP Token、OAuth、无密钥 stdio、数据库密码四类基线
+- [ ] MCP 免填上游秘密：HTTP Token、OAuth、无密钥 stdio、数据库密码四类基线（已完成 HTTP Token 与无密钥 stdio；OAuth、数据库密码待做）
 - [ ] MCP 服务、工具与资源权限；连接、撤销、过期处理及跨会话隔离
 - [x] 用量上限与异常告警，防止被下套的 Agent 刷光额度
 - [ ] 一键"模拟攻击"演示

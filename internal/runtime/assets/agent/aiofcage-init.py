@@ -55,7 +55,11 @@ for item in files:
             existing = {}
         if not isinstance(existing, dict):
             existing = {}
-        content = json.dumps(merge(existing, json.loads(content)), ensure_ascii=False, indent=2)
+        update = json.loads(content)
+        for key in item.get("replace_keys", []):
+            # 这些键由 AIofCage 整体管理（例如 mcpServers），先删除旧值再写入，避免残留已停用的服务。
+            existing.pop(key, None)
+        content = json.dumps(merge(existing, update), ensure_ascii=False, indent=2)
     tmp = target.with_name(target.name + ".aiofcage-tmp")
     tmp.write_text(content)
     os.chmod(tmp, item.get("mode", 0o600))

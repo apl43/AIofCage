@@ -18,14 +18,3 @@ export function SettingsPage({ overview }) {
       <${EnvironmentPanel} environment=${overview.environment} />
     </section>`;
 }
-
-export function ComingSoon({ title, text }) {
-  return html`
-    <section class="page">
-      <div class="panel empty">
-        <span class="empty-icon">◌</span>
-        <h3>${title}</h3>
-        <p>${text}</p>
-      </div>
-    </section>`;
-}

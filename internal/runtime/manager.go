@@ -15,6 +15,7 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/audit"
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
+	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
@@ -90,18 +91,23 @@ func names(id string) objectNames {
 }
 
 type CreateRequest struct {
-	Name        string            `json:"name"`
-	ProjectPath string            `json:"project_path"`
-	Bindings    []sandbox.Binding `json:"bindings"`
-	Limits      sandbox.Limits    `json:"limits"`
+	Name          string            `json:"name"`
+	ProjectPath   string            `json:"project_path"`
+	Bindings      []sandbox.Binding `json:"bindings"`
+	Limits        sandbox.Limits    `json:"limits"`
+	MCP           []string          `json:"mcp"`
+	FilesystemMCP bool              `json:"filesystem_mcp"`
 }
 
 // Create records a sandbox. Docker objects are created on first start.
 func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sandbox, error) {
 	sbx := sandbox.Sandbox{ID: sandbox.NewID(), Name: strings.TrimSpace(request.Name),
 		ProjectPath: filepath.Clean(request.ProjectPath), Bindings: request.Bindings, Limits: request.Limits,
-		Placeholders: map[string]string{}, CreatedAt: time.Now().UTC()}
+		FilesystemMCP: request.FilesystemMCP, Placeholders: map[string]string{}, CreatedAt: time.Now().UTC()}
 	if err := sbx.Validate(); err != nil {
+		return sbx, err
+	}
+	if err := m.applyMCP(&sbx, request.MCP); err != nil {
 		return sbx, err
 	}
 	for _, binding := range sbx.Bindings {
@@ -116,6 +122,54 @@ func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sand
 		}
 	}
 	return sbx, m.store.SaveSandbox(sbx)
+}
+
+// applyMCP sets the enabled MCP services, creating placeholders for new ones.
+func (m *Manager) applyMCP(sbx *sandbox.Sandbox, ids []string) error {
+	var enabled []string
+	for _, id := range ids {
+		if _, err := m.store.MCPService(id); err != nil {
+			return err
+		}
+		if sbx.Placeholders[mcp.PlaceholderKey(id)] == "" {
+			sbx.Placeholders[mcp.PlaceholderKey(id)] = sandbox.NewPlaceholder()
+		}
+		enabled = append(enabled, id)
+	}
+	sbx.MCP = enabled
+	return nil
+}
+
+// SetMCP changes which MCP services a sandbox can use; a running sandbox is updated at once.
+func (m *Manager) SetMCP(ctx context.Context, id string, ids []string, filesystem bool) error {
+	defer m.lock(id)()
+	err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		if s.Placeholders == nil {
+			s.Placeholders = map[string]string{}
+		}
+		s.FilesystemMCP = filesystem
+		return m.applyMCP(s, ids)
+	})
+	if err != nil {
+		return err
+	}
+	sbx, err := m.store.Sandbox(id)
+	if err != nil {
+		return err
+	}
+	return m.refresh(ctx, sbx)
+}
+
+func (m *Manager) servicesFor(sbx sandbox.Sandbox) (map[string]mcp.Service, error) {
+	result := map[string]mcp.Service{}
+	for _, id := range sbx.MCP {
+		service, err := m.store.MCPService(id)
+		if err != nil {
+			return nil, err
+		}
+		result[id] = service
+	}
+	return result, nil
 }
 
 func (m *Manager) checkBinding(binding sandbox.Binding) error {
@@ -432,6 +486,24 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 			Header: header, Prefix: prefix, Value: string(key)})
 		config.Policy.Rules = append(config.Policy.Rules, p.Rules()...)
 	}
+	services, err := m.servicesFor(sbx)
+	if err != nil {
+		return config, err
+	}
+	for _, id := range sortedKeys(services) {
+		service := services[id]
+		token, err := m.vault.Read(ctx, service.KeyRef)
+		if err != nil {
+			return config, fmt.Errorf("MCP 服务「%s」的令牌不可用：%w", service.Name, err)
+		}
+		placeholder := sbx.Placeholders[mcp.PlaceholderKey(id)]
+		if placeholder == "" {
+			return config, fmt.Errorf("MCP 服务「%s」缺少占位符", service.Name)
+		}
+		config.Secrets = append(config.Secrets, gatekeeper.Secret{ID: mcp.SecretID(id), Placeholder: placeholder,
+			Header: "Authorization", Prefix: "Bearer ", Value: string(token)})
+		config.Policy.Rules = append(config.Policy.Rules, service.Rules()...)
+	}
 	return config, nil
 }
 
@@ -453,10 +525,14 @@ func (m *Manager) writeAgentFiles(ctx context.Context, client *gateClient, sbx s
 	if err != nil {
 		return err
 	}
+	services, err := m.servicesFor(sbx)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(struct {
 		CA    string      `json:"ca"`
 		Files []agentFile `json:"files"`
-	}{ca, agentFiles(sbx, providers)})
+	}{ca, agentFiles(sbx, providers, services)})
 	if err != nil {
 		return err
 	}

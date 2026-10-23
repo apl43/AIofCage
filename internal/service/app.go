@@ -342,6 +342,8 @@ type SandboxView struct {
 	Bindings    []BindingView  `json:"bindings"`
 	Limits      sandbox.Limits `json:"limits"`
 	Usage       sandbox.Usage  `json:"usage"`
+	MCP         []string       `json:"mcp"`
+	Filesystem  bool           `json:"filesystem_mcp"`
 	CreatedAt   time.Time      `json:"created_at"`
 }
 
@@ -369,7 +371,8 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 	views := make([]SandboxView, 0, len(sandboxes))
 	for _, s := range sandboxes {
 		view := SandboxView{ID: s.ID, Name: s.Name, ProjectPath: s.ProjectPath, State: "unknown",
-			Limits: s.Limits, Usage: s.Usage, CreatedAt: s.CreatedAt, Bindings: []BindingView{}}
+			Limits: s.Limits, Usage: s.Usage, CreatedAt: s.CreatedAt, Bindings: []BindingView{},
+			MCP: append([]string{}, s.MCP...), Filesystem: s.FilesystemMCP}
 		if a.manager != nil {
 			view.State = a.manager.Status(ctx, s.ID).State
 		}

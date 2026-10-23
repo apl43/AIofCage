@@ -115,3 +115,12 @@ func TestEvaluateListsAllMatches(t *testing.T) {
 		t.Fatalf("%+v", d)
 	}
 }
+
+func TestValidPath(t *testing.T) {
+	for value, want := range map[string]bool{"/": true, "/mcp": true, "/mcp/": true, "/v1/responses": true,
+		"/mcp//": false, "//": false, "/a/../b": false, "/a/./b": false, "/a%2f": false, "relative": false, "": false} {
+		if got := ValidPath(value); got != want {
+			t.Errorf("%q: got %v want %v", value, got, want)
+		}
+	}
+}
