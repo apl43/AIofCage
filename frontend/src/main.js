@@ -26,6 +26,7 @@ function App() {
   const [events, setEvents] = useState([]);
   const [summary, setSummary] = useState({ sandboxes: [], providers: {} });
   const [logSandbox, setLogSandbox] = useState("");
+  const [logFilter, setLogFilter] = useState("all");
   const [services, setServices] = useState([]);
   const [mcpPresets, setMcpPresets] = useState([]);
 
@@ -69,8 +70,19 @@ function App() {
     });
     const offStats = window.runtime?.EventsOn?.("sandbox:stats", () => refreshSummary());
     const offAlert = window.runtime?.EventsOn?.("sandbox:alert", (alert) => notify(alert.message, true));
-    return () => { offEvent?.(); offStats?.(); offAlert?.(); };
+    // 启动进度由后端记住；收到进度就刷新列表，切换页面回来也能看到正在进行的操作。
+    const offProgress = window.runtime?.EventsOn?.("sandbox:progress", () => reload());
+    // Esc 关闭最上层的对话框（等同点“关闭”或“取消”；操作进行中按钮禁用时不响应）。
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      const overlays = document.querySelectorAll(".overlay");
+      overlays[overlays.length - 1]?.querySelector("[data-dismiss], [aria-label='关闭']")?.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { offEvent?.(); offStats?.(); offAlert?.(); offProgress?.(); document.removeEventListener("keydown", onKey); };
   }, []);
+
+  useEffect(() => { reload(); }, [page]);
 
   useEffect(() => {
     // 环境检查要访问虚拟机，单独加载，避免拖慢首屏。
@@ -80,10 +92,10 @@ function App() {
   const content = {
     sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} overview=${overview} summary=${summary}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
-      onLogs=${(id) => { setLogSandbox(id); setPage("logs"); }} />`,
+      onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
     mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
-    logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify}
+    logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify} initialFilter=${logFilter}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
     settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify} />`,
   }[page];
@@ -93,7 +105,7 @@ function App() {
       <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>Agent 的安全工作区</small></span></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
-          aria-current=${item.id === page ? "page" : undefined} onClick=${() => setPage(item.id)}>${item.title}</button>`)}
+          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setPage(item.id); }}>${item.title}</button>`)}
       </nav>
       <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
         ${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}

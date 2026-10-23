@@ -325,6 +325,14 @@ func (a *App) UsageSummary() (UsageSummary, error) {
 			summary.Providers[id] = view
 		}
 	}
+	for id, usage := range a.retiredUsage() {
+		view := summary.Providers[id]
+		view.ID = id
+		view.Requests += usage.Requests
+		view.InputTokens += usage.InputTokens
+		view.OutputTokens += usage.OutputTokens
+		summary.Providers[id] = view
+	}
 	return summary, nil
 }
 

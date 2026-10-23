@@ -69,8 +69,18 @@ func TestEndToEndDatabaseMCP(t *testing.T) {
 		t.Fatalf("service: %+v %v", service, err)
 	}
 	t.Cleanup(func() { _ = app.DeleteMCPService(service.ID) })
-	if result, _ := app.TestMCPService(service.ID); !result.OK {
+	// "测试连接" logs in through a throwaway connector: the right password works, a wrong one is named.
+	if result, _ := app.TestMCPService(service.ID); !result.OK || !strings.Contains(result.Message, "登录成功") {
 		t.Fatalf("test: %+v", result)
+	}
+	wrong, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "e2e 错误密码", Kind: "postgres", Preset: "custom",
+		URL: "postgresql://e2e@localhost:55433/e2e?sslmode=disable", Token: "not-the-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.DeleteMCPService(wrong.ID) })
+	if result, _ := app.TestMCPService(wrong.ID); result.OK || !strings.Contains(result.Message, "用户名或密码不对") {
+		t.Fatalf("wrong password: %+v", result)
 	}
 	view, err := app.CreateSandbox(CreateSandboxRequest{Name: "e2e-db-" + time.Now().Format("150405"), ProjectMode: ProjectNew,
 		Bindings: []sandbox.Binding{{Agent: session.ClaudeCode}, {Agent: session.Codex}}, MCP: []string{service.ID}})

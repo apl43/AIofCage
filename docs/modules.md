@@ -50,7 +50,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `SaveProvider(request)` | 新建或编辑；`api_key` 只写入钥匙串；编辑时留空表示不改密钥；改动会立即同步到运行中的沙箱 |
 | `DeleteProvider(id)` | 仍有沙箱在用时拒绝；同时删除 AIofCage 保存的钥匙串条目 |
 | `TestProvider(id)` | 由桌面进程直连供应商的模型列表接口，返回是否可达、密钥是否有效与耗时 |
-| `ListSandboxes()` | 沙箱、实际容器状态、Agent→供应商、累计用量 |
+| `ListSandboxes()` | 沙箱、实际容器状态、Agent→供应商、累计用量，以及正在进行的操作（启动/停止/删除）和最近一条进度。操作由后端记住，切换页面或重开窗口都能看到；同一沙箱的操作进行中时再次点击会被拒绝并说明原因 |
 | `CreateSandbox(request)` | 名称、项目（`use` 工作区内已有文件夹 / `copy` 复制进工作区 / `new` 新建空文件夹）、Agent→供应商、可选的请求数与 token 上限 |
 | `StartSandbox(id)` / `StopSandbox(id)` | 启动过程通过 `sandbox:progress` 事件推送进度；首次启动会构建镜像 |
 | `BindProvider(id, agent, providerID)` | 切换某个 Agent 的供应商；运行中立即下发，Agent 下次启动生效 |
@@ -59,14 +59,14 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
 | `SelectProject()` | 系统目录选择框 |
 | `RecentEvents(id)` | 最近的门卫事件（`id` 为空表示全部沙箱，最多 300 条），附沙箱名称 |
-| `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量 |
+| `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量（包括已删除沙箱的用量；删除供应商时一并清掉） |
 | `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
 | `ListMCPPresets()` / `ListMCPServices()` | MCP 预设与已保存的服务（不含令牌） |
-| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走；OAuth 服务不接受粘贴的令牌）；在用时不能删除；HTTP/OAuth 服务测试发送 MCP `initialize`（OAuth 先按需续期），数据库测试从本机连通端口 |
+| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走；OAuth 服务不接受粘贴的令牌）；在用时不能删除；HTTP/OAuth 服务测试发送 MCP `initialize`（OAuth 先按需续期）；数据库测试在虚拟机里起一个一次性的连接器容器，用保存的密码登录并执行只读的 `SELECT 1`，能区分密码错误、库不存在、端口不通等原因（连接器镜像还没构建过时退回只测端口，并说明没验证密码） |
 | `AuthorizeMCPService(id)` | OAuth 服务在默认浏览器里登录授权（最多等 5 分钟），授权保存到钥匙串，运行中的沙箱立即换上新令牌；应用每分钟检查一次在用的 OAuth 服务，令牌 10 分钟内到期就续期并下发，续期失败时提醒一次 |
 | `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
 | `ListAttacks()` / `SimulateAttacks(id)` | 7 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传、找数据库密码并直连数据库），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
-| `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；结果按事件缓存；AI 不参与放行 |
+| `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；每条事件标明来源（“系统”下发配置等 / “沙箱内程序”），并标出用户运行内置模拟攻击期间的事件，避免把系统动作或演示说成 Agent 的行为；结果按事件缓存；AI 不参与放行 |
 | `ExplainerProvider()` / `SetExplainerProvider(id)` | AI 解说使用的供应商，默认取第一个已保存密钥的供应商 |
 
 后台监视（`StartMonitor`，每 5 秒）：为每个运行中的沙箱订阅门卫 SSE（同一门卫运行内按 `Last-Event-ID` 续传，门卫重启后从头订阅），把事件追加写入 `~/Library/Application Support/AIofCage/audit/<沙箱ID>.jsonl`（0600），推送 `sandbox:event`；轮询门卫 `/usage` 并按“门卫运行 + 供应商”计算增量写回累计用量（应用重启也不会重复计数），推送 `sandbox:usage`；用一次 `docker stats` 采样所有运行中沙箱，推送 `sandbox:stats`。额度到 80% 与超额由门卫产生事件，界面弹出提醒。

@@ -2,7 +2,7 @@
 // 远程 HTTP 服务由门卫在请求发出时注入令牌（OAuth 令牌由应用在浏览器登录后获取并自动续期）；
 // 数据库由沙箱外的可信连接器代持密码，Agent 经门卫访问。
 import { useState } from "preact/hooks";
-import { html, call } from "./core.js";
+import { html, call, ConfirmDialog } from "./core.js";
 
 export function MCPPage({ services, presets, reload, notify }) {
   const [dialog, setDialog] = useState(null);
@@ -46,10 +46,13 @@ function ServiceCard({ service, onEdit, reload, notify }) {
     try { setResult(await call("TestMCPService", service.id)); } catch (e) { setResult({ ok: false, message: e.message }); }
     finally { setTesting(false); }
   };
+  const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const remove = async () => {
-    if (!confirm(`删除 MCP 服务「${service.name}」？钥匙串里的${isDatabase(service) ? "密码" : isOAuth(service) ? "授权" : "令牌"}也会删除。`)) return;
-    try { await call("DeleteMCPService", service.id); notify(`已删除「${service.name}」`); await reload(); }
-    catch (e) { notify(e.message, true); }
+    setRemoving(true);
+    try { await call("DeleteMCPService", service.id); notify(`已删除「${service.name}」`); setConfirming(false); await reload(); }
+    catch (e) { setConfirming(false); notify(e.message, true); }
+    finally { setRemoving(false); }
   };
   const database = isDatabase(service);
   const oauth = isOAuth(service);
@@ -75,8 +78,12 @@ function ServiceCard({ service, onEdit, reload, notify }) {
           ${authorizing ? "等待授权…" : service.key_saved ? "重新登录" : "登录授权"}</button>`}
         <button onClick=${test} disabled=${testing || (oauth && !service.key_saved)}>${testing ? "测试中…" : "测试连接"}</button>
         <button onClick=${onEdit}>编辑</button>
-        <button class="danger" onClick=${remove} disabled=${service.used_by.length > 0}>删除</button>
+        <button class="danger" onClick=${() => setConfirming(true)} disabled=${service.used_by.length > 0}
+          title=${service.used_by.length ? "仍有沙箱在用，先在沙箱里停用它" : ""}>删除</button>
       </div>
+      ${confirming && html`<${ConfirmDialog} title=${`删除 MCP 服务「${service.name}」？`} busy=${removing}
+        message=${`钥匙串里的${database ? "密码" : oauth ? "授权" : "令牌"}也会删除。`}
+        onConfirm=${remove} onClose=${() => setConfirming(false)} />`}
     </article>`;
 }
 

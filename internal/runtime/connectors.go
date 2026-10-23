@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -168,13 +169,20 @@ func (m *Manager) connectorToken(name string) (string, error) {
 	if token := m.connectorTokens[name]; token != "" {
 		return token, nil
 	}
+	token, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	m.connectorTokens[name] = token
+	return token, nil
+}
+
+func randomToken() (string, error) {
 	var raw [32]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
 	}
-	token := base64.RawURLEncoding.EncodeToString(raw[:])
-	m.connectorTokens[name] = token
-	return token, nil
+	return base64.RawURLEncoding.EncodeToString(raw[:]), nil
 }
 
 func (m *Manager) containerIP(ctx context.Context, name, network string) (string, error) {
@@ -185,4 +193,63 @@ func (m *Manager) containerIP(ctx context.Context, name, network string) (string
 		return "", fmt.Errorf("无法读取连接器 %s 的地址", name)
 	}
 	return ip, nil
+}
+
+// ErrConnectorNotBuilt means the connector image does not exist yet; it is built the first time a
+// sandbox with a connector service starts.
+var ErrConnectorNotBuilt = errors.New("连接器镜像还没有构建")
+
+// CheckConnector logs in with the service's secret from a throwaway connector container and runs
+// the connector's read-only check call. It returns the server's answer, or its error message
+// (e.g. a wrong password) as a failed result; err is reserved for problems running the check.
+func (m *Manager) CheckConnector(ctx context.Context, service mcp.Service, secret string) (bool, string, error) {
+	spec, ok := mcp.ConnectorFor(service.Kind)
+	if !ok || spec.CheckTool == "" {
+		return false, "", errors.New("这个服务不支持连接检查")
+	}
+	build, err := connectorContext()
+	if err != nil {
+		return false, "", err
+	}
+	if _, err := m.docker.run(ctx, 15*time.Second, nil, "image", "inspect", build.tag); err != nil {
+		// After an update only the small connector layer changes, so rebuilding takes seconds. A
+		// first-ever build downloads the database servers and is left to the first sandbox start.
+		out, listErr := m.docker.run(ctx, 15*time.Second, nil, "images", "--quiet", "aiofcage/connector")
+		if listErr != nil || len(strings.TrimSpace(string(out))) == 0 {
+			return false, "", ErrConnectorNotBuilt
+		}
+		if err := m.ensureImage(ctx, build, nil); err != nil {
+			return false, "", err
+		}
+	}
+	command, redact, err := service.Launch(secret)
+	if err != nil {
+		return false, "", err
+	}
+	token, err := randomToken()
+	if err != nil {
+		return false, "", err
+	}
+	payload, err := json.Marshal(map[string]any{"launch": connector.Launch{Token: token, Command: command, Redact: redact},
+		"tool": spec.CheckTool, "arguments": spec.CheckArguments})
+	if err != nil {
+		return false, "", err
+	}
+	// Same restrictions as a real connector; the default bridge network reaches the database the
+	// same way the connector's egress network does.
+	out, err := m.docker.run(ctx, 60*time.Second, payload, "run", "--rm", "--interactive", "--network", "bridge",
+		"--label", "io.aiofcage.managed=true", "--read-only", "--tmpfs", "/tmp:uid=1000,gid=1000,mode=1777,size=64m",
+		"--user", connectorUser, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+		"--memory", "256m", "--pids-limit", "128", "--entrypoint", connectorCommand, build.tag, "check")
+	if err != nil {
+		return false, "", fmt.Errorf("无法运行连接检查：%w", err)
+	}
+	var result struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return false, "", errors.New("连接检查没有返回结果")
+	}
+	return result.OK, result.Message, nil
 }

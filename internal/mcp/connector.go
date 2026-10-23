@@ -30,16 +30,20 @@ type ConnectorSpec struct {
 	Version string
 	Command string
 	// Tools are the tools agents may call; the gatekeeper refuses every other tool.
-	Tools       []string
-	DefaultPort string
-	Schemes     []string
+	Tools []string
+	// CheckTool and CheckArguments make the read-only call used by "测试连接".
+	CheckTool      string
+	CheckArguments map[string]any
+	DefaultPort    string
+	Schemes        []string
 }
 
 var connectorCatalog = []ConnectorSpec{
 	// The reference PostgreSQL server: one read-only "query" tool (each query runs in a READ ONLY
 	// transaction) plus table schemas as resources.
 	{Kind: KindPostgres, Name: "PostgreSQL", Package: "@modelcontextprotocol/server-postgres", Version: "0.6.2",
-		Command: "mcp-server-postgres", Tools: []string{"query"}, DefaultPort: "5432", Schemes: []string{"postgresql", "postgres"}},
+		Command: "mcp-server-postgres", Tools: []string{"query"}, DefaultPort: "5432", Schemes: []string{"postgresql", "postgres"},
+		CheckTool: "query", CheckArguments: map[string]any{"sql": "SELECT 1"}},
 }
 
 func Connectors() []ConnectorSpec { return append([]ConnectorSpec(nil), connectorCatalog...) }

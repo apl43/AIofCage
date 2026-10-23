@@ -28,11 +28,6 @@ type TerminalOpener func(command string) error
 // through the "sandbox:progress" event.
 func (a *App) SetEmitter(emit Emitter) {
 	a.emit = emit
-	if a.manager != nil {
-		a.manager.Progress = func(id, message string) {
-			emit("sandbox:progress", map[string]string{"id": id, "message": message})
-		}
-	}
 }
 
 func (a *App) runtimeReady() error {
@@ -100,15 +95,33 @@ func (a *App) StartSandbox(id string) error {
 	if err := a.runtimeReady(); err != nil {
 		return err
 	}
+	done, err := a.beginOperation(id, "启动")
+	if err != nil {
+		return err
+	}
+	defer done()
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	return a.manager.Start(ctx, id)
+}
+
+func (a *App) beginOperation(id, label string) (func(), error) {
+	sbx, err := a.store.Sandbox(id)
+	if err != nil {
+		return nil, err
+	}
+	return a.ops.begin(sbx.ID, sbx.Name, label)
 }
 
 func (a *App) StopSandbox(id string) error {
 	if err := a.runtimeReady(); err != nil {
 		return err
 	}
+	done, err := a.beginOperation(id, "停止")
+	if err != nil {
+		return err
+	}
+	defer done()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	return a.manager.Stop(ctx, id)
@@ -120,9 +133,21 @@ func (a *App) DeleteSandbox(id string, keepHome bool) error {
 	if err := a.runtimeReady(); err != nil {
 		return err
 	}
+	done, err := a.beginOperation(id, "删除")
+	if err != nil {
+		return err
+	}
+	defer done()
+	sbx, err := a.store.Sandbox(id)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	return a.manager.Delete(ctx, id, keepHome)
+	if err := a.manager.Delete(ctx, id, keepHome); err != nil {
+		return err
+	}
+	return a.retireUsage(sbx)
 }
 
 // BindProvider switches one agent's provider; a running sandbox is updated immediately and the

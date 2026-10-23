@@ -17,7 +17,8 @@ export function ExplainDialog({ request, onClose }) {
         <div class="dialog-heading"><h2>${request.eventId ? "AI 解读这条记录" : `AI 总结「${request.sandboxName}」`}</h2>
           <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
         ${state.loading && html`<p class="caption" role="status">正在请模型分析（只发送主机、路径、结果等元数据，不发送请求内容和密钥）…</p>`}
-        ${state.error && html`<p class="form-error" role="alert">${state.error}</p>`}
+        ${state.error && html`<p class="form-error" role="alert">${state.error}</p>
+          <p class="caption">可以在“设置”页换一个 AI 解说使用的供应商，或检查网络后重试。</p>`}
         ${r && html`<div class="explain">
           <div class="card-top"><h3>${r.title}</h3><span class=${`pill ${RISK_TONE[r.risk] ?? "idle"}`}>风险：${r.risk}</span></div>
           <p>${r.explanation}</p>
@@ -49,7 +50,8 @@ export function AttackDialog({ sandbox, onClose, onLogs }) {
           <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose} disabled=${running}>×</button></div>
         <p class="caption">每一项都照着一起真实发生过的攻击，在沙箱里以 Agent 的身份执行。不会读取或修改你的任何真实文件。</p>
         ${results && html`<p class=${blocked === results.filter((r) => !r.skipped).length ? "test-result ok" : "test-result bad"} role="status">
-          ${blocked} / ${results.filter((r) => !r.skipped).length} 项被拦截${results.some((r) => r.skipped) ? `，${results.filter((r) => r.skipped).length} 项跳过` : ""}</p>`}
+          ${blocked} / ${results.filter((r) => !r.skipped).length} 项被拦截${results.some((r) => r.skipped) ? `，${results.filter((r) => r.skipped).length} 项跳过` : ""}</p>
+          <p class="caption">只有经过门卫的尝试（发往网站的请求）会出现在日志里；直连外网、DNS 外传这类根本没有网络可走的尝试不会产生日志。</p>`}
         <div class="attack-list">
           ${list.map((a) => html`<article class=${`attack ${a.blocked ? "ok" : a.skipped ? "" : results ? "bad" : ""}`} key=${a.id}>
             <div class="card-top">

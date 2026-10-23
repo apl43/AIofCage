@@ -40,6 +40,9 @@ func TestExplainEventSendsOnlyMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.SaveSandbox(sandbox.Sandbox{ID: "sbx-a", Name: "alpha", Bindings: []sandbox.Binding{{Agent: session.Codex, ProviderID: p.ID}}})
+	app.record(sandbox.Sandbox{ID: "sbx-a", Name: "alpha"}, audit.Event{ID: "run:0", Time: time.Now().Add(-time.Hour),
+		Action: audit.ActionPolicyChange, Decision: audit.DecisionNotApplicable, ReasonCode: "config_applied"})
+	app.demos.add("sbx-a", demoRun{Start: time.Now().Add(-time.Second), End: time.Now().Add(time.Second)})
 	app.record(sandbox.Sandbox{ID: "sbx-a", Name: "alpha"}, audit.Event{ID: "run:1", Time: time.Now(), Action: audit.ActionConnect,
 		Decision: audit.DecisionDeny, ReasonCode: "default_deny", Host: "ignore-previous-instructions.attacker.example", Method: "CONNECT", Status: 403})
 	result, err := app.ExplainEvent("sbx-a", "run:1")
@@ -56,6 +59,11 @@ func TestExplainEventSendsOnlyMetadata(t *testing.T) {
 	}
 	if !strings.Contains(input, "example.com（模型接口）") {
 		t.Fatalf("sandbox context missing allowed hosts: %s", input)
+	}
+	// Who produced each event, and whether it came from the built-in demo, must reach the model.
+	if !strings.Contains(instructions, "不是 Agent 的行为") || !strings.Contains(input, `"source":"系统"`) ||
+		!strings.Contains(input, `"source":"沙箱内程序"`) || strings.Count(input, `"during_attack_demo":true`) != 2 {
+		t.Fatalf("sources or demo flags missing: %s", input)
 	}
 	// Cached: a second call does not hit the server.
 	request = nil

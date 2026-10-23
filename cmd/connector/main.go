@@ -4,6 +4,7 @@
 //
 //	aiofcage-connector serve --listen 0.0.0.0:8080 --launch /run/aiofcage/launch.json
 //	aiofcage-connector deliver /run/aiofcage/launch.json   # launch JSON on stdin (docker exec -i)
+//	aiofcage-connector check                               # one-shot login test; request JSON on stdin
 package main
 
 import (
@@ -31,8 +32,10 @@ func main() {
 		err = serve(os.Args[2:])
 	case len(os.Args) == 3 && os.Args[1] == "deliver":
 		err = deliver(os.Args[2], os.Stdin)
+	case len(os.Args) == 2 && os.Args[1] == "check":
+		err = check(os.Stdin, os.Stdout)
 	default:
-		err = errors.New("用法：aiofcage-connector serve --listen 地址 --launch 文件 | deliver 文件")
+		err = errors.New("用法：aiofcage-connector serve --listen 地址 --launch 文件 | deliver 文件 | check")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "connector:", err)
@@ -140,4 +143,26 @@ func deliver(path string, stdin io.Reader) error {
 	}
 	_ = os.Remove(path)
 	return errors.New("连接器没有加载启动配置（服务进程未运行？）")
+}
+
+// check runs one read-only tool call with the delivered launch and prints {"ok","message"}. The
+// result is always printed as JSON, so the desktop app can tell a failed login from a failed run.
+func check(stdin io.Reader, stdout io.Writer) error {
+	var request struct {
+		Launch    connector.Launch `json:"launch"`
+		Tool      string           `json:"tool"`
+		Arguments map[string]any   `json:"arguments"`
+	}
+	data, err := io.ReadAll(io.LimitReader(stdin, 64<<10))
+	if err != nil || json.Unmarshal(data, &request) != nil || request.Launch.Validate() != nil || request.Tool == "" {
+		return errors.New("检查请求格式错误")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	message, err := connector.Check(ctx, request.Launch, request.Tool, request.Arguments, log.New(io.Discard, "", 0))
+	result := map[string]any{"ok": err == nil, "message": message}
+	if err != nil {
+		result["message"] = err.Error()
+	}
+	return json.NewEncoder(stdout).Encode(result)
 }
