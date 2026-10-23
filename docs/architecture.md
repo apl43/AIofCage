@@ -9,21 +9,20 @@
 
 ## 0.1 给队友的一页速览
 
-### 需要一起拍板的三件事
+### 已拍板的八个决定
 
-| # | 问题 | 谁拍板 | 影响 |
-|---|---|---|---|
-| 1 | `dsh` 是 Linux 可执行、还是仅 macOS？ | 了解 dsh 的人 | 决定它是必做，还是"预留适配层" |
-| 2 | Agent 自身鉴权走 MITM（方案 A）还是 base_url（方案 B）？ | 边界负责人 | 决定 T+4 能否过 Gate 1 |
-| 3 | 仓库统一到 `shaoxier/AIofCage`，所有 PR 合入那里？ | 队长 | 决定"多名成员提交记录"能否成立 |
+| # | 决定 | 一句话理由 |
+|---|---|---|
+| 1 | **单进程**：Wails 内直接跑门卫 / 策略 / 审计，不做 daemon | 本地工具正在去 daemon 化（microsandbox 重写时删掉了 server 与 supervisor）；省掉 IPC 与生命周期管理 |
+| 2 | **出网拓扑**：`cage-internal`（无默认路由）+ 双网卡 relay | 不拥有 VMM 就只能这么做；`-p` 在内部网络无效、`host.docker.internal` 不可解析，都是实测结论 |
+| 3 | **默认拒绝 + 未知目标弹窗询问** | 学 Docker 的姿态（沙箱即安全），但静默失败对普通用户是坏体验，所以补 Zed/Claude 的询问层 |
+| 4 | **凭证链路只做 MITM（方案 A）** | base_url 只覆盖模型调用，MCP 与普通 API 仍要 MITM，等于维护两套；A 是市场主流（Docker / srt / E2B / Daytona 全是宿主侧拦截） |
+| 5 | **审计在宿主侧生成并 hash 链化** | 判断逻辑与账本一旦进沙箱，VM 快照里就带着可伪造的审计（nono NEP-0007 的结论） |
+| 6 | **`dsh` 走"自定义 Agent 命令"通道，不做专项适配** | 产品本来就该支持任意命令；这样 dsh 是不是 Linux 可执行，不再是阻塞项 |
+| 7 | **仓库统一 `shaoxier/AIofCage`，所有 PR 合入** | 否则"多名成员提交记录"这条硬性规则不成立 |
+| 8 | **明确不做**：内存快照 / fork、多 Agent 编排、Windows | 见 §2.2，写进文档比含糊其辞安全 |
 
-### 已经定下的五个决定（有异议请直接在这条 PR 下评论）
-
-1. **单进程**：Wails 内直接跑门卫 / 策略 / 审计，不做 daemon
-2. **出网拓扑**：`cage-internal`（无默认路由）+ 双网卡 relay，是唯一出口
-3. **默认拒绝 + 未知目标弹窗询问**，不是静默失败
-4. **凭证链路以 MITM 为主**，base_url 只作逃生门
-5. **审计在宿主侧生成**，容器内无法写入或篡改
+> 以上 8 条不再作为议题讨论。有新信息（例如 dsh 无法在 Linux 运行、或某个 Agent 强制校验 key 格式）时，按 §14 的决策记录追加一条修订，而不是推翻重来。
 
 ### 分工建议
 
@@ -35,7 +34,7 @@
 
 ### 两个硬门槛
 
-- **T+4（今天 20:00）Gate 1**：容器内 `claude -p "hi"` 能拿到模型响应。过不了立刻切方案 B，不纠缠
+- **T+4（今天 20:00）Gate 1**：容器内 `claude -p "hi"` 能拿到模型响应。过不了先排查 key 格式校验与客户端 OAuth——这是排查题，不是选型题（见 ADR-004）
 - **T+56（10/25 深夜）**：冻结特性，只修 bug
 
 ---
@@ -323,7 +322,7 @@ CONNECT
 - 门卫以明文 HTTP 接收，无需 CA
 - 缺点：需要为每个 Agent 写适配，且 MCP 仍要走 A
 
-**决策点：H+4 必须验证 A 是否可用**（见 §10 Gate 1）。
+**决策：只做 A。** base_url 不能替代 MITM——它只覆盖模型调用，MCP 与普通 API 仍然需要 MITM，等于要维护两条链路。T+4 的验证是**排查题，不是选型题**：失败了先查 key 格式校验和客户端 OAuth，不要掉头重做架构。
 
 **占位符规则**：
 
@@ -615,7 +614,7 @@ GitHub MCP 在容器内运行，`env` 里只有 `cage-xxxx`；工具调用成功
 - [ ] `claude --version` 在容器内可执行
 - [ ] **方案 A 验证**：占位符 + MITM 注入后，`claude -p "hi"` 能否得到模型响应
 
-> 不过 Gate 1 → 立即切方案 B（base_url 网关），不再纠缠 MITM。
+> 过不了 Gate 1：先查 key 格式校验、客户端 OAuth、CA 是否被 Node 认到；最坏情况只对 LLM 临时退到 base_url，MCP 仍走 MITM。**不推翻架构。**
 
 ### Day 1（T+0 → T+12）：链路 + 门卫
 
@@ -715,7 +714,7 @@ AIofCage/
 
 | 失效点 | 降级方案 | 代价 |
 |---|---|---|
-| MITM 注入不通（Agent 校验 key） | 方案 B：`ANTHROPIC_BASE_URL` / `model_providers.base_url` 指向门卫 | 需为每个 Agent 写适配；MCP 放弃注入，只做域名过滤 |
+| MITM 注入不通（Agent 强制校验 key 格式或走 OAuth） | 仅对 LLM 退到 base_url；MCP 仍走 MITM | 两套链路并存，最坏情况多写一个适配器 |
 | colima 不可用 | 换 Docker Desktop（但 `$HOME` 默认共享，必须改配置） | 边界变弱，话术要改 |
 | Wails 构建失败 | CLI + 录屏兜底 | 失去"桌面产品"卖点，扣分 |
 | `host.docker.internal` 不通 | relay 改为连 `host.lima.internal` 或 VM 网关 | 需要额外探测 |
@@ -734,8 +733,54 @@ AIofCage/
 
 ---
 
-## 14. 开放问题（需在 T+4 前确认）
+## 14. 决策记录（ADR）
 
-1. **`dsh` 的运行形态**：Linux 可执行 / 仅 macOS / 未知 → 决定它是必做还是"预留适配层"
-2. **Agent 自身鉴权**：方案 A 是否可行（Gate 1 验证）→ 决定是否需要方案 B
-3. **canonical 仓库**：确认为 `shaoxier/AIofCage`，PR 全部合入该仓库
+只记录**有争议、且被否掉了其他选项**的决定。修改时追加新条目，不删旧条目。
+
+### ADR-001 单进程，不做 daemon
+
+- **决定**：门卫、策略、审计、容器编排全部跑在 Wails 进程内。
+- **被否**：`sandboxd` 独立守护进程 + UDS（Docker sbx 的做法）。
+- **理由**：daemon 需要处理进程守护、socket 鉴权、版本协商、崩溃恢复四件事，在 60 小时内是纯负债。microsandbox 重写时把 server 和 supervisor 都删掉了，是最强的信号。
+- **代价**：GUI 崩溃会留下孤儿容器 → 启动时做一次 reconcile（按 metadata 里的容器 ID 清理）。
+- **何时应推翻**：如果要做多客户端（CLI + GUI 同时操作同一沙箱）。
+
+### ADR-002 双网卡 relay，而不是端口发布或 unix socket
+
+- **决定**：`cage-internal` + relay 容器（bridge + internal 双网卡）。
+- **被否**：
+  - `-p` 端口发布 —— **实测在内部网络下无效**，`docker port` 为空。
+  - unix socket —— colima 通过 virtiofs 共享文件系统，**unix socket 不能跨 VM 边界**。
+  - 在 VM 内跑门卫 —— 门卫需要读 macOS Keychain，做不到。
+- **理由**：这是"容器无默认路由但可达代理"在 colima 上唯一成立的组合。
+- **代价**：多一个容器；relay 必须最小化（单端口、无 shell）。
+
+### ADR-003 默认拒绝 + 询问，而不是静默拒绝
+
+- **决定**：未命中白名单的网络请求挂起，弹窗让用户三选一。
+- **被否**：Docker sbx 的"无提示、直接阻断"。
+- **理由**：Docker 的立场是"沙箱即安全，不需要提示"，那是给开发者的。我们的用户是普通桌面用户，`curl: (56) Recv failure` 对他们等于软件坏了。
+- **代价**：多一套审批队列与作用域状态机。
+- **红线**：弹窗只能把 `ask` 提升为 `allow`，**永远不能绕过 `deny`**。
+
+### ADR-004 凭证只做 MITM，不接受 base_url 替代
+
+- **决定**：宿主侧自签 CA + MITM，覆盖 Authorization。
+- **被否**：`ANTHROPIC_BASE_URL` / Codex `model_providers.base_url` 指向本地网关。
+- **理由**：base_url 只覆盖模型调用；GitHub MCP、`pip`、`curl` 仍然需要 MITM。选 base_url 等于最终还是要写 MITM，只是多写一套。
+- **代价**：容器内必须装 CA，且要覆盖 Node / Python / Go / curl 四套信任环境。
+- **踩坑记录**：goproxy 自带公开 CA 私钥，必须自签；goproxy 默认读取宿主 `HTTPS_PROXY`，必须清空。
+
+### ADR-005 `dsh` 不做专项适配
+
+- **决定**：产品支持"自定义 Agent 命令"，`claude` / `codex` / `dsh` 都只是配置项。
+- **被否**：为每个 Agent 写适配器与参数模板。
+- **理由**：dsh 的运行形态（Linux 可执行 / 仅 macOS）在文档写作时未知。把它变成阻塞项，等于用一个未知数换掉整个排期。
+- **代价**：对三个 Agent 都不做深度集成（例如不解析它们的 session 格式）。可接受——我们卖的是边界，不是 Agent 集成。
+- **风险**：若 dsh 仅 macOS 原生二进制，则它无法进 Linux 容器，届时在 UI 上明确标注"该 Agent 仅支持本机模式（无沙箱）"，而不是假装支持。
+
+### ADR-006 明确不做快照 / 多 Agent / Windows
+
+- **决定**：不在 60 小时内做，且写进文档。
+- **理由**：快照需要 userfaultfd + COW（E2B 的量级）；多 Agent 编排只有 Daytona / Runloop / K8s 做了，各自是一个平台；WSL2 的 Landlock 版本差异会毁掉策略一致性。
+- **写法**：在"非目标"里给出理由，比被评委问出来强。
