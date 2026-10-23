@@ -4,6 +4,8 @@
 
 Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开发中
 
+**产品形态：CC Switch + Docker Desktop。** 按 agent 管理模型供应商，key 只存钥匙串；像 Docker Desktop 一样创建、启停沙箱，每个沙箱自选要装的 agent 并绑定供应商，多个沙箱可共用或各用各的供应商，并能看到每个沙箱的用量。详见[产品形态与开发计划](docs/development-plan.md)。
+
 当前仓库已有可构建的桌面与门卫骨架：可登记内存会话草稿、查看环境依赖和模块页面；隔离运行、真实认证、代理转发与 MCP 尚未实现。[产品目标与验收](docs/requirements-and-acceptance.md)和[架构设计](docs/architecture.md)仍是待验证的目标，[比赛规则](docs/competition-rules.md)区分组织方要求与团队选择。当前骨架不能作为已完成的安全沙箱使用。
 
 ## 开发启动
@@ -62,7 +64,9 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 - [x] 独立门卫入口、管理鉴权及未配置时始终拒绝的数据入口
 - [ ] 容器隔离 + 强制所有出网走门卫代理
 - [ ] 钥匙串存储密钥，门卫按域名注入
-- [ ] 桌面应用：密钥管理、沙箱启停、一键打开 Agent 终端
+- [ ] 供应商管理（参考 CC Switch）：按 agent 分组，预设一键添加，key 存钥匙串，连通性测试
+- [ ] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
+- [ ] 每个沙箱的用量与资源占用，按供应商汇总
 - [ ] 实时请求面板：放行 / 拦截 / 已注入密钥
 - [ ] 支持 Codex、Claude Code、dsh
 - [ ] MCP 免填上游秘密：HTTP Token、OAuth、无密钥 stdio、数据库密码四类基线
