@@ -43,6 +43,7 @@ const (
 
 	ActionConnect      = "net.connect"
 	ActionRequest      = "net.request"
+	ActionMCPCall      = "mcp.call"
 	ActionQuotaBlocked = "quota.blocked"
 	ActionQuotaWarning = "quota.warning"
 	ActionPolicyChange = "policy.change"

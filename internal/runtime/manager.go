@@ -38,7 +38,8 @@ const (
 )
 
 // Manager owns sandbox lifecycles in the dedicated VM: one internal network, one egress network,
-// one gatekeeper and one agent container per sandbox. It never runs agents on the host.
+// one gatekeeper and one agent container per sandbox, plus one connector container for each
+// enabled MCP service whose secret must stay out of the sandbox. It never runs agents on the host.
 type Manager struct {
 	env    *Environment
 	docker runner
@@ -48,9 +49,10 @@ type Manager struct {
 	// Progress, when set, receives human-readable steps for long operations.
 	Progress func(sandboxID, message string)
 
-	mu    sync.Mutex
-	gates map[string]*gateClient
-	locks map[string]*sync.Mutex
+	mu              sync.Mutex
+	gates           map[string]*gateClient
+	locks           map[string]*sync.Mutex
+	connectorTokens map[string]string
 }
 
 func NewManager(st *store.Store, secrets vault.Store) (*Manager, error) {
@@ -59,7 +61,7 @@ func NewManager(st *store.Store, secrets vault.Store) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{env: env, docker: env.docker, store: st, vault: secrets,
-		gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}}, nil
+		gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}, connectorTokens: map[string]string{}}, nil
 }
 
 func (m *Manager) Environment() *Environment { return m.env }
@@ -83,11 +85,11 @@ func (m *Manager) lock(id string) func() {
 	return l.Unlock
 }
 
-type objectNames struct{ gate, agent, internal, egress, home string }
+type objectNames struct{ id, gate, agent, internal, egress, home string }
 
 func names(id string) objectNames {
 	prefix := "aiofcage-" + id
-	return objectNames{prefix + "-gate", prefix + "-agent", prefix + "-in", prefix + "-out", prefix + "-home"}
+	return objectNames{id, prefix + "-gate", prefix + "-agent", prefix + "-in", prefix + "-out", prefix + "-home"}
 }
 
 type CreateRequest struct {
@@ -288,7 +290,17 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 		m.stopContainers(context.Background(), n)
 		return err
 	}
-	if err := m.configure(ctx, client, sbx, providers); err != nil {
+	services, err := m.servicesFor(sbx)
+	if err != nil {
+		m.stopContainers(context.Background(), n)
+		return err
+	}
+	routes, err := m.syncConnectors(ctx, sbx, services)
+	if err != nil {
+		m.stopContainers(context.Background(), n)
+		return err
+	}
+	if err := m.configure(ctx, client, sbx, providers, routes); err != nil {
 		m.stopContainers(context.Background(), n)
 		return err
 	}
@@ -324,6 +336,12 @@ func (m *Manager) ensureObjects(ctx context.Context, sbx sandbox.Sandbox, gateIm
 			return err
 		}
 		createdNetwork = true
+	}
+	if createdNetwork {
+		// Containers attached to a removed network cannot start again.
+		if err := m.removeConnectors(ctx, sbx.ID); err != nil {
+			return err
+		}
 	}
 	proxyIP, err := m.hostAddress(ctx, n.internal)
 	if err != nil {
@@ -465,8 +483,9 @@ func (m *Manager) client(ctx context.Context, id string) (*gateClient, error) {
 	return m.connect(ctx, id)
 }
 
-func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers map[string]provider.Provider) (gatekeeper.Config, error) {
-	config := gatekeeper.Config{Limits: gatekeeper.Limits{
+func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers map[string]provider.Provider,
+	connectors []gatekeeper.Connector) (gatekeeper.Config, error) {
+	config := gatekeeper.Config{Connectors: connectors, Limits: gatekeeper.Limits{
 		MaxRequests: sbx.Limits.MaxRequests, MaxTokens: sbx.Limits.MaxTokens,
 		BaselineRequests: sbx.Usage.Requests, BaselineTokens: sbx.Usage.Tokens}}
 	config.Policy.Version = uint64(time.Now().UnixMilli())
@@ -492,6 +511,9 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 	}
 	for _, id := range sortedKeys(services) {
 		service := services[id]
+		if service.IsConnector() {
+			continue // its secret goes to the connector, not to the gatekeeper
+		}
 		token, err := m.vault.Read(ctx, service.KeyRef)
 		if err != nil {
 			return config, fmt.Errorf("MCP 服务「%s」的令牌不可用：%w", service.Name, err)
@@ -507,9 +529,10 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 	return config, nil
 }
 
-func (m *Manager) configure(ctx context.Context, client *gateClient, sbx sandbox.Sandbox, providers map[string]provider.Provider) error {
+func (m *Manager) configure(ctx context.Context, client *gateClient, sbx sandbox.Sandbox, providers map[string]provider.Provider,
+	connectors []gatekeeper.Connector) error {
 	m.progress(sbx.ID, "向门卫下发策略与密钥")
-	config, err := m.gateConfig(ctx, sbx, providers)
+	config, err := m.gateConfig(ctx, sbx, providers, connectors)
 	if err != nil {
 		return err
 	}
@@ -603,7 +626,15 @@ func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
 	if err != nil {
 		return err
 	}
-	if err := m.configure(ctx, client, sbx, providers); err != nil {
+	services, err := m.servicesFor(sbx)
+	if err != nil {
+		return err
+	}
+	routes, err := m.syncConnectors(ctx, sbx, services)
+	if err != nil {
+		return err
+	}
+	if err := m.configure(ctx, client, sbx, providers, routes); err != nil {
 		return err
 	}
 	return m.writeAgentFiles(ctx, client, sbx, providers)
@@ -645,7 +676,12 @@ func (m *Manager) RecordUsage(id string, usage GateUsage) error {
 
 func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
 	var errs []error
-	for _, name := range []string{n.agent, n.gate} { // agent first: it must never outlive its gatekeeper
+	connectors, err := m.listConnectors(ctx, n.id)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	// Agent first: it must never outlive its gatekeeper. Connectors stop before the gatekeeper too.
+	for _, name := range append(append([]string{n.agent}, connectors...), n.gate) {
 		if info := m.container(ctx, name); info.running {
 			if _, err := m.docker.run(ctx, 30*time.Second, nil, "stop", "--time", "5", name); err != nil {
 				errs = append(errs, err)
@@ -668,6 +704,9 @@ func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
 	delete(m.gates, sbx.ID)
 	m.mu.Unlock()
 	var errs []error
+	if err := m.removeConnectors(ctx, sbx.ID); err != nil {
+		errs = append(errs, err)
+	}
 	for _, args := range [][]string{{"rm", "--force", n.agent}, {"rm", "--force", n.gate},
 		{"network", "rm", n.internal}, {"network", "rm", n.egress}} {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, args...); err != nil && !strings.Contains(err.Error(), "No such") &&
@@ -746,4 +785,20 @@ func (m *Manager) RunID(ctx context.Context, id string) (string, error) {
 	}
 	health, err := client.health(ctx)
 	return health.RunID, err
+}
+
+func (m *Manager) removeConnectors(ctx context.Context, sandboxID string) error {
+	connectors, err := m.listConnectors(ctx, sandboxID)
+	if err != nil {
+		return err
+	}
+	for _, name := range connectors {
+		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", name); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		delete(m.connectorTokens, name)
+		m.mu.Unlock()
+	}
+	return nil
 }

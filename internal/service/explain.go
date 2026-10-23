@@ -47,7 +47,8 @@ const summarySystemPrompt = `你是 AIofCage 的安全解说员。AIofCage 把 A
 // eventFacts keeps only metadata fields; event records never contain bodies or secrets.
 func eventFacts(e audit.Event) map[string]any {
 	facts := map[string]any{"time": e.Time.Format(time.RFC3339), "action": e.Action, "decision": e.Decision, "reason": e.ReasonCode}
-	for key, value := range map[string]string{"method": e.Method, "host": e.Host, "path": e.Path, "provider": e.SecretRef} {
+	for key, value := range map[string]string{"method": e.Method, "host": e.Host, "path": e.Path, "provider": e.SecretRef,
+		"mcp_service": e.ServiceID, "mcp_tool": e.ToolID} {
 		if value != "" {
 			facts[key] = value
 		}
@@ -148,7 +149,9 @@ func (a *App) sandboxContext(id string) (map[string]any, error) {
 	}
 	for _, id := range sbx.MCP {
 		if service, err := a.store.MCPService(id); err == nil {
-			if host, _, err := service.Endpoint(); err == nil {
+			if service.IsConnector() {
+				allowed = append(allowed, "MCP "+id+"（数据库，经沙箱外的可信连接器，只读）")
+			} else if host, _, err := service.Endpoint(); err == nil {
 				allowed = append(allowed, host+"（MCP）")
 			}
 		}

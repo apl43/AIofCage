@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -63,9 +65,11 @@ func (a *App) mcpView(s mcp.Service) (MCPServiceView, error) {
 type SaveMCPServiceRequest struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
+	Kind   string `json:"kind"`
 	URL    string `json:"url"`
 	Preset string `json:"preset"`
-	// Token is write-only: it goes straight to the Keychain.
+	// Token is write-only: it goes straight to the Keychain. For database services it is the
+	// password; a password pasted inside the connection URL is moved there as well.
 	Token string `json:"token"`
 }
 
@@ -85,21 +89,35 @@ func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, err
 		if err != nil {
 			return MCPServiceView{}, err
 		}
-		service = mcp.Service{ID: id, KeyRef: mcp.KeyRefFor(id), CreatedAt: a.now().UTC()}
+		// The kind is fixed at creation: switching between HTTP and connector services would leave
+		// sandboxes configured for the other one.
+		service = mcp.Service{ID: id, Kind: mcp.Kind(request.Kind), KeyRef: mcp.KeyRefFor(id), CreatedAt: a.now().UTC()}
 	}
 	service.Name, service.URL, service.Preset = request.Name, request.URL, request.Preset
 	service.Normalize()
+	token := strings.TrimSpace(request.Token)
+	missing := "请填写访问令牌"
+	if service.IsConnector() {
+		clean, password, err := mcp.SplitDatabaseURL(service.Kind, service.URL)
+		if err != nil {
+			return MCPServiceView{}, err
+		}
+		service.URL, missing = clean, "请填写数据库密码"
+		// Passwords may legitimately start or end with spaces; only tokens are trimmed.
+		if token = request.Token; strings.TrimSpace(token) == "" {
+			token = password
+		}
+	}
 	if err := service.Validate(); err != nil {
 		return MCPServiceView{}, err
 	}
-	token := strings.TrimSpace(request.Token)
 	switch {
 	case token != "":
 		if err := a.vault.Put(ctx, service.KeyRef, []byte(token)); err != nil {
 			return MCPServiceView{}, err
 		}
 	case !existing:
-		return MCPServiceView{}, errors.New("请填写访问令牌")
+		return MCPServiceView{}, errors.New(missing)
 	}
 	if err := a.store.SaveMCPService(service); err != nil {
 		return MCPServiceView{}, err
@@ -178,6 +196,9 @@ func (a *App) TestMCPService(id string) (TestResult, error) {
 	if err != nil {
 		return TestResult{Message: "钥匙串中没有这个服务的令牌"}, nil
 	}
+	if service.IsConnector() {
+		return a.testDatabase(ctx, service), nil
+	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{
 		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
 		"clientInfo": map[string]string{"name": "AIofCage", "version": "0.1"}}})
@@ -220,4 +241,28 @@ func (a *App) SetSandboxMCP(id string, ids []string, filesystem bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	return a.manager.SetMCP(ctx, id, ids, filesystem)
+}
+
+// testDatabase checks from the Mac that the database port is reachable. The password is only
+// used later, by the connector, when a sandbox starts.
+func (a *App) testDatabase(ctx context.Context, service mcp.Service) TestResult {
+	u, err := url.Parse(service.URL)
+	if err != nil {
+		return TestResult{Message: "连接串无效"}
+	}
+	port := u.Port()
+	if spec, ok := mcp.ConnectorFor(service.Kind); ok && port == "" {
+		port = spec.DefaultPort
+	}
+	address := net.JoinHostPort(u.Hostname(), port)
+	started := a.now()
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", address)
+	result := TestResult{LatencyMS: a.now().Sub(started).Milliseconds()}
+	if err != nil {
+		result.Message = "连不上 " + address + "（" + networkReason(err) + "）"
+		return result
+	}
+	conn.Close()
+	result.OK, result.Message = true, "数据库端口可以连通；密码会在沙箱启动时交给连接器使用"
+	return result
 }

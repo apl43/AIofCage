@@ -1,11 +1,12 @@
 GO ?= go
 WAILS_VERSION := v2.17.0
 
-.PHONY: desktop gatekeeper gatekeeper-linux cagectl dev check test clean
+.PHONY: desktop gatekeeper gatekeeper-linux connector-linux cagectl dev check test clean
 
 GATEKEEPER_LINUX := internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64
+CONNECTOR_LINUX := internal/runtime/assets/connector/connector-linux-arm64
 
-desktop: gatekeeper-linux
+desktop: gatekeeper-linux connector-linux
 	$(GO) build -tags production -trimpath -o bin/AIofCage .
 
 gatekeeper:
@@ -15,8 +16,12 @@ gatekeeper:
 gatekeeper-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags "-s -w" -o $(GATEKEEPER_LINUX) ./cmd/gatekeeper
 
+# 可信连接器：代持数据库密码等秘密，运行需要秘密的 stdio MCP 服务，只供门卫调用。
+connector-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags "-s -w" -o $(CONNECTOR_LINUX) ./cmd/connector
+
 # 命令行版本，与桌面应用共用运行时（开发、自动检查和演示兜底）。
-cagectl: gatekeeper-linux
+cagectl: gatekeeper-linux connector-linux
 	$(GO) build -trimpath -o bin/cagectl ./cmd/cagectl
 
 dev:
@@ -30,4 +35,4 @@ test:
 	$(GO) test -race ./internal/...
 
 clean:
-	rm -f bin/AIofCage bin/gatekeeper bin/cagectl $(GATEKEEPER_LINUX)
+	rm -f bin/AIofCage bin/gatekeeper bin/cagectl $(GATEKEEPER_LINUX) $(CONNECTOR_LINUX)

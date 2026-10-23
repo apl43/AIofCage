@@ -34,3 +34,4 @@ node_modules/
 __pycache__/
 *.pyc
 /internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64
+/internal/runtime/assets/connector/connector-linux-arm64

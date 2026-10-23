@@ -37,6 +37,8 @@ const usage = `用法：
   cagectl provider rm ID
 
   cagectl mcp add --id ID --name 名称 --url URL --token-stdin   保存远程 MCP 服务（令牌进钥匙串）
+  cagectl mcp add --kind postgres --id ID --name 名称 --url postgresql://用户@主机:5432/库 --token-stdin
+                                                     保存数据库 MCP（密码进钥匙串，由可信连接器代持）
   cagectl mcp ls
   cagectl mcp rm ID
 
@@ -121,9 +123,13 @@ func run(args []string) error {
 			return err
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\t名称\t地址\t钥匙串条目")
+		fmt.Fprintln(w, "ID\t名称\t类型\t地址\t钥匙串条目")
 		for _, s := range items {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.URL, s.KeyRef)
+			kind := "http"
+			if s.IsConnector() {
+				kind = string(s.Kind)
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", s.ID, s.Name, kind, s.URL, s.KeyRef)
 		}
 		return w.Flush()
 	case "mcp rm":
@@ -324,26 +330,35 @@ func mcpAdd(ctx context.Context, st *store.Store, keychain *vault.Keychain, args
 	var service mcp.Service
 	flags.StringVar(&service.ID, "id", "", "服务 ID（也是 Agent 配置里的服务名）")
 	flags.StringVar(&service.Name, "name", "", "显示名称")
-	flags.StringVar(&service.URL, "url", "", "streamable HTTP 地址")
-	tokenStdin := flags.Bool("token-stdin", false, "从标准输入读取令牌并保存到钥匙串")
+	flags.StringVar(&service.URL, "url", "", "streamable HTTP 地址；数据库为不含密码的连接串")
+	kind := flags.String("kind", "http", "http 或 postgres")
+	tokenStdin := flags.Bool("token-stdin", false, "从标准输入读取令牌或数据库密码并保存到钥匙串")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	service.Kind = mcp.Kind(*kind)
 	service.KeyRef, service.CreatedAt = mcp.KeyRefFor(service.ID), time.Now().UTC()
 	service.Normalize()
 	if err := service.Validate(); err != nil {
 		return err
 	}
 	if !*tokenStdin {
-		return errors.New("请用 --token-stdin 输入令牌")
+		return errors.New("请用 --token-stdin 输入令牌或密码")
 	}
-	fmt.Fprint(os.Stderr, "请输入访问令牌（不会显示，回车结束）：")
+	fmt.Fprint(os.Stderr, "请输入访问令牌或数据库密码（不会显示，回车结束）：")
 	line, err := bufio.NewReader(io.LimitReader(os.Stdin, 8192)).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
 	fmt.Fprintln(os.Stderr)
-	if err := keychain.Put(ctx, service.KeyRef, []byte(strings.TrimSpace(line))); err != nil {
+	secret := strings.TrimRight(line, "\r\n")
+	if !service.IsConnector() {
+		secret = strings.TrimSpace(secret)
+	}
+	if strings.TrimSpace(secret) == "" {
+		return errors.New("令牌或密码不能为空")
+	}
+	if err := keychain.Put(ctx, service.KeyRef, []byte(secret)); err != nil {
 		return err
 	}
 	return st.SaveMCPService(service)

@@ -111,8 +111,9 @@ func codexConfig(sbx sandbox.Sandbox, p provider.Provider, services map[string]m
 		if !ok {
 			continue
 		}
-		// The token comes from the environment and is only a placeholder; the gatekeeper injects it.
-		fmt.Fprintf(&b, "\n[mcp_servers.%s]\nurl = %s\nbearer_token_env_var = %s\n", id, tomlString(service.URL), tomlString(mcp.EnvVar(id)))
+		// The token comes from the environment and is only a placeholder. HTTP services get the real
+		// token injected by the gatekeeper; connector services are reached through its MCP entrypoint.
+		fmt.Fprintf(&b, "\n[mcp_servers.%s]\nurl = %s\nbearer_token_env_var = %s\n", id, tomlString(service.AgentURL()), tomlString(mcp.EnvVar(id)))
 	}
 	if sbx.FilesystemMCP {
 		fmt.Fprintf(&b, "\n[mcp_servers.filesystem]\ncommand = \"mcp-server-filesystem\"\nargs = [%s]\n", tomlString(sbx.ProjectPath))
@@ -127,7 +128,7 @@ func claudeState(sbx sandbox.Sandbox, p provider.Provider, hasProvider bool, ser
 	servers := map[string]any{}
 	for _, id := range sbx.MCP {
 		if service, ok := services[id]; ok {
-			servers[id] = map[string]any{"type": "http", "url": service.URL,
+			servers[id] = map[string]any{"type": "http", "url": service.AgentURL(),
 				"headers": map[string]string{"Authorization": "Bearer " + sbx.Placeholders[mcp.PlaceholderKey(id)]}}
 		}
 	}

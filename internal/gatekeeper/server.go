@@ -32,7 +32,8 @@ func Serve(ctx context.Context, addresses Addresses, handlers Handlers) error {
 	}{
 		{"management", addresses.Management, handlers.Management, 10 * time.Second, 0, 30 * time.Second},
 		{"proxy", addresses.Proxy, handlers.Proxy, 0, 0, 120 * time.Second},
-		{"mcp", addresses.MCP, handlers.MCP, 10 * time.Second, 10 * time.Second, 30 * time.Second},
+		// Tool calls (e.g. a slow database query) may take minutes; the gateway bounds each call itself.
+		{"mcp", addresses.MCP, handlers.MCP, 30 * time.Second, 0, 2 * time.Minute},
 	}
 	for _, entry := range entries {
 		if err := validateAddress(entry.address); err != nil {

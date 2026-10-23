@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -13,9 +15,22 @@ import (
 // Config is delivered by the desktop app through PUT /config. It is the only place real secret
 // values enter the gatekeeper, and it is never serialized back out.
 type Config struct {
-	Policy  policy.Snapshot `json:"policy"`
-	Secrets []Secret        `json:"secrets"`
-	Limits  Limits          `json:"limits"`
+	Policy     policy.Snapshot `json:"policy"`
+	Secrets    []Secret        `json:"secrets"`
+	Limits     Limits          `json:"limits"`
+	Connectors []Connector     `json:"connectors,omitempty"`
+}
+
+// Connector routes the MCP entrypoint to a trusted connector container that holds a secret the
+// sandbox never sees (e.g. a database password). The sandbox authenticates with Placeholder; the
+// gatekeeper forwards to Upstream with Token, a credential only it and the connector know.
+type Connector struct {
+	ID          string `json:"id"`
+	Placeholder string `json:"placeholder"`
+	Upstream    string `json:"upstream"`
+	Token       string `json:"token"`
+	// Tools lists the tools the agent may call; empty allows every tool the server offers.
+	Tools []string `json:"tools,omitempty"`
 }
 
 // Secret maps a placeholder visible inside the sandbox to the real credential for one provider.
@@ -39,10 +54,12 @@ type Limits struct {
 const (
 	maxSecrets     = 32
 	maxSecretBytes = 4096
+	maxConnectors  = 16
 )
 
 var (
 	placeholderPattern = regexp.MustCompile(`^cage-[A-Za-z0-9_-]{16,128}$`)
+	connectorIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 	// Credential headers the gatekeeper understands. Anything else is not treated as a credential.
 	credentialHeaders = []string{"Authorization", "X-Api-Key"}
 )
@@ -52,6 +69,7 @@ type compiled struct {
 	config      Config
 	secrets     map[string]Secret
 	secretHosts map[string][]Secret
+	connectors  map[string]Connector
 }
 
 func compile(config Config) (*compiled, error) {
@@ -61,7 +79,8 @@ func compile(config Config) (*compiled, error) {
 	if len(config.Secrets) > maxSecrets {
 		return nil, fmt.Errorf("密钥不能超过 %d 个", maxSecrets)
 	}
-	result := &compiled{config: config, secrets: map[string]Secret{}, secretHosts: map[string][]Secret{}}
+	result := &compiled{config: config, secrets: map[string]Secret{}, secretHosts: map[string][]Secret{},
+		connectors: map[string]Connector{}}
 	placeholders := map[string]bool{}
 	for i, secret := range config.Secrets {
 		secret.Header = http.CanonicalHeaderKey(secret.Header)
@@ -98,11 +117,47 @@ func compile(config Config) (*compiled, error) {
 			result.secretHosts[host] = append(result.secretHosts[host], secret)
 		}
 	}
+	if len(config.Connectors) > maxConnectors {
+		return nil, fmt.Errorf("连接器不能超过 %d 个", maxConnectors)
+	}
+	for _, connector := range config.Connectors {
+		if !connectorIDPattern.MatchString(connector.ID) {
+			return nil, errors.New("连接器 ID 无效")
+		}
+		if _, ok := result.connectors[connector.ID]; ok {
+			return nil, fmt.Errorf("连接器 ID 重复：%s", connector.ID)
+		}
+		if !placeholderPattern.MatchString(connector.Placeholder) || placeholders[connector.Placeholder] {
+			return nil, fmt.Errorf("连接器 %s 的占位符无效或重复", connector.ID)
+		}
+		if err := validUpstream(connector.Upstream); err != nil {
+			return nil, fmt.Errorf("连接器 %s：%w", connector.ID, err)
+		}
+		if len(connector.Token) < 32 || len(connector.Token) > maxSecretBytes || strings.ContainsAny(connector.Token, " \t\r\n") {
+			return nil, fmt.Errorf("连接器 %s 的令牌无效", connector.ID)
+		}
+		placeholders[connector.Placeholder] = true
+		result.connectors[connector.ID] = connector
+	}
 	if config.Limits.BaselineRequests > 1<<40 || config.Limits.BaselineTokens > 1<<50 {
 		return nil, errors.New("用量基线超出范围")
 	}
 	result.config = config
 	return result, nil
+}
+
+// validUpstream accepts only http://<private IPv4>:<port>: connectors sit on the sandbox's own
+// Docker network, never on the internet.
+func validUpstream(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "http" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("上游地址须为 http://内网IP:端口")
+	}
+	address, err := netip.ParseAddrPort(u.Host)
+	if err != nil || !address.Addr().Is4() || !address.Addr().IsPrivate() || address.Port() == 0 {
+		return errors.New("上游地址须为 http://内网IP:端口")
+	}
+	return nil
 }
 
 func isCredentialHeader(name string) bool {

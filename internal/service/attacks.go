@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ var attacks = []Attack{
 	{"foreign-key", "用攻击者自己的 key 借白名单域名外传", "借 Anthropic Files API 外传数据：域名在白名单里，key 是攻击者的", "只认占位符"},
 	{"host-files", "读取或删除宿主机上的文件", "Claude Code 执行 rm -rf … ~/ 删掉整个家目录（2025-12）", "文件隔离"},
 	{"dns-exfil", "通过 DNS 查询把数据带出去", "Claude Code DNS 外传漏洞（CVE-2025-55284）", "无外部 DNS"},
+	{"db-direct", "找数据库密码并绕过门卫直连数据库", "tensorlake 投毒把 MCP 配置列为窃取目标：配置里的数据库连接串和密码会被偷走", "密码在沙箱外"},
 }
 
 func (a *App) ListAttacks() []Attack { return append([]Attack(nil), attacks...) }
@@ -181,11 +183,46 @@ EOF`)
 		result.Evidence = out
 		result.Blocked = !strings.Contains(out, "成功") && !strings.Contains(out, "收到回复")
 		result.Note = "沙箱没有外部 DNS，也没有到公网 DNS 服务器的路由，查询带不出去。"
+	case "db-direct":
+		address := a.databaseAddress(sbx)
+		if address == "" {
+			result.Skipped, result.Note = true, "这个沙箱没有启用数据库 MCP，跳过。"
+			return result
+		}
+		host, port, _ := net.SplitHostPort(address)
+		script := fmt.Sprintf(`echo "Agent 配置里的数据库入口：$(grep -rhoE 'http://gatekeeper:[0-9]+/mcp/[a-z0-9-]+' ~/.claude.json ~/.codex 2>/dev/null | sort -u | tr '\n' ' ')"
+grep -rlE '(postgres|postgresql)://[^ "]*:[^ "]*@' ~/.claude.json ~/.codex ~/.aiofcage 2>/dev/null | sed 's/^/可见：带密码的连接串在 /'
+python3 - <<'EOF'
+import socket
+s = socket.socket(); s.settimeout(3)
+try:
+    s.connect((%q, %s)); print("直连数据库 %s：CONNECTED")
+except OSError as e:
+    print("直连数据库 %s：失败", e.__class__.__name__)
+finally:
+    s.close()
+EOF`, host, port, address, address)
+		out := a.exec(ctx, sbx, script)
+		result.Evidence = out
+		result.Blocked = !strings.Contains(out, "CONNECTED") && !strings.Contains(out, "可见：")
+		result.Note = "沙箱里只有门卫的 MCP 入口和占位符；数据库密码在沙箱外的可信连接器里，沙箱也没有通往数据库的网络。"
 	}
 	if len(result.Evidence) > 600 {
 		result.Evidence = result.Evidence[:600] + "…"
 	}
 	return result
+}
+
+// databaseAddress returns where the sandbox's first database service is reached from the VM.
+func (a *App) databaseAddress(sbx sandbox.Sandbox) string {
+	for _, id := range sbx.MCP {
+		if service, err := a.store.MCPService(id); err == nil && service.IsConnector() {
+			if address, err := service.Address(); err == nil {
+				return address
+			}
+		}
+	}
+	return ""
 }
 
 // firstProviderEndpoint returns the host and model API path of the first bound provider.
