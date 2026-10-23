@@ -14,7 +14,7 @@
 | # | 决定 | 一句话理由 |
 |---|---|---|
 | 1 | **单进程**：Wails 内直接跑门卫 / 策略 / 审计，不做 daemon | 本地工具正在去 daemon 化（microsandbox 重写时删掉了 server 与 supervisor）；省掉 IPC 与生命周期管理 |
-| 2 | **出网拓扑**：`cage-internal`（无默认路由）+ 双网卡 relay | 不拥有 VMM 就只能这么做；`-p` 在内部网络无效、`host.docker.internal` 不可解析，都是实测结论 |
+| 2 | **出网拓扑**：`cage-internal`（无默认路由）+ **门卫自己就是双网卡边车** | 一个容器同时具备内网地址和出网能力，就同时是唯一入口与唯一出口；`-p` 在内部网络无效、`host.docker.internal` 不可解析，都是实测结论 |
 | 3 | **默认拒绝 + 未知目标弹窗询问** | 学 Docker 的姿态（沙箱即安全），但静默失败对普通用户是坏体验，所以补 Zed/Claude 的询问层 |
 | 4 | **凭证链路只做 MITM（方案 A）** | base_url 只覆盖模型调用，MCP 与普通 API 仍要 MITM，等于维护两套；A 是市场主流（Docker / srt / E2B / Daytona 全是宿主侧拦截） |
 | 5 | **审计在宿主侧生成并 hash 链化** | 判断逻辑与账本一旦进沙箱，VM 快照里就带着可伪造的审计（nono NEP-0007 的结论） |
@@ -34,7 +34,7 @@
 
 ### 两个硬门槛
 
-- **T+4（今天 20:00）Gate 1**：容器内 `claude -p "hi"` 能拿到模型响应。过不了先排查 key 格式校验与客户端 OAuth——这是排查题，不是选型题（见 ADR-004）
+- **T+4（今天 20:00）Gate 1**：容器内 Codex 用 xapi 跑通一次真实请求（模型调用也走门卫）。过不了先排查 key 格式校验与客户端 OAuth——这是排查题，不是选型题（见 ADR-005）
 - **T+56（10/25 深夜）**：冻结特性，只修 bug
 
 ---
@@ -113,26 +113,31 @@
 ### 3.3 信任边界
 
 ```
-┌───────────────────── 可信 ─────────────────────┐
-│ macOS 宿主                                      │
-│  · Keychain（唯一存放真密钥的地方）              │
-│  · 门卫代理（唯一持有真密钥的进程）              │
-│  · 策略引擎 / 审计账本                          │
-└───────────────────────┬─────────────────────────┘
-                        │ 占位符 / 受控请求
-┌───────────────────────▼─────────────────────────┐
-│ colima VM（半可信）                             │
-│  · mounts 白名单：只有 ~/CageWorkspace 可见     │
-│  · relay 容器（唯一出口）                       │
-│  · Docker 引擎（容器逃逸的落点）                │
-└───────────────────────┬─────────────────────────┘
-                        │ 无默认路由
-┌───────────────────────▼─────────────────────────┐
-│ agent 容器（不可信）                            │
-│  · Claude Code / Codex / dsh                    │
-│  · 只有占位符，没有真密钥                       │
-└─────────────────────────────────────────────────┘
+┌──────────────────── 可信：macOS 宿主 ─────────────────────┐
+│  · Keychain：真密钥的唯一来源（service: sbx-builderday-key）│
+│  · AIofCage.app：GUI + 策略 + 审计账本                     │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ 带 token 的管理接口
+                           │ （仅在创建/启动时下发密钥）
+┌──────────────────────────▼──────────────────────────────────┐
+│ colima VM                                                   │
+│  ┌─────────── 可信（边车，不在沙箱内）───────────┐          │
+│  │ gatekeeper 容器                               │          │
+│  │  · 双网卡：cage-internal + 默认 bridge        │          │
+│  │  · 唯一出网路径                               │          │
+│  │  · 真密钥只存在于本进程内存                   │          │
+│  │  · 生成 CA，供 agent 容器信任                 │          │
+│  └───────────────────┬───────────────────────────┘          │
+│                      │ cage-internal（无默认路由）          │
+│  ┌───────────────────▼───────────────────────────┐          │
+│  │ agent 容器（不可信）                          │          │
+│  │  · Codex / Claude Code / dsh                  │          │
+│  │  · 只有占位符，没有真密钥                     │          │
+│  └───────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+**注意**：密钥的存放地在宿主 Keychain，运行地在 gatekeeper 进程内存。gatekeeper 虽然是个容器，但它只跑我们自己的二进制、不执行任何 Agent 代码，且与 agent 不在同一网络命名空间内。
 
 **关键论证（答辩用）**：
 
@@ -162,39 +167,42 @@
 │  │   internal/service  ──┬── policy   策略引擎                   │  │
 │  │                       ├── vault    Keychain 适配              │  │
 │  │                       ├── audit    hash 链账本                │  │
-│  │                       ├── runtime  容器/网络生命周期          │  │
-│  │                       └── gatekeeper  门卫代理 :8899          │  │
+│  │                       └── runtime  容器/网络生命周期          │  │
 │  └───────────────────────────────┬──────────────────────────────┘  │
-│                                  │ 127.0.0.1:8899                  │
-│                                  │ (gvproxy 转发)                  │
-│  ~/CageWorkspace  ──── mounts 白名单（VM 层）                       │
+│                                  │ 管理接口（token 鉴权）           │
+│  ~/CageWorkspace  ──── colima mounts 白名单（VM 层）                │
 └──────────────────────────────────┼─────────────────────────────────┘
                                    │
 ┌──────────────────── colima VM (vz) ┼────────────────────────────────┐
-│                                    │                               │
-│   relay (alpine/socat)  ───────────┘                               │
-│     eth0: docker0 (默认 bridge)  → host.docker.internal:8899        │
-│     eth1: cage-internal          ← 监听 :8888                       │
+│                                    ▼                               │
+│   gatekeeper 容器  ── eth0: bridge（出网）                          │
+│      · MITM + 策略 + 注入          eth1: cage-internal（:8888）      │
+│      · 唯一出口，同时是唯一入口                                      │
 │           ▲                                                        │
-│           │ 唯一可达目的地                                          │
-│   agent 容器（只连 cage-internal，无默认路由）                       │
-│     HTTP_PROXY=http://relay:8888                                    │
-│     Claude Code / Codex / dsh                                       │
-│     ~/CageWorkspace → /work                                         │
+│           │ 无默认路由，只能到达 gatekeeper                          │
+│   agent 容器（只连 cage-internal）                                  │
+│     HTTP_PROXY=http://gatekeeper:8888                               │
+│     Codex / Claude Code / dsh                                       │
+│     ~/CageWorkspace/<project> → /work                               │
 └────────────────────────────────────────────────────────────────────┘
 ```
+
+**为什么不需要单独的 relay**：gatekeeper 自己就是双网卡边车——它同时接入 `cage-internal` 和默认 bridge，因此既能在内网上被 agent 访问，又能出网。多一个 socat relay 只是多一跳、多一个攻击面。
 
 ### 4.2 一次请求的完整链路
 
 ```
 Agent 发起 HTTPS 请求
-  → 容器无默认路由，只能连 relay:8888
-  → relay 转发到宿主 127.0.0.1:8899
-  → 门卫代理按域名/方法/路径匹配策略
+  → 容器无默认路由，只能连 gatekeeper:8888
+  → gatekeeper 解 CONNECT，按域名/方法/路径匹配策略
       ├─ 未命中白名单  → 403 + 审计 DENY + GUI 弹窗
       └─ 命中白名单    → MITM 解密 → 覆盖 Authorization 为真密钥
-                        → 转发上游 → 响应脱敏 → 审计 ALLOW/INJECT
+                        → 经 eth0 转发上游 → 响应脱敏 → 审计 ALLOW/INJECT
 ```
+
+**注意**：gatekeeper 是容器，不是宿主进程。所以"真密钥"从 Keychain 读出后要经管理接口送进 gatekeeper 内存——这是一次本地网络传输，走 docker bridge，不出机器。这一条必须写进架构文档，否则会被问"密钥是不是又进容器了"。
+
+**回答口径**：密钥的**持久化位置**只有 macOS Keychain；gatekeeper 内存是运行期持有，进程退出即消失，且 gatekeeper 内不运行任何 Agent 代码。
 
 ### 4.3 分层与职责
 
@@ -224,19 +232,19 @@ Agent 发起 HTTPS 请求
 | 内部网络下 `host.docker.internal` | **DNS SERVFAIL**；直连宿主 IP 被丢弃 |
 | 普通 bridge 访问宿主 `127.0.0.1:8899` | **可用**（colima gvproxy 转发） |
 
-**因此唯一可行拓扑：双网卡 relay 容器。**
+**最终拓扑：gatekeeper 自己就是那个双网卡边车。**
 
 ```bash
-# 1) 内部网络：无路由
+# 1) 内部网络：无默认路由
 docker network create --internal cage-internal
 
-# 2) relay：双网卡，唯一出口
-docker run -d --name cage-relay \
+# 2) gatekeeper：双网卡，唯一入口 + 唯一出口
+docker run -d --name cage-gatekeeper \
   --network bridge \
-  --network-alias relay \
-  alpine/socat \
-  TCP-LISTEN:8888,fork,reuseaddr TCP:host.docker.internal:8899
-docker network connect cage-internal cage-relay --alias relay
+  --cap-drop ALL --security-opt no-new-privileges \
+  -e GATEKEEPER_TOKEN=<每次启动随机生成> \
+  aiocage/gatekeeper:dev            # 监听 0.0.0.0:8888，同时提供管理接口
+docker network connect cage-internal cage-gatekeeper --alias gatekeeper
 
 # 3) agent：只连内部网络
 docker run -it --name cage-agent \
@@ -245,12 +253,17 @@ docker run -it --name cage-agent \
   --read-only --tmpfs /tmp --tmpfs /home/agent \
   --cap-drop ALL --security-opt no-new-privileges \
   -v ~/CageWorkspace/<project>:/work \
-  -e HTTP_PROXY=http://relay:8888 -e HTTPS_PROXY=http://relay:8888 \
-  -e NO_PROXY=localhost,127.0.0.1,relay \
+  -e HTTP_PROXY=http://gatekeeper:8888 -e HTTPS_PROXY=http://gatekeeper:8888 \
+  -e NO_PROXY=localhost,127.0.0.1,gatekeeper \
+  -e NODE_EXTRA_CA_CERTS=/etc/aiocage/ca.crt \
   aiocage/agent:dev
 ```
 
-**验收标准**：容器内 `curl -sS https://api.github.com` 走通；`curl --noproxy '*' https://api.github.com` 必须失败；`ip route` 无 default。
+**验收标准**：
+- 容器内 `curl -sS https://xapi.qiniu.io/v1/models` 走通（白名单内）
+- `curl --noproxy '*' https://xapi.qiniu.io` 必须失败（无路由）
+- `ip route` 无 default
+- 容器内 `env | grep -i -E 'key|token'` 只有 `cage-xxxxxxxx`
 
 ### 5.2 门卫代理
 
@@ -309,12 +322,49 @@ CONNECT
 
 **问题**：容器里没有密钥，但 Agent 连模型 API 也要鉴权。
 
-**方案 A（默认）：统一走门卫 MITM**
+### 5.3.1 已验证的结论（2026-10-22，团队在 Docker sbx 内实测）
 
-- 容器内注入占位符：`ANTHROPIC_API_KEY=cage-a1b2c3d4`、`OPENAI_API_KEY=cage-a1b2c3d4`
-- 门卫对 `api.anthropic.com` / `api.openai.com` 的请求覆盖真实 `x-api-key` / `Authorization`
-- 优点：一条链路管全部（LLM + MCP + 普通 API）
-- 风险：若 Agent 在本地校验 key 格式会失败 → 见降级路径
+- 沙箱环境变量里只有占位符，门卫替换后调用 `https://xapi.qiniu.io/v1` **成功**
+- 发往白名单外的域名返回 **403**
+- 在沙箱的文件系统与环境变量里搜索真 key，**0 处命中**
+
+这条实测把"能不能做"变成了"怎么做"，是本项目最有力的证据，演示时必须复现。
+
+### 5.3.2 比赛用的模型端点
+
+**不是**官方 `api.anthropic.com` / `api.openai.com`，而是：
+
+```
+https://xapi.qiniu.io/v1        （OpenAI 兼容，/chat/completions 与 /responses 都可用）
+模型：gpt-5.5 / gpt-5.6-sol / gpt-5.6-terra / gpt-6-astra / gpt-6-sol / gpt-6.1-sol
+```
+
+Codex 走自定义 provider（容器内 `~/.codex/config.toml`）：
+
+```toml
+model = "gpt-6-astra"
+model_provider = "qiniu"
+
+[model_providers.qiniu]
+name = "Qiniu Builder Day"
+base_url = "https://xapi.qiniu.io/v1"
+env_key = "OPENAI_API_KEY"      # 容器内只有占位符，由门卫替换
+wire_api = "responses"          # /chat/completions 也可用
+```
+
+**Codex 版本必须 ≥ 0.161.0**：0.149.1 不认识 gpt-6 系列，会报 `Model metadata … not found`，且 `/model` 列不出模型——因为模型列表来自程序自带目录，不读中转站的 `/v1/models`。本机已装 0.162.0，满足。
+
+**主演示 Agent 定为 Codex**：它在 xapi 上已跑通。Claude Code 的认证方式（`CLAUDE_CODE_OAUTH_TOKEN` 占位符 + 注入）仍待验证，作为第二顺位。
+
+### 5.3.3 密钥来源
+
+比赛 key 存在 macOS Keychain，service 名固定：
+
+```bash
+security find-generic-password -a "$USER" -s sbx-builderday-key -w
+```
+
+**红线**：这个值不得写进代码、仓库、日志、截图。提交前扫描 `sk-`、`ghp_`、`cage-`（占位符除外）。
 
 **方案 B（降级）：base_url 指向门卫**
 
@@ -397,10 +447,9 @@ create → starting → running ⇄ paused → stopped → deleted
   "network": {
     "default": "deny",
     "rules": [
-      { "host": "api.anthropic.com", "methods": ["POST"], "decision": "inject", "secret": "anthropic" },
-      { "host": "api.openai.com",    "methods": ["POST"], "decision": "inject", "secret": "openai" },
+      { "host": "xapi.qiniu.io",      "methods": ["POST"], "decision": "inject", "secret": "builderday" },
       { "host": "registry.npmjs.org", "methods": ["GET"],  "decision": "allow" },
-      { "host": "api.github.com",    "decision": "ask" },
+      { "host": "api.github.com",     "decision": "inject", "secret": "github" },
       { "host": "*.githubusercontent.com", "decision": "deny" }
     ]
   },
@@ -410,8 +459,20 @@ create → starting → running ⇄ paused → stopped → deleted
     "deny": ["sudo *", "ssh *"]
   },
   "secrets": {
-    "anthropic": { "placeholder": "cage-a1b2c3d4", "inject": ["api.anthropic.com"], "header": "x-api-key" },
-    "openai":    { "placeholder": "cage-e5f6g7h8", "inject": ["api.openai.com"], "header": "Authorization", "prefix": "Bearer " }
+    "builderday": {
+      "placeholder": "cage-a1b2c3d4",
+      "inject": ["xapi.qiniu.io"],
+      "header": "Authorization",
+      "prefix": "Bearer ",
+      "source": "keychain:sbx-builderday-key"
+    },
+    "github": {
+      "placeholder": "cage-e5f6g7h8",
+      "inject": ["api.github.com"],
+      "header": "Authorization",
+      "prefix": "Bearer ",
+      "source": "keychain:aiocage-github"
+    }
   }
 }
 ```
@@ -590,8 +651,10 @@ Settings（Agent 路径、默认预设、审计保留）
 **3. 命令审批（60s）**
 `git push --force origin main` → 命中 `ask` → 弹窗 → 拒绝 → Agent 收到结构化拒绝原因。
 
-**4. MCP 免填密钥（90s）**
-GitHub MCP 在容器内运行，`env` 里只有 `cage-xxxx`；工具调用成功；门卫审计显示 `INJECT secret=github → api.github.com`。
+**4. MCP 免填密钥 + 模型调用（120s）** ← 第二个主镜头
+- GitHub MCP 在容器内运行，`env` 里只有 `cage-xxxx`；工具调用成功
+- 门卫审计出现两行：`INJECT secret=github → api.github.com`、`INJECT secret=builderday → xapi.qiniu.io`
+- **关键一句**：Agent 连自己连模型的那条链路，用的也是占位符
 
 **5. 差分记分卡（60s）**
 同一份攻击脚本：
@@ -612,7 +675,7 @@ GitHub MCP 在容器内运行，`env` 里只有 `cage-xxxx`；工具调用成功
 - [ ] `cage-internal` + relay + agent 三件套跑通
 - [ ] 容器内 `curl https://api.github.com` 走门卫成功
 - [ ] `claude --version` 在容器内可执行
-- [ ] **方案 A 验证**：占位符 + MITM 注入后，`claude -p "hi"` 能否得到模型响应
+- [ ] **方案 A 验证**：占位符 + MITM 注入后，容器内 Codex 能否用 xapi 拿到模型响应（团队 10/22 已在 sbx 中验证过同一路径）
 
 > 过不了 Gate 1：先查 key 格式校验、客户端 OAuth、CA 是否被 Node 认到；最坏情况只对 LLM 临时退到 base_url，MCP 仍走 MITM。**不推翻架构。**
 
@@ -664,6 +727,8 @@ GitHub MCP 在容器内运行，`env` 里只有 `cage-xxxx`；工具调用成功
 AIofCage/
 ├── main.go                     # Wails 入口
 ├── go.mod
+├── cmd/
+│   └── gatekeeper/main.go      # 门卫容器的 entrypoint（独立二进制）
 ├── internal/
 │   ├── service/                # Wails 绑定层（唯一暴露给前端的 API）
 │   │   ├── app.go
@@ -697,7 +762,8 @@ AIofCage/
 │       ├── pages/{Sessions,SessionDetail,Policies,Secrets,Audit,Settings}
 │       └── components/{ApprovalSheet,AuditTable,ActivityFeed,PolicyEditor}
 ├── docker/
-│   └── agent/Dockerfile        # 预置 CA、Node、claude、codex
+│   ├── agent/Dockerfile        # 预置 CA、Node、codex、claude
+│   └── gatekeeper/Dockerfile   # 只含门卫二进制，无 shell
 ├── scripts/
 │   ├── setup-colima.sh
 │   ├── redteam.sh              # 红队脚本
@@ -745,17 +811,28 @@ AIofCage/
 - **代价**：GUI 崩溃会留下孤儿容器 → 启动时做一次 reconcile（按 metadata 里的容器 ID 清理）。
 - **何时应推翻**：如果要做多客户端（CLI + GUI 同时操作同一沙箱）。
 
-### ADR-002 双网卡 relay，而不是端口发布或 unix socket
+### ADR-002 门卫本身就是双网卡边车，不额外加 relay
 
-- **决定**：`cage-internal` + relay 容器（bridge + internal 双网卡）。
+- **决定**：`cage-internal` + 一个同时接入 bridge 与 internal 的 gatekeeper 容器。它既是唯一入口，也是唯一出口。
 - **被否**：
-  - `-p` 端口发布 —— **实测在内部网络下无效**，`docker port` 为空。
-  - unix socket —— colima 通过 virtiofs 共享文件系统，**unix socket 不能跨 VM 边界**。
-  - 在 VM 内跑门卫 —— 门卫需要读 macOS Keychain，做不到。
-- **理由**：这是"容器无默认路由但可达代理"在 colima 上唯一成立的组合。
-- **代价**：多一个容器；relay 必须最小化（单端口、无 shell）。
+  - **独立 relay + 宿主门卫**：需要 host↔VM 网络（`host.docker.internal` / gvproxy），多一跳、多一个进程、多一处密钥暴露面。
+  - `-p` 端口发布：**实测在内部网络下无效**，`docker port` 为空。
+  - unix socket：colima 通过 virtiofs 共享文件系统，**unix socket 不能跨 VM 边界**。
+- **理由**：一个容器同时具备内网地址和出网能力，就能同时完成"被 agent 访问"和"访问外网"。这是最少组件数的解。
+- **代价**：gatekeeper 成为单点——它挂了整个沙箱就没网。可接受，因为它的崩溃同时也意味着策略不可用，fail-closed 正是我们要的。
 
-### ADR-003 默认拒绝 + 询问，而不是静默拒绝
+### ADR-003 密钥经管理接口下发到 gatekeeper 内存
+
+- **决定**：桌面应用从 Keychain 读出密钥后，通过带 token 的管理接口发给 gatekeeper，只存在于 gatekeeper 进程内存。
+- **被否**：
+  - gatekeeper 直接读 Keychain：容器内访问 macOS Keychain 需要挂载宿主 socket / 走 `security` 命令，等于把钥匙串暴露给容器，得不偿失。
+  - 写进容器环境变量：会出现在 `docker inspect`、`/proc/1/environ`，且可能被快照留存。
+  - 挂载密钥文件：文件系统里出现真值，违反"沙箱内 0 处命中"的验收标准。
+- **理由**：真密钥只在两个地方存在——Keychain（持久）和 gatekeeper 内存（运行期）。agent 容器内始终为零。
+- **代价**：多一个管理接口需要鉴权（每次启动随机生成 token，仅 bind 在 bridge 侧）。
+- **答辩口径**：密钥的**持久化位置**只有 Keychain；gatekeeper 只是运行期持有，且其中不运行任何 Agent 代码。
+
+### ADR-004 默认拒绝 + 询问，而不是静默拒绝
 
 - **决定**：未命中白名单的网络请求挂起，弹窗让用户三选一。
 - **被否**：Docker sbx 的"无提示、直接阻断"。
@@ -763,7 +840,7 @@ AIofCage/
 - **代价**：多一套审批队列与作用域状态机。
 - **红线**：弹窗只能把 `ask` 提升为 `allow`，**永远不能绕过 `deny`**。
 
-### ADR-004 凭证只做 MITM，不接受 base_url 替代
+### ADR-005 凭证只做 MITM，不接受 base_url 替代
 
 - **决定**：宿主侧自签 CA + MITM，覆盖 Authorization。
 - **被否**：`ANTHROPIC_BASE_URL` / Codex `model_providers.base_url` 指向本地网关。
@@ -771,7 +848,7 @@ AIofCage/
 - **代价**：容器内必须装 CA，且要覆盖 Node / Python / Go / curl 四套信任环境。
 - **踩坑记录**：goproxy 自带公开 CA 私钥，必须自签；goproxy 默认读取宿主 `HTTPS_PROXY`，必须清空。
 
-### ADR-005 `dsh` 不做专项适配
+### ADR-006 `dsh` 不做专项适配
 
 - **决定**：产品支持"自定义 Agent 命令"，`claude` / `codex` / `dsh` 都只是配置项。
 - **被否**：为每个 Agent 写适配器与参数模板。
@@ -779,7 +856,7 @@ AIofCage/
 - **代价**：对三个 Agent 都不做深度集成（例如不解析它们的 session 格式）。可接受——我们卖的是边界，不是 Agent 集成。
 - **风险**：若 dsh 仅 macOS 原生二进制，则它无法进 Linux 容器，届时在 UI 上明确标注"该 Agent 仅支持本机模式（无沙箱）"，而不是假装支持。
 
-### ADR-006 明确不做快照 / 多 Agent / Windows
+### ADR-007 明确不做快照 / 多 Agent / Windows
 
 - **决定**：不在 60 小时内做，且写进文档。
 - **理由**：快照需要 userfaultfd + COW（E2B 的量级）；多 Agent 编排只有 Daytona / Runloop / K8s 做了，各自是一个平台；WSL2 的 Landlock 版本差异会毁掉策略一致性。
