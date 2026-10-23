@@ -1,6 +1,6 @@
 # 工程骨架与模块说明
 
-当前交付的是桌面入口、内存会话、模块接口与始终拒绝转发的门卫。目的是让队友可以在同一工程里分模块开发；隔离、Keychain、模型、MCP 和审计采集仍未实现，G0—G5 也没有因此变成已验证。
+当前交付的是桌面入口、内存会话、模块接口，以及可配置、可转发的门卫（S2）。目的是让队友可以在同一工程里分模块开发；隔离、Keychain、模型、MCP 和审计采集仍未实现，G0—G5 也没有因此变成已验证。
 
 ## 入口与调用关系
 
@@ -13,9 +13,9 @@ main.go / Wails
 
 cmd/gatekeeper
     └── internal/gatekeeper
-          ├── management：鉴权与未就绪健康状态
-          ├── proxy：拒绝所有请求，包括 CONNECT
-          └── mcp：拒绝所有请求
+          ├── management：鉴权、/health、PUT /config、GET /events（SSE）、GET /usage、GET /ca
+          ├── proxy：goproxy MITM；按 policy 授权、占位符换真 key、额度、脱敏事件
+          └── mcp：尚未实现，拒绝所有请求
 ```
 
 桌面与门卫目前是两个独立入口，桌面不会自动启动或连接门卫。前端直接使用 Wails 注入的 `window.go.service.App`，不依赖生成的前端绑定文件，也不运行 Node 服务。静态资源编译进桌面二进制。
@@ -27,10 +27,10 @@ cmd/gatekeeper
 | `service` | 环境概览、选择目录、创建/列出会话草稿、拒绝启动 | 生命周期协调、持久化、控制面和用户授权；不绑定 vault 的读方法 |
 | `session` | 会话/Agent/状态类型、线程安全内存存储 | 持久化与重启对账；草稿不代表任何容器存在 |
 | `runtime` | 后端接口；平台与命令路径探测；不可用后端 | 专用 Colima、网络、挂载、就绪检查和安全停机；永不回退宿主执行 |
-| `gatekeeper` | 三个独立 HTTP 监听、管理认证、固定拒绝响应、优雅停机 | 策略激活、MITM、凭据注入、事件与额度；不可直接作为可用代理 |
-| `policy` | 版本化规则草案与默认拒绝结果 | 规范化、deny 优先、规则验证与匹配；目前没有规则会被执行 |
+| `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口仍拒绝；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
+| `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
 | `vault` | 秘密存取接口 | Keychain 与安全交付；无文件、环境变量或内存假存储兜底 |
-| `audit` / `events` | 脱敏事件、Recorder 与游标订阅接口 | JSONL、SSE、去重补发、缺口；当前无实际事件采集 |
+| `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫侧 SSE 已实现 | 应用侧订阅、去重、JSONL 落盘与缺口提示（S6） |
 | `mcp` | 服务绑定草案与网关接口 | 协议 SDK、工具/参数/资源授权及会话映射；绑定草案不是可执行权限 |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
 | `connector` | 固定服务定义与运行接口 | 镜像摘要审查、私有网络和秘密交付；不运行传入的命令或镜像 |
@@ -50,24 +50,28 @@ cmd/gatekeeper
 
 ## 门卫本机开发
 
-`make gatekeeper` 生成 `bin/gatekeeper`。以下仅启动本机拒绝服务，不能运行 Agent：
+`make gatekeeper` 生成本机二进制；`make gatekeeper-linux` 生成沙箱里用的 Linux/arm64 二进制，并把 `docker/gatekeeper/Dockerfile` 一起放进 `build/gatekeeper/`：
 
 ```bash
-export CAGE_ADMIN_TOKEN="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n')"
-./bin/gatekeeper
+make gatekeeper-linux
+docker --context colima-aiofcage build -t aiofcage/gatekeeper:dev build/gatekeeper
 ```
 
-`CAGE_ADMIN_TOKEN` 是临时控制面 token，不是模型或 MCP 凭据；默认监听分别为 `127.0.0.1:8899`、`127.0.0.1:8888`、`127.0.0.1:8890`。程序拒绝空 token、过短/错误编码 token、通配地址、域名监听和非法端口。当前允许显式指定具体接口 IP，容器网络绑定与宿主发布范围仍须由未来运行时验证。
+管理 token 可以用 `--token-stdin` 从标准输入第一行读取（容器内使用，避免出现在 `docker inspect`），也可以在本机开发时用环境变量 `CAGE_ADMIN_TOKEN`。监听地址必须是具体接口 IP，默认分别为 `127.0.0.1:8899`（管理）、`127.0.0.1:8888`（代理）、`127.0.0.1:8890`（MCP）。
 
-| 入口 | 当前响应 |
+| 入口 | 行为 |
 |---|---|
 | 管理：无效、缺失或重复 Authorization | 401，不回显 token |
-| 管理：带 Origin 的请求 | 403，不提供浏览器跨域访问 |
-| `GET /health`（有效 Bearer token） | 503，`ready=false`、`reason=not_configured`；不应以进程存活代替就绪 |
-| `PUT /config`、`GET /events`、`GET /usage`（有效 token） | 501，未实现；不会装载任何配置或秘密 |
-| 代理任意方法、CONNECT 与 MCP 任意请求 | 503，始终拒绝，无上游网络访问 |
+| 管理：带 Origin 或查询串 | 403 / 400 |
+| `GET /health` | 未配置 503（`ready=false`）；配置后 200，返回 `run_id`、策略版本、最新事件序号 |
+| `PUT /config` | 校验后原子替换策略、密钥、额度；策略版本必须递增（否则 409）；错误信息只含 ID，不含密钥或占位符 |
+| `GET /events` | SSE；每条事件 `id: <run_id>:<seq>`；带 `Last-Event-ID` 断线续传；游标过旧或来自其他运行时先发 `audit.gap` |
+| `GET /usage` | 请求数、拒绝数、额度计数、按密钥 ID 的请求与 token；不含任何密钥 |
+| `GET /ca` | 本次运行的公有 CA 证书（私钥只在内存） |
+| 代理 | 未配置时一律 503；配置后按 §6.2 的顺序授权，拒绝时返回 403/429 和 `X-Aiofcage-Reason` |
+| MCP | 尚未实现，一律 503 |
 
-结束进程使用 Ctrl+C。应用不创建持久化会话、容器或凭据；`make clean` 只删除两个本地二进制，不触及项目内容。未来 SSE 接入需重新处理当前 HTTP 写超时，不能沿用短超时后宣称长连接可用。
+`PUT /config` 的结构见 `internal/gatekeeper/config.go`：`policy`（规则）、`secrets`（ID、占位符、注入头 `Authorization` 或 `X-Api-Key`、前缀、真值）、`limits`（请求数/token 上限及基线）。
 
 ## 验证与接续开发
 

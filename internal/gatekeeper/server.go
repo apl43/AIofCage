@@ -20,14 +20,19 @@ type Addresses struct {
 // Serve binds all three listeners before serving; failure leaves no partially running service.
 // Callers must select concrete addresses on the appropriate network interfaces.
 func Serve(ctx context.Context, addresses Addresses, handlers Handlers) error {
+	// Timeouts differ per plane: SSE on management and long model streams through the proxy must
+	// not be cut by a whole-response write deadline. SSE extends its own deadline per write.
 	entries := []struct {
-		name    string
-		address string
-		handler http.Handler
+		name         string
+		address      string
+		handler      http.Handler
+		readTimeout  time.Duration
+		writeTimeout time.Duration
+		idleTimeout  time.Duration
 	}{
-		{"management", addresses.Management, handlers.Management},
-		{"proxy", addresses.Proxy, handlers.Proxy},
-		{"mcp", addresses.MCP, handlers.MCP},
+		{"management", addresses.Management, handlers.Management, 10 * time.Second, 0, 30 * time.Second},
+		{"proxy", addresses.Proxy, handlers.Proxy, 0, 0, 120 * time.Second},
+		{"mcp", addresses.MCP, handlers.MCP, 10 * time.Second, 10 * time.Second, 30 * time.Second},
 	}
 	for _, entry := range entries {
 		if err := validateAddress(entry.address); err != nil {
@@ -54,9 +59,9 @@ func Serve(ctx context.Context, addresses Addresses, handlers Handlers) error {
 	errorsCh := make(chan error, len(entries))
 	for i, entry := range entries {
 		server := &http.Server{
-			Handler: entry.handler, ReadHeaderTimeout: 5 * time.Second,
-			ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second,
-			IdleTimeout: 30 * time.Second, MaxHeaderBytes: 16 << 10,
+			Handler: entry.handler, ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout: entry.readTimeout, WriteTimeout: entry.writeTimeout,
+			IdleTimeout: entry.idleTimeout, MaxHeaderBytes: 32 << 10,
 			BaseContext: func(net.Listener) context.Context { return ctx },
 		}
 		servers = append(servers, server)
