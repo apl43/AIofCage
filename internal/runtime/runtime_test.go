@@ -60,7 +60,7 @@ func TestAgentImageContext(t *testing.T) {
 	if codex < 0 || dsh < 0 || codex > dsh || strings.Contains(dockerfile, "claude-code") {
 		t.Fatalf("unexpected Dockerfile:\n%s", dockerfile)
 	}
-	if !strings.Contains(dockerfile, "public.ecr.aws/docker/library/node:22.16.0-bookworm-slim@sha256:") {
+	if !strings.Contains(dockerfile, "public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:") {
 		t.Fatal("base image must be pinned from public.ecr.aws")
 	}
 	if _, err := agentContext(nil); err == nil {

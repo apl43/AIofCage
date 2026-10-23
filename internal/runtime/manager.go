@@ -23,6 +23,10 @@ import (
 )
 
 const (
+	// specVersion changes whenever the docker create arguments below change, so that existing
+	// containers are recreated (the home volume and project are kept).
+	specVersion  = "2"
+	specLabel    = "io.aiofcage.spec"
 	labelKey     = "io.aiofcage.sandbox"
 	tokenPath    = "/run/aiofcage/admin-token"
 	agentUser    = "1000:1000"
@@ -152,19 +156,24 @@ func (m *Manager) Status(ctx context.Context, id string) State {
 
 type containerInfo struct {
 	exists, running bool
-	image           string
+	image, spec     string
 }
 
 func (m *Manager) container(ctx context.Context, name string) containerInfo {
-	out, err := m.docker.run(ctx, 15*time.Second, nil, "container", "inspect", "--format", "{{.State.Running}} {{.Config.Image}}", name)
+	out, err := m.docker.run(ctx, 15*time.Second, nil, "container", "inspect", "--format",
+		`{{.State.Running}} {{.Config.Image}} {{index .Config.Labels "`+specLabel+`"}}`, name)
 	if err != nil {
 		return containerInfo{}
 	}
 	fields := strings.Fields(string(out))
-	if len(fields) != 2 {
+	if len(fields) < 2 {
 		return containerInfo{}
 	}
-	return containerInfo{exists: true, running: fields[0] == "true", image: fields[1]}
+	info := containerInfo{exists: true, running: fields[0] == "true", image: fields[1]}
+	if len(fields) > 2 {
+		info.spec = fields[2]
+	}
+	return info
 }
 
 func (m *Manager) providersFor(sbx sandbox.Sandbox) (map[string]provider.Provider, error) {
@@ -276,14 +285,14 @@ func (m *Manager) ensureObjects(ctx context.Context, sbx sandbox.Sandbox, gateIm
 		}
 	}
 	gate := m.container(ctx, n.gate)
-	if gate.exists && (createdNetwork || gate.image != gateImage) {
+	if gate.exists && (createdNetwork || gate.image != gateImage || gate.spec != specVersion) {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", n.gate); err != nil {
 			return err
 		}
 		gate.exists = false
 	}
 	if !gate.exists {
-		if _, err := m.docker.run(ctx, 30*time.Second, nil, "create", "--name", n.gate, "--label", label,
+		if _, err := m.docker.run(ctx, 30*time.Second, nil, "create", "--name", n.gate, "--label", label, "--label", specLabel+"="+specVersion,
 			"--network", n.egress, "--ip", adminIP, "--publish", "127.0.0.1::8899",
 			"--read-only", "--tmpfs", "/run/aiofcage:uid=65532,gid=65532,mode=0700,size=1m",
 			"--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -298,7 +307,7 @@ func (m *Manager) ensureObjects(ctx context.Context, sbx sandbox.Sandbox, gateIm
 		}
 	}
 	agent := m.container(ctx, n.agent)
-	if agent.exists && (createdNetwork || agent.image != agentImage) {
+	if agent.exists && (createdNetwork || agent.image != agentImage || agent.spec != specVersion) {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", n.agent); err != nil {
 			return err
 		}
@@ -308,10 +317,11 @@ func (m *Manager) ensureObjects(ctx context.Context, sbx sandbox.Sandbox, gateIm
 		if err := sandbox.ValidateProject(sbx.ProjectPath); err != nil {
 			return err
 		}
-		if _, err := m.docker.run(ctx, 30*time.Second, nil, "create", "--name", n.agent, "--label", label,
+		if _, err := m.docker.run(ctx, 30*time.Second, nil, "create", "--name", n.agent, "--label", label, "--label", specLabel+"="+specVersion,
 			"--hostname", "aiofcage", "--network", n.internal, "--dns", "127.0.0.1", "--init",
 			"--user", agentUser, "--read-only",
-			"--tmpfs", "/tmp:uid=1000,gid=1000,mode=1777,size=1g",
+			// exec: compilers, test runners and native addons (dsh) run binaries from /tmp.
+			"--tmpfs", "/tmp:exec,uid=1000,gid=1000,mode=1777,size=1g",
 			"--tmpfs", "/etc/ssl/certs:uid=1000,gid=1000,mode=0755,size=4m",
 			"--mount", "type=volume,src="+n.home+",dst=/home/agent",
 			"--mount", "type=bind,src="+sbx.ProjectPath+",dst="+sbx.ProjectPath,

@@ -104,3 +104,14 @@ func TestSecretHosts(t *testing.T) {
 		t.Errorf("unexpected secret hosts: %v", hosts)
 	}
 }
+
+func TestEvaluateListsAllMatches(t *testing.T) {
+	s := Snapshot{Version: 1, Rules: []Rule{
+		{ID: "a", Effect: Allow, Host: "api.example.com", Methods: []string{"POST"}, Path: "/v1/*", SecretRef: "p1"},
+		{ID: "b", Effect: Allow, Host: "api.example.com", Methods: []string{"POST"}, Path: "/v1/messages", SecretRef: "p2"},
+	}}
+	d := s.Evaluate(Request{Host: "api.example.com", Method: "POST", Path: "/v1/messages"})
+	if !d.Allowed || d.RuleID != "a" || len(d.Matches) != 2 || d.Matches[1].SecretRef != "p2" {
+		t.Fatalf("%+v", d)
+	}
+}

@@ -62,10 +62,14 @@ func Compatible(agent session.Agent, protocol Protocol) bool {
 	case session.ClaudeCode:
 		return protocol == Anthropic
 	case session.DSH:
-		return protocol == OpenAIChat || protocol == Anthropic
+		// dsh's deepseek-official route speaks Anthropic Messages with an x-api-key header.
+		return protocol == Anthropic
 	}
 	return false
 }
+
+// DSHBaseURL is the only endpoint dsh can use without patching its profile YAML.
+const DSHBaseURL = "https://api.deepseek.com/anthropic"
 
 func (p *Provider) Normalize() {
 	p.Name = strings.TrimSpace(p.Name)
@@ -100,6 +104,9 @@ func (p Provider) Validate() error {
 	}
 	if !keyRefPattern.MatchString(p.KeyRef) {
 		return errors.New("钥匙串条目名称格式无效")
+	}
+	if p.Agent == session.DSH && (p.BaseURL != DSHBaseURL || p.Auth != AuthXAPIKey) {
+		return errors.New("dsh 目前只支持 DeepSeek 官方接口（" + DSHBaseURL + "，x-api-key）")
 	}
 	return nil
 }

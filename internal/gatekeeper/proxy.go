@@ -248,7 +248,8 @@ func (g *Gate) request(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request,
 	if !decision.Allowed {
 		return deny(http.StatusForbidden, decision.ReasonCode)
 	}
-	state.ruleID = decision.RuleID
+	decision = chooseMatch(active, decision, req.Header)
+	event.RuleID, state.ruleID = decision.RuleID, decision.RuleID
 	if reason := checkCredentials(active, state.target.host, decision.SecretRef, req.Header); reason != "" {
 		return deny(http.StatusForbidden, reason)
 	}
@@ -285,6 +286,32 @@ func (g *Gate) request(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request,
 		req.Body = state.bodyIn
 	}
 	return req, nil
+}
+
+// chooseMatch picks, among allow rules matching the same request, the one whose secret's
+// placeholder the request carries. Without such a credential a public (secret-less) rule wins;
+// otherwise the first rule is kept so the credential check reports the problem.
+func chooseMatch(active *compiled, decision policy.Decision, header http.Header) policy.Decision {
+	if len(decision.Matches) < 2 {
+		return decision
+	}
+	for _, match := range decision.Matches {
+		if match.SecretRef == "" {
+			continue
+		}
+		secret := active.secrets[match.SecretRef]
+		if values := header.Values(secret.Header); len(values) == 1 && values[0] == secret.Prefix+secret.Placeholder {
+			decision.RuleID, decision.SecretRef = match.RuleID, match.SecretRef
+			return decision
+		}
+	}
+	for _, match := range decision.Matches {
+		if match.SecretRef == "" {
+			decision.RuleID, decision.SecretRef = match.RuleID, ""
+			return decision
+		}
+	}
+	return decision
 }
 
 func sameHost(hostHeader, target string) bool {
