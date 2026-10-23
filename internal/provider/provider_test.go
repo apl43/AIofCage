@@ -24,19 +24,19 @@ func TestValidateAndEndpoint(t *testing.T) {
 		t.Fatalf("endpoint %q %q %v", host, base, err)
 	}
 	bad := map[string]func(*Provider){
-		"http":            func(p *Provider) { p.BaseURL = "http://xapi.qiniu.io/v1" },
-		"ip":              func(p *Provider) { p.BaseURL = "https://1.2.3.4/v1" },
-		"port":            func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io:8443/v1" },
-		"query":           func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io/v1?x=1" },
-		"userinfo":        func(p *Provider) { p.BaseURL = "https://u:p@xapi.qiniu.io/v1" },
-		"codex chat":      func(p *Provider) { p.Protocol = OpenAIChat },
-		"claude openai":   func(p *Provider) { p.Agent = session.ClaudeCode },
-		"empty model":     func(p *Provider) { p.Model = "" },
-		"bad keyref":      func(p *Provider) { p.KeyRef = "has space" },
-		"bad auth":        func(p *Provider) { p.Auth = "basic" },
-		"no name":         func(p *Provider) { p.Name = "" },
-		"unknown agent":   func(p *Provider) { p.Agent = "cursor" },
-		"encoded path":    func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io/v%31" },
+		"http":          func(p *Provider) { p.BaseURL = "http://xapi.qiniu.io/v1" },
+		"ip":            func(p *Provider) { p.BaseURL = "https://1.2.3.4/v1" },
+		"port":          func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io:8443/v1" },
+		"query":         func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io/v1?x=1" },
+		"userinfo":      func(p *Provider) { p.BaseURL = "https://u:p@xapi.qiniu.io/v1" },
+		"codex chat":    func(p *Provider) { p.Protocol = OpenAIChat },
+		"claude openai": func(p *Provider) { p.Agent = session.ClaudeCode },
+		"empty model":   func(p *Provider) { p.Model = "" },
+		"bad keyref":    func(p *Provider) { p.KeyRef = "has space" },
+		"bad auth":      func(p *Provider) { p.Auth = "basic" },
+		"no name":       func(p *Provider) { p.Name = "" },
+		"unknown agent": func(p *Provider) { p.Agent = "cursor" },
+		"encoded path":  func(p *Provider) { p.BaseURL = "https://xapi.qiniu.io/v%31" },
 	}
 	for name, mutate := range bad {
 		candidate := xapi()
