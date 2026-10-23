@@ -1,0 +1,288 @@
+{
+  "schema": 1,
+  "experiment": "container",
+  "time": "2026-10-23T19:38:00.548091+08:00",
+  "commit": "be7cc63970ca331213a69df5024862ab7b56e7b0",
+  "working_tree_dirty": false,
+  "host": {
+    "os": "Darwin",
+    "release": "26.2",
+    "arch": "arm64"
+  },
+  "checks": [
+    {
+      "name": "dedicated-vm",
+      "status": "pass",
+      "detail": "实际配置及挂载均为专用 vz / virtiofs / CageWorkspace"
+    },
+    {
+      "name": "public-ipv4-control",
+      "status": "pass",
+      "detail": "同一 VM 出网网段的 TCP 正向对照"
+    },
+    {
+      "name": "public-ipv6-control",
+      "status": "blocked",
+      "detail": "无可用 IPv6 外网时，IPv6 直连失败不计为隔离通过"
+    },
+    {
+      "name": "host-management",
+      "status": "pass",
+      "detail": "宿主回环鉴权健康检查成功"
+    },
+    {
+      "name": "management-auth",
+      "status": "pass",
+      "detail": "模型占位符不能用作管理凭据"
+    },
+    {
+      "name": "host-loopback-binding",
+      "status": "pass",
+      "detail": "检查 macOS 实际监听地址"
+    },
+    {
+      "name": "non-root",
+      "status": "pass",
+      "detail": "Agent UID 必须为 1000"
+    },
+    {
+      "name": "capabilities",
+      "status": "pass",
+      "detail": "有效 capabilities 为零，no-new-privileges 已生效"
+    },
+    {
+      "name": "docker-socket",
+      "status": "pass",
+      "detail": "Agent 不挂载 Docker socket"
+    },
+    {
+      "name": "host-sentinel",
+      "status": "pass",
+      "detail": "项目外哨兵不可读取"
+    },
+    {
+      "name": "symlink-escape",
+      "status": "pass",
+      "detail": "项目外哨兵不可读取"
+    },
+    {
+      "name": "read-only-root",
+      "status": "pass",
+      "detail": "根文件系统不可写"
+    },
+    {
+      "name": "no-default-route-4",
+      "status": "pass",
+      "detail": "检查实际路由表，不以代理环境变量代替隔离"
+    },
+    {
+      "name": "no-default-route-6",
+      "status": "pass",
+      "detail": "检查实际路由表，不以代理环境变量代替隔离"
+    },
+    {
+      "name": "direct-ipv4",
+      "status": "pass",
+      "detail": "自建 TCP socket 无法直连公共 IP"
+    },
+    {
+      "name": "direct-ipv6",
+      "status": "blocked",
+      "detail": "Agent IPv6 直连失败，但出网正向对照也失败，不能据此证明隔离"
+    },
+    {
+      "name": "unset-proxy-direct",
+      "status": "pass",
+      "detail": "清空全部大小写代理变量后仍无法直连"
+    },
+    {
+      "name": "admin-via-agent-interface",
+      "status": "pass",
+      "detail": "Agent 不可建立到管理面的 TCP 连接"
+    },
+    {
+      "name": "admin-via-egress-interface",
+      "status": "pass",
+      "detail": "Agent 不可建立到管理面的 TCP 连接"
+    },
+    {
+      "name": "vm-gateway-admin",
+      "status": "pass",
+      "detail": "Agent 不可建立到管理面的 TCP 连接"
+    },
+    {
+      "name": "internal-service-discovery",
+      "status": "pass",
+      "detail": "内部别名可解析，排除所有探针因网络完全故障而失败"
+    },
+    {
+      "name": "docker-dns-external",
+      "status": "pass",
+      "detail": "禁止外部 DNS 解析；报文外传仍需独立观察"
+    },
+    {
+      "name": "direct-dns",
+      "status": "pass",
+      "detail": "禁止外部 DNS 解析；报文外传仍需独立观察"
+    },
+    {
+      "name": "proxy-admin-denied",
+      "status": "pass",
+      "detail": "代理明确返回 403，不能转发到未授权目标"
+    },
+    {
+      "name": "proxy-metadata-denied",
+      "status": "pass",
+      "detail": "代理明确返回 403，不能转发到未授权目标"
+    },
+    {
+      "name": "proxy-unknown-host-denied",
+      "status": "pass",
+      "detail": "代理明确返回 403，不能转发到未授权目标"
+    },
+    {
+      "name": "proxy-method-denied",
+      "status": "pass",
+      "detail": "经容器 CA 完成 MITM 后被策略明确拒绝"
+    },
+    {
+      "name": "proxy-path-denied",
+      "status": "pass",
+      "detail": "经容器 CA 完成 MITM 后被策略明确拒绝"
+    },
+    {
+      "name": "proxy-foreign-auth-denied",
+      "status": "pass",
+      "detail": "经容器 CA 完成 MITM 后被策略明确拒绝"
+    },
+    {
+      "name": "codex-real-task",
+      "status": "blocked",
+      "detail": "本次为无凭据隔离实验；用 --live 单独运行真实任务"
+    },
+    {
+      "name": "docker-metadata-secrets",
+      "status": "pass",
+      "detail": "两个容器的配置、环境和启动参数不包含上游密钥/管理 token"
+    },
+    {
+      "name": "agent-state-secrets",
+      "status": "pass",
+      "detail": "宿主扫描环境、进程参数、home/tmp/项目文件；匹配值不进入 Agent"
+    },
+    {
+      "name": "image-layers-agent",
+      "status": "pass",
+      "detail": "流式扫描镜像元数据和全部导出层，不落盘"
+    },
+    {
+      "name": "image-layers-gate",
+      "status": "pass",
+      "detail": "流式扫描镜像元数据和全部导出层，不落盘"
+    },
+    {
+      "name": "events-redacted",
+      "status": "pass",
+      "detail": "事件仅含固定判定、路径、状态与序号"
+    },
+    {
+      "name": "dns-packet-egress",
+      "status": "blocked",
+      "detail": "已验证禁用外部解析；尚缺 VM 外部抓包/受控权威 DNS 接收端证据"
+    },
+    {
+      "name": "lan-management",
+      "status": "blocked",
+      "detail": "已检查宿主回环绑定；尚缺另一台局域网主机的访问证据"
+    },
+    {
+      "name": "cleanup",
+      "status": "pass",
+      "detail": "仅移除本次标签下的容器和网络，保留实验项目"
+    }
+  ],
+  "run_id": "run-20261023-193800-0da490",
+  "vm": {
+    "profile": "aiofcage",
+    "arch": "aarch64",
+    "vm_type": "vz",
+    "mount_type": "virtiofs",
+    "cpus": 4,
+    "memory_gib": 6,
+    "docker": "29.5.2",
+    "workspace_only": true
+  },
+  "images": {
+    "aiofcage-validation-gatekeeper:local": {
+      "id": "sha256:6c00f22ed30dde9a2b05ca88f89cb3e0d88745a1505c3f617e62771d987706b4",
+      "digests": [
+        "aiofcage-validation-gatekeeper@sha256:6c00f22ed30dde9a2b05ca88f89cb3e0d88745a1505c3f617e62771d987706b4"
+      ],
+      "architecture": "arm64"
+    },
+    "aiofcage-validation-agent:codex-0.164.0": {
+      "id": "sha256:4dc31f62e015df2751802d38e4272f3a0b1f8b8627e5be28925854a397e99d86",
+      "digests": [
+        "aiofcage-validation-agent@sha256:4dc31f62e015df2751802d38e4272f3a0b1f8b8627e5be28925854a397e99d86"
+      ],
+      "architecture": "arm64"
+    }
+  },
+  "resources": {
+    "gate": "aoc-run-20261023-193800-0da490-gate",
+    "agent": "aoc-run-20261023-193800-0da490-agent",
+    "networks": [
+      "aoc-run-20261023-193800-0da490-in",
+      "aoc-run-20261023-193800-0da490-out"
+    ]
+  },
+  "agent": {
+    "version": "codex-cli 0.164.0",
+    "model": "gpt-6.1-sol",
+    "provider": "https://xapi.qiniu.io/v1"
+  },
+  "gate_events": {
+    "events": [
+      {
+        "seq": 1,
+        "decision": "deny",
+        "reason": "connect-denied",
+        "status": 403
+      },
+      {
+        "seq": 2,
+        "decision": "deny",
+        "reason": "connect-denied",
+        "status": 403
+      },
+      {
+        "seq": 3,
+        "decision": "deny",
+        "reason": "connect-denied",
+        "status": 403
+      },
+      {
+        "seq": 4,
+        "decision": "deny",
+        "reason": "operation-denied",
+        "path": "/v1/responses",
+        "status": 403
+      },
+      {
+        "seq": 5,
+        "decision": "deny",
+        "reason": "operation-denied",
+        "status": 403
+      },
+      {
+        "seq": 6,
+        "decision": "deny",
+        "reason": "credential-denied",
+        "path": "/v1/responses",
+        "status": 403
+      }
+    ],
+    "last_seq": 6,
+    "used": 0
+  }
+}

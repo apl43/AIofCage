@@ -26,6 +26,8 @@ make dev          # 可选：使用固定版本 Wails CLI 热开发
 
 门卫的本机开发方式及接口状态见[模块与开发说明](docs/modules.md)。门卫当前始终拒绝代理和 MCP 请求，不能配置成可转发状态；应用不会创建 VM、容器或修改用户的 Docker context。
 
+独立的[第一批验证包](experiments/validation/README.md)提供环境检查、最小门卫测试、容器隔离探针和可选 Codex 真实任务；[验证记录](docs/validation/README.md)区分实测结果与阻塞项。实验通过不等于产品功能已完成或设计已冻结。
+
 ## 要解决的问题
 
 Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令。它们会犯错，也可能被网页或 README 里藏的恶意指令"下套"（提示词注入），结果可能是删错文件，或者把 `~/.ssh`、环境变量里的 API Key 发到外面。

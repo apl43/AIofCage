@@ -1,0 +1,19 @@
+FROM node:22.16.0-bookworm-slim
+ARG CODEX_VERSION=0.164.0
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl python3 iproute2 dnsutils procps git \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global --ignore-scripts "@openai/codex@${CODEX_VERSION}" \
+    && npm cache clean --force
+RUN mkdir -p /opt/validation && cp /etc/ssl/certs/ca-certificates.crt /opt/validation/system-ca.crt
+COPY agent_init.py probes.py snapshot.py /opt/validation/
+ENV HOME=/home/agent CODEX_HOME=/home/agent/.codex \
+    HTTP_PROXY=http://gatekeeper:8888 HTTPS_PROXY=http://gatekeeper:8888 \
+    http_proxy=http://gatekeeper:8888 https_proxy=http://gatekeeper:8888 \
+    NO_PROXY=localhost,127.0.0.1,gatekeeper no_proxy=localhost,127.0.0.1,gatekeeper \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    NODE_EXTRA_CA_CERTS=/tmp/validation-ca.crt
+USER 1000:1000
+CMD ["sleep", "infinity"]
