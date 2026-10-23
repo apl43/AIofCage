@@ -100,8 +100,10 @@ Codex 配置依据：[自定义模型提供方](https://developers.openai.com/co
 python3 experiments/validation/lab.py cleanup --run-id RUN_ID
 
 # 确认不再需要时，可手动停止专用实例；不删除实例、镜像或项目。
-.validation-runs/tools/bin/colima --profile aiofcage stop
+PATH="$PWD/.validation-runs/tools/bin:$PATH" colima --profile aiofcage stop
 ```
+
+重启已验证且未改动的专用配置时使用 `PATH="$PWD/.validation-runs/tools/bin:$PATH" colima --profile aiofcage start --activate=false`，随后重新运行 `setup` 校验实际配置。Colima 和 Lima 必须来自同一套 arm64 工具；只指定 Colima 的绝对路径而仍调用全局 x86_64 Lima，可能错误报告实例未运行。
 
 秘密扫描在宿主执行：读取 Agent 的环境、可读进程参数、home/tmp/项目，以及两个镜像的导出元数据和所有层。匹配值不作为扫描参数传进 Agent。扫描命令失败、超时或不支持的压缩格式均不记为零命中。合成秘密的零命中只证明本次实验的交付路径；真实凭据链路仍需 `--live` 复验。
 
