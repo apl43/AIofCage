@@ -1,8 +1,8 @@
 // 供应商页：参考 CC Switch，按 Agent 分组管理模型供应商；密钥只写入钥匙串，界面从不读取。
 import { useState } from "preact/hooks";
-import { html, call, AGENTS, agentName, PROTOCOLS, COMPATIBLE, AUTHS } from "./core.js";
+import { html, call, AGENTS, agentName, PROTOCOLS, COMPATIBLE, AUTHS, formatTokens } from "./core.js";
 
-export function ProvidersPage({ providers, presets, reload, notify }) {
+export function ProvidersPage({ providers, presets, summary, reload, notify }) {
   const [agent, setAgent] = useState("codex");
   const [dialog, setDialog] = useState(null); // { mode: "add" | "edit", provider? }
   const list = providers.filter((p) => p.agent === agent);
@@ -29,7 +29,7 @@ export function ProvidersPage({ providers, presets, reload, notify }) {
             <button class="primary" onClick=${() => setDialog({ mode: "add" })}>从预设添加</button>
           </div>`
         : html`<div class="card-grid">${list.map(
-            (p) => html`<${ProviderCard} key=${p.id} provider=${p} onEdit=${() => setDialog({ mode: "edit", provider: p })}
+            (p) => html`<${ProviderCard} key=${p.id} provider=${p} usage=${summary?.providers?.[p.id]} onEdit=${() => setDialog({ mode: "edit", provider: p })}
               reload=${reload} notify=${notify} />`
           )}</div>`}
       ${dialog &&
@@ -43,7 +43,7 @@ export function ProvidersPage({ providers, presets, reload, notify }) {
     </section>`;
 }
 
-function ProviderCard({ provider, onEdit, reload, notify }) {
+function ProviderCard({ provider, usage, onEdit, reload, notify }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState(null);
   const test = async () => {
@@ -81,6 +81,9 @@ function ProviderCard({ provider, onEdit, reload, notify }) {
         <div><dt>协议</dt><dd>${PROTOCOLS[provider.protocol] ?? provider.protocol}</dd></div>
         <div><dt>钥匙串</dt><dd class="mono">${provider.key_ref}</dd></div>
         <div><dt>使用中</dt><dd>${provider.used_by.length ? provider.used_by.join("、") : "暂无沙箱"}</dd></div>
+        <div><dt>累计用量</dt><dd>${usage
+          ? `${usage.requests} 次请求 · 输入 ${formatTokens(usage.input_tokens)} / 输出 ${formatTokens(usage.output_tokens)} token`
+          : "暂无"}</dd></div>
       </dl>
       ${result &&
       html`<p class=${result.ok ? "test-result ok" : "test-result bad"} role="status">

@@ -22,7 +22,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 
 | 模块 | 已有内容 | 下一步及限制 |
 |---|---|---|
-| `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱创建（含项目导入）、启停、终端、切换供应商、删除；进度事件 | 实时请求面板与用量汇总（S6）；`existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
+| `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱创建（含项目导入）、启停、终端、切换供应商、删除；进度事件；事件订阅、JSONL 审计、用量与资源监视 | `existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
 | `session` | Agent 枚举（codex / claude-code / dsh） | 原“会话草稿”已由 `sandbox` 取代 |
 | `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量 | 桌面应用尚未接入（S5）；永不回退宿主执行 |
 | `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
@@ -31,7 +31,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口仍拒绝；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
 | `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
 | `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验 | 不绑定到前端；读方法只供运行时下发给门卫 |
-| `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫侧 SSE 已实现 | 应用侧订阅、去重、JSONL 落盘与缺口提示（S6） |
+| `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫 SSE；应用侧订阅、续传、JSONL 落盘、缺口事件 | 审计日志不做防篡改（hash 链在路线图） |
 | `mcp` | 服务绑定草案与网关接口 | 协议 SDK、工具/参数/资源授权及会话映射；绑定草案不是可执行权限 |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
 | `connector` | 固定服务定义与运行接口 | 镜像摘要审查、私有网络和秘密交付；不运行传入的命令或镜像 |
@@ -57,6 +57,11 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `OpenProjectFolder(id)` | 在访达中打开项目文件夹 |
 | `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
 | `SelectProject()` | 系统目录选择框 |
+| `RecentEvents(id)` | 最近的门卫事件（`id` 为空表示全部沙箱，最多 300 条），附沙箱名称 |
+| `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量 |
+| `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
+
+后台监视（`StartMonitor`，每 5 秒）：为每个运行中的沙箱订阅门卫 SSE（同一门卫运行内按 `Last-Event-ID` 续传，门卫重启后从头订阅），把事件追加写入 `~/Library/Application Support/AIofCage/audit/<沙箱ID>.jsonl`（0600），推送 `sandbox:event`；轮询门卫 `/usage` 并按“门卫运行 + 供应商”计算增量写回累计用量（应用重启也不会重复计数），推送 `sandbox:usage`；用一次 `docker stats` 采样所有运行中沙箱，推送 `sandbox:stats`。额度到 80% 与超额由门卫产生事件，界面弹出提醒。
 
 复制项目时只复制普通文件、目录和符号链接本身（不跟随链接），超过 2 GB 或 20 万个文件会拒绝；拒绝复制家目录、根目录和工作区本身。
 

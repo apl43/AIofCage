@@ -14,6 +14,7 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/audit"
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
+	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
 
 // gateClient talks to one sandbox's gatekeeper over the host loopback port that Colima forwards.
@@ -132,6 +133,15 @@ type GateUsage struct {
 		InputTokens  uint64 `json:"input_tokens"`
 		OutputTokens uint64 `json:"output_tokens"`
 	} `json:"secrets"`
+}
+
+// Providers converts the per-secret counters (secret ID = provider ID) to sandbox usage.
+func (u GateUsage) Providers() map[string]sandbox.ProviderUsage {
+	result := map[string]sandbox.ProviderUsage{}
+	for id, stat := range u.Secrets {
+		result[id] = sandbox.ProviderUsage{Requests: stat.Requests, InputTokens: stat.InputTokens, OutputTokens: stat.OutputTokens}
+	}
+	return result
 }
 
 func (c *gateClient) usage(ctx context.Context) (GateUsage, error) {
