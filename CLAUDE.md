@@ -9,7 +9,10 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 
 ## 设计目标与编码前置条件
 
-需求与验收以 `docs/requirements-and-acceptance.md` 为准，架构候选见 `docs/architecture.md`（v3 草案），比赛要求原文摘要见 `docs/competition-rules.md`。当前只完善设计和验证计划；G0—G5 有证据且团队记录设计冻结后再写正式功能代码。必要实验应独立、可丢弃，不算产品已实现。旧 ADR 标记为被取代时不得照旧实现。
+需求与验收以 `docs/requirements-and-acceptance.md` 为准，架构候选见 `docs/architecture.md`（v3 草案），比赛要求见 `docs/competition-rules.md`。按最新开发安排先搭可构建工程骨架，当前实现范围和模块接口见 `docs/modules.md`；这不表示 G0—G5 已通过或设计已冻结。真实隔离、凭据与 MCP 接入仍须完成对应验证，不得用模拟成功替代。旧 ADR 标记为被取代时不得照旧实现。
+
+- 构建：`make desktop`、`make gatekeeper`；检查：`make check`、`make test`。桌面编译使用 `production` tag；前端为 `frontend/src` 静态资源，无 npm 构建步骤。
+- 当前会话仅是内存草稿，选择目录不授予挂载权限。门卫代理/MCP 始终拒绝，`/health` 返回 503 且 `ready=false`；没有配置激活、Keychain 或真实转发。
 
 - Go 单仓库，桌面界面用 Wails。
 - 专用 Colima profile `aiofcage`、Docker context `colima-aiofcage`，vz + virtiofs，4 核 / 6 GiB / 40 GiB；唯一共享目录 `~/CageWorkspace:w`。所有 Docker 命令显式指定 context，不修改用户默认实例。

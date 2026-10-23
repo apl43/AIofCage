@@ -4,7 +4,27 @@
 
 Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开发中
 
-当前仓库处于设计阶段，下面均为规划能力。先按[产品目标与验收](docs/requirements-and-acceptance.md)确认目标和可行性，再冻结[架构设计](docs/architecture.md)并开始功能编码；[比赛规则](docs/competition-rules.md)区分题目要求与团队实现选择。目前没有可运行的产品入口。
+当前仓库已有可构建的桌面与门卫骨架：可登记内存会话草稿、查看环境依赖和模块页面；隔离运行、真实认证、代理转发与 MCP 尚未实现。[产品目标与验收](docs/requirements-and-acceptance.md)和[架构设计](docs/architecture.md)仍是待验证的目标，[比赛规则](docs/competition-rules.md)区分组织方要求与团队选择。当前骨架不能作为已完成的安全沙箱使用。
+
+## 开发启动
+
+桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本和 Xcode Command Line Tools。前端采用 Wails 的纯静态资源方式，不依赖 Node、npm 或前端打包步骤。Wails 固定为 v2.17.0。
+
+```bash
+make desktop
+./bin/AIofCage
+```
+
+界面可以选择文件夹并创建会话草稿；选择动作不会复制或挂载文件夹，草稿在退出应用后清除。启动按钮保持禁用，后端启动方法也返回未就绪。服务连接、策略、审计页标明待实现，不接受真实密钥。
+
+```bash
+make gatekeeper   # 构建独立门卫二进制
+make check        # Go 静态检查与编译（桌面需要 macOS 工具链）
+make test         # 后端边界测试，包含竞态检查
+make dev          # 可选：使用固定版本 Wails CLI 热开发
+```
+
+门卫的本机开发方式及接口状态见[模块与开发说明](docs/modules.md)。门卫当前始终拒绝代理和 MCP 请求，不能配置成可转发状态；应用不会创建 VM、容器或修改用户的 Docker context。
 
 ## 要解决的问题
 
@@ -36,6 +56,8 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 
 ## 功能规划
 
+- [x] 可构建的 Wails 桌面入口、模块页面和内存会话草稿
+- [x] 独立门卫入口、管理鉴权及未配置时始终拒绝的数据入口
 - [ ] 容器隔离 + 强制所有出网走门卫代理
 - [ ] 钥匙串存储密钥，门卫按域名注入
 - [ ] 桌面应用：密钥管理、沙箱启停、一键打开 Agent 终端
@@ -52,13 +74,13 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 
 兼容性目标：分别验证 Codex、Claude Code、dsh 的真实任务及 MCP 调用；MCP 基线覆盖 GitHub HTTP、OAuth 服务、filesystem stdio 和密码型数据库连接器。候选组件、版本和证据见[验收文档](docs/requirements-and-acceptance.md)。一个 Agent 和一个 HTTP MCP 是首个里程碑；OAuth 或密码连接器缺失仍是议题覆盖缺口，不能自动降为可选项。有限样本不能证明“所有主流”均可用。
 
-编码前须通过需求、隔离、Agent 认证、MCP/OAuth、秘密与权限、接口与工作量六项关口。目前仍是草案，关键路线未经本项目验证，不能保证比赛前全部可达成。
+目前先建立工程骨架，关键路线仍需通过需求、隔离、Agent 认证、MCP/OAuth、秘密与权限、接口与工作量六项关口。入口可编译不等于上述验证通过，也不能保证比赛前全部可达成。
 
 ## 技术栈
 
 - Go
 - [Wails](https://github.com/wailsapp/wails)：桌面界面
-- [goproxy](https://github.com/elazarl/goproxy)：门卫代理
+- [goproxy](https://github.com/elazarl/goproxy)：计划用于 MITM 门卫，尚未接入
 - Docker：容器隔离
 - Colima：专用 profile `aiofcage`，Docker context `colima-aiofcage`，仅共享 `~/CageWorkspace:w`
 - macOS 钥匙串：密钥存储
