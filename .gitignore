@@ -1,0 +1,29 @@
+# ---- 密钥与敏感文件：永远不要提交 ----
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.crt
+secrets/
+*.secret
+
+# ---- Go ----
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# ---- Wails 构建产物 ----
+/build/bin/
+/frontend/dist/
+/frontend/node_modules/
+node_modules/
+
+# ---- macOS / 编辑器 ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
