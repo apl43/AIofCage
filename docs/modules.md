@@ -67,7 +67,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `AuthorizeMCPService(id)` | OAuth 服务在默认浏览器里登录授权（最多等 5 分钟），授权保存到钥匙串，运行中的沙箱立即换上新令牌；应用每分钟检查一次在用的 OAuth 服务，令牌 10 分钟内到期就续期并下发，续期失败时提醒一次 |
 | `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
 | `ListAttacks()` / `SimulateAttacks(id)` | 7 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传、找数据库密码并直连数据库），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
-| `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；每条事件标明来源（“系统”下发配置等 / “沙箱内程序”），并标出用户运行内置模拟攻击期间的事件，避免把系统动作或演示说成 Agent 的行为；结果按事件缓存；AI 不参与放行 |
+| `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；每条事件标明来源（“系统”下发配置等 / “沙箱内程序”），并标出用户运行内置模拟攻击期间的事件，避免把系统动作或演示说成 Agent 的行为；时间统一换成本机时间（与日志页一致），不让模型换算时区；结果按事件和解说供应商缓存，换供应商会重新生成；单次请求最长等 90 秒（推理模型常需十几秒以上，不沿用连接测试的 12 秒超时）；AI 不参与放行 |
 | `ExplainerProvider()` / `SetExplainerProvider(id)` | AI 解说使用的供应商，默认取第一个已保存密钥的供应商 |
 
 后台监视（`StartMonitor`，每 5 秒）：为每个运行中的沙箱订阅门卫 SSE（同一门卫运行内按 `Last-Event-ID` 续传，门卫重启后从头订阅），把事件追加写入 `~/Library/Application Support/AIofCage/audit/<沙箱ID>.jsonl`（0600），推送 `sandbox:event`；轮询门卫 `/usage` 并按“门卫运行 + 供应商”计算增量写回累计用量（应用重启也不会重复计数），推送 `sandbox:usage`；用一次 `docker stats` 采样所有运行中沙箱，推送 `sandbox:stats`。额度到 80% 与超额由门卫产生事件，界面弹出提醒。
@@ -158,7 +158,7 @@ docker --context colima-aiofcage build -t aiofcage/gatekeeper:dev build/gatekeep
 | `GET /usage` | 请求数、拒绝数、额度计数、按密钥 ID 的请求与 token；不含任何密钥 |
 | `GET /ca` | 本次运行的公有 CA 证书（私钥只在内存） |
 | 代理 | 未配置时一律 503；配置后按 §6.2 的顺序授权，拒绝时返回 403/429 和 `X-Aiofcage-Reason` |
-| MCP | 未配置时 503；`/mcp/<服务ID>` 须带该服务的占位符（否则 403，从不返回 401，避免 Agent 转去走 OAuth 登录）；只允许标准 MCP 方法，`tools/call` 只允许连接器目录里列出的工具（拒绝时返回 JSON-RPC 错误）；连接、工具调用和所有拦截写入事件 `mcp.call`（只记方法和工具名） |
+| MCP | 未配置时 503；Agent 退出时发出关闭会话后立即断开很常见：关闭会话照样转给连接器执行，记为正常；Agent 等不及回答就断开的调用记为 `client_closed`，不算连接器故障；关闭已结束的会话（404）也不算错误；`/mcp/<服务ID>` 须带该服务的占位符（否则 403，从不返回 401，避免 Agent 转去走 OAuth 登录）；只允许标准 MCP 方法，`tools/call` 只允许连接器目录里列出的工具（拒绝时返回 JSON-RPC 错误）；连接、工具调用和所有拦截写入事件 `mcp.call`（只记方法和工具名） |
 
 `PUT /config` 的结构见 `internal/gatekeeper/config.go`：`policy`（规则）、`secrets`（ID、占位符、注入头 `Authorization` 或 `X-Api-Key`、前缀、真值）、`limits`（请求数/token 上限及基线）、`connectors`（服务 ID、占位符、连接器地址——必须是 `http://内网IP:端口`、连接器令牌、允许的工具）。
 

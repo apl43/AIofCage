@@ -33,7 +33,9 @@ func TestExplainEventSendsOnlyMetadata(t *testing.T) {
 	transport.DialContext = func(ctx context.Context, network, _ string) (netConn, error) {
 		return (&dialer{}).DialContext(ctx, network, address)
 	}
-	app.client = &http.Client{Transport: transport}
+	// Connection tests keep a short timeout; commentary must not inherit it (reasoning models are slow).
+	app.client = &http.Client{Transport: transport, Timeout: time.Nanosecond}
+	app.explainClient = &http.Client{Transport: transport}
 	p, err := app.SaveProvider(SaveProviderRequest{Name: "测试", Agent: session.Codex, Protocol: provider.OpenAIResponses,
 		BaseURL: "https://example.com/v1", Model: "m", Auth: provider.AuthBearer, APIKey: "model-key"})
 	if err != nil {
@@ -65,10 +67,27 @@ func TestExplainEventSendsOnlyMetadata(t *testing.T) {
 		!strings.Contains(input, `"source":"沙箱内程序"`) || strings.Count(input, `"during_attack_demo":true`) != 2 {
 		t.Fatalf("sources or demo flags missing: %s", input)
 	}
+	// Times are the local wall clock shown in the log page, never UTC left to the model to convert.
+	if !strings.Contains(input, time.Now().Format("2006-01-02 15:04")) || strings.Contains(input, "Z\"") ||
+		!strings.Contains(instructions, "不要换算时区") {
+		t.Fatalf("times must be local: %s", input)
+	}
 	// Cached: a second call does not hit the server.
 	request = nil
 	if _, err := app.ExplainEvent("sbx-a", "run:1"); err != nil || request != nil {
 		t.Fatal("explanation not cached")
+	}
+	// Switching the explainer provider gives a fresh explanation instead of the cached one.
+	other, err := app.SaveProvider(SaveProviderRequest{Name: "另一个", Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://example.com/v1", Model: "m2", Auth: provider.AuthBearer, APIKey: "model-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.SetExplainerProvider(other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := app.ExplainEvent("sbx-a", "run:1"); err != nil || request == nil || result.Provider != "另一个" {
+		t.Fatalf("switching provider must not reuse the old explanation: %+v %v", result, err)
 	}
 }
 

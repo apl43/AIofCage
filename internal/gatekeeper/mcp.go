@@ -151,7 +151,13 @@ func (g *Gate) denyRPC(w http.ResponseWriter, msg mcpMessage, event audit.Event,
 }
 
 func (g *Gate) forwardMCP(w http.ResponseWriter, r *http.Request, connector Connector, body []byte, event audit.Event, started time.Time) {
-	ctx, cancel := context.WithTimeout(r.Context(), mcpCallTimeout)
+	parent := r.Context()
+	if r.Method == http.MethodDelete {
+		// Clients often send the session close while exiting and hang up at once; the connector
+		// must still end the session and its server process.
+		parent = context.WithoutCancel(parent)
+	}
+	ctx, cancel := context.WithTimeout(parent, mcpCallTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, r.Method, strings.TrimSuffix(connector.Upstream, "/")+"/mcp", bytes.NewReader(body))
 	if err != nil {
@@ -166,6 +172,12 @@ func (g *Gate) forwardMCP(w http.ResponseWriter, r *http.Request, connector Conn
 	req.Header.Set("Authorization", "Bearer "+connector.Token)
 	event.BytesIn = int64(len(body))
 	resp, err := g.mcpClient.Do(req)
+	if err != nil && r.Context().Err() != nil {
+		// The agent hung up before the answer: not a connector failure.
+		event.Decision, event.ReasonCode = audit.DecisionAllow, "client_closed"
+		g.recordMCP(event, started, mcpRecorded[event.Method])
+		return
+	}
 	if err != nil {
 		event.Decision, event.ReasonCode, event.Status = audit.DecisionError, "upstream_failed", http.StatusBadGateway
 		g.recordMCP(event, started, true)
@@ -188,10 +200,12 @@ func (g *Gate) forwardMCP(w http.ResponseWriter, r *http.Request, connector Conn
 	written, _ := copyFlushing(w, resp.Body)
 	event.Status, event.BytesOut = status, written
 	event.Decision, event.ReasonCode = audit.DecisionAllow, "mcp_forwarded"
-	if status >= 400 {
+	// Closing a session that already ended (404) is routine, e.g. a second close on exit.
+	failed := status >= 400 && !(r.Method == http.MethodDelete && status == http.StatusNotFound)
+	if failed {
 		event.Decision, event.ReasonCode = audit.DecisionError, "upstream_status"
 	}
-	g.recordMCP(event, started, mcpRecorded[event.Method] || status >= 400)
+	g.recordMCP(event, started, mcpRecorded[event.Method] || failed)
 }
 
 func (g *Gate) recordMCP(event audit.Event, started time.Time, visible bool) {
