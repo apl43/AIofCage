@@ -100,7 +100,7 @@ function ProviderCard({ provider, usage, onEdit, reload, notify }) {
           title=${provider.used_by.length ? "仍有沙箱在用，先给它们换一个供应商" : ""}><${Icon} name="trash" size=${17} />删除</button>
       </div>
     ${confirming && html`<${ConfirmDialog} title=${`删除供应商「${provider.name}」？`} busy=${removing}
-        message=${provider.key_managed ? "钥匙串里保存的密钥也会删除。" : "钥匙串里的条目不是 AiOf Cage 创建的，会保留。"}
+        message=${provider.key_managed ? "钥匙串里保存的密钥也会删除。" : "钥匙串里的条目不是 Ai of Cage 创建的，会保留。"}
         onConfirm=${remove} onClose=${() => setConfirming(false)} />`}
     </article>`;
 }

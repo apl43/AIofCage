@@ -5,6 +5,8 @@ import { Terminal } from "xterm";
 import { FitAddon } from "xterm-fit";
 import { html, call, agentName } from "./core.js";
 import { addImages, createDraft, disposeDraft } from "./terminal-draft.js";
+import { applyConversationEvent } from "./conversation-state.js";
+import { ConversationView } from "./conversation-view.js";
 
 const sessions = new Map(); // id → { id, sandboxId, agent, title, term, fit, element, exited, code }
 const listeners = new Set();
@@ -42,7 +44,7 @@ export async function pasteTerminalImage(session) {
 }
 
 export function handleTerminalPaste(session, event) {
-  if (!session) return;
+  if (!session?.agent) return;
   const data = event.clipboardData;
   if (!data) return;
   const files = Array.from(data.files ?? []);
@@ -86,7 +88,13 @@ function wire() {
   wired = true;
   window.runtime?.EventsOn?.("terminal:data", ({ id, data }) => {
     const s = sessions.get(id);
-    if (s) s.term.write(decode(data));
+    if (s?.term) s.term.write(decode(data));
+  });
+  window.runtime?.EventsOn?.("conversation:event", (event) => {
+    const session = sessions.get(event.id);
+    if (!session || session.kind !== "conversation") return;
+    applyConversationEvent(session, event);
+    notifyChange();
   });
   window.runtime?.EventsOn?.("terminal:exit", ({ id, code }) => {
     const s = sessions.get(id);
@@ -108,6 +116,19 @@ const newID = () => "t-" + Array.from(crypto.getRandomValues(new Uint8Array(8)),
 export async function openTerminal(sandbox, agent) {
   wire();
   const id = newID();
+  if (agent) {
+    const session = { id, sandboxId: sandbox.id, agent, title: agentName(agent), kind: "conversation",
+      draft: createDraft(), messages: [], models: [], model: "", effort: "", busy: false, started: false, status: "" };
+    sessions.set(id, session); notifyChange();
+    try {
+      session.info = await call("StartConversation", id, sandbox.id, agent);
+      if (!sessions.has(id)) { await call("CloseConversation", id); return id; }
+      session.model = session.info.model;
+      session.models = [session.info.model];
+    } catch (error) { session.error = error.message; session.exited = true; }
+    notifyChange();
+    return id;
+  }
   const term = new Terminal({
     fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: 14, lineHeight: 1.3,
     screenReaderMode: true, cursorBlink: true, scrollback: 5000, theme: THEME, allowProposedApi: false,
@@ -139,10 +160,10 @@ export async function openTerminal(sandbox, agent) {
 export function closeTerminal(id) {
   const s = sessions.get(id);
   if (!s) return;
-  if (!s.exited) call("CloseTerminal", id).catch(() => {});
+  if (!s.exited) call(s.kind === "conversation" ? "CloseConversation" : "CloseTerminal", id).catch(() => {});
   disposeDraft(s.draft);
-  s.term.dispose();
-  s.element.remove();
+  s.term?.dispose();
+  s.element?.remove();
   sessions.delete(id);
   notifyChange();
 }
@@ -168,6 +189,12 @@ export function useTerminals(sandboxId) {
 
 // 把某个会话的终端挂到这里显示，并跟随大小变化。
 export function TerminalView({ id }) {
+  const session = sessions.get(id);
+  if (session?.kind === "conversation") return html`<${ConversationView} session=${session} changed=${notifyChange} />`;
+  return html`<${ShellView} id=${id} />`;
+}
+
+function ShellView({ id }) {
   const container = useRef(null);
   useEffect(() => {
     const s = sessions.get(id);

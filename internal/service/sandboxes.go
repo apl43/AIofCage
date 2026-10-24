@@ -122,6 +122,7 @@ func (a *App) StopSandbox(id string) error {
 		return err
 	}
 	defer done()
+	a.closeSandboxConversations(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	return a.manager.Stop(ctx, id)
@@ -138,6 +139,7 @@ func (a *App) DeleteSandbox(id string, keepHome bool) error {
 		return err
 	}
 	defer done()
+	a.closeSandboxConversations(id)
 	sbx, err := a.store.Sandbox(id)
 	if err != nil {
 		return err
@@ -384,6 +386,7 @@ func (a *App) AddSandboxAgents(id string, agents []session.Agent) error {
 		return err
 	}
 	defer done()
+	a.closeSandboxConversations(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	return a.manager.AddAgents(ctx, id, agents)

@@ -41,6 +41,7 @@ type App struct {
 	explain       explainCache
 	ops           operations
 	terms         terminals
+	conversations conversationSessions
 	usageMu       sync.Mutex
 	demos         demoLog
 }

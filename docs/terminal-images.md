@@ -1,6 +1,6 @@
 # 终端图片附件
 
-在智能体终端的输入框或终端区域按 `Command+V` 粘贴图片，也可以点击“粘贴图片”“添加图片”，或将图片拖入终端区域。macOS 同时支持 Claude Code 常用的 `Ctrl+V` 图片快捷键。普通文字仍按原方式粘贴。
+在智能体会话输入框按 `Command+V` 粘贴图片，也可以点击“添加图片”，或将图片拖入会话区域。macOS 同时支持 Claude Code 常用的 `Ctrl+V` 图片快捷键。普通文字仍按原方式粘贴；Shell 只保留原生终端输入。
 
 图片先进入附件预览，点击发送后才保存到当前沙箱、提交给当前智能体。可以只发送图片，也可以搭配多行文字；`Enter` 发送，`Shift+Enter` 换行。每个终端独立保存草稿，切换标签或页面后仍保留。发送失败会保留草稿和附件，关闭标签时释放预览。
 
@@ -10,15 +10,15 @@
 
 | 智能体 | 交付方式 | 配置要求 |
 | --- | --- | --- |
-| Codex | 将图片路径单独作为粘贴事件交给 TUI，转换成原生 `[Image #n]` 附件，再提交正文 | 所选供应商、模型支持 Responses 图片输入 |
-| Claude Code | 将沙箱图片路径与正文交给原生 CLI，原生 CLI 读取并转换图片附件；粘贴与提交回车分开写入 | 所选供应商、模型支持 Anthropic 图片输入 |
+| Codex | 官方 `codex exec --image` 独立附件参数，正文走标准输入 | 所选供应商、模型支持 Responses 图片输入 |
+| Claude Code | 将沙箱图片路径与正文交给官方 `claude --print`，由图片工具读取 | 所选供应商、模型支持 Anthropic 图片输入 |
 | DeepSeek Harness | 将沙箱图片路径放入同一条任务，请原生 `read_image` 工具读取 | 在该供应商的设置中勾选“模型支持图片输入”，并使用实际支持图片的模型；运行中的沙箱重启后应用 |
 
 Harness 自定义供应商的模型默认只声明文本能力。图片选项会为该模型生成 `input: [text, image]`，不会自动改变模型。供应商可能仍因不支持图片、图片超限或接口异常拒绝请求；终端显示原生错误。图片成功提交给 CLI，并不代表供应商已成功识图。
 
 ## 存储与交付边界
 
-- 图片只在发送时写入当前沙箱的 `/home/agent/.aiofcage/attachments/<随机批次>/`，不写入项目目录。成功发送的附件保留，便于智能体后续读取及恢复会话；删除沙箱时随其 home 卷删除。
+- 图片只在发送时写入当前沙箱的 `/home/agent/.aiofcage/attachments/<随机批次>/`，不写入项目目录。会话期间保留供后续读取，关闭会话标签时清理；每会话最多 32 个附件批次。关闭标签后原生会话仍可能保留图片的历史引用，路径不保证继续可用。
 - 目录权限为 `0700`、文件为 `0600`。逐级打开路径时拒绝符号链接，文件以独占方式创建；文件名和扩展名由服务端生成。
 - 图片通过标准输入上传到容器，不出现在 Docker 命令参数中。图片正文不进入请求审计或应用日志。原生智能体可能按自身机制保存会话和附件，受当前沙箱范围约束。
 - 后端独立验证图片内容、解码尺寸、数量和体积；输入正文拒绝终端控制序列。上传失败或终端写入失败时清理本次附件，不删除此前成功发送的附件。
@@ -30,4 +30,4 @@ Harness 自定义供应商的模型默认只声明文本能力。图片选项会
 - [Claude Code 官方图片工作流](https://code.claude.com/docs/en/common-workflows#work-with-images)：支持粘贴、拖入和提供图片路径。
 - 固定版本 `@deepseek-ai/dsh-tool-fs@0.2.1-rc.2` 的 `read_image` 实现，以及 DeepSeek Harness 的[供应商与模型配置](https://github.com/deepseek-ai/deepseek-harness/blob/main/docs/user/guide/providers.md)：图片工具要求模型路由声明图片输入。
 
-本轮实际结果、环境限制与截图见 [图片验收报告](../outputs/terminal-image-acceptance/report.md)。
+旧版 TUI 的图片验收见 [图片验收报告](../outputs/terminal-image-acceptance/report.md)。新版结构化会话的验证与边界见 [会话验证](validation/2026-10-24-conversations.md)。

@@ -14,7 +14,7 @@ RUN npm install --global --no-fund --no-audit --ignore-scripts "@modelcontextpro
     && npm cache clean --force
 {{range .Agents}}RUN npm install --global --no-fund --no-audit{{if not .Scripts}} --ignore-scripts{{end}} "{{.Package}}@{{.Version}}" \
     && npm cache clean --force
-{{end}}COPY aiofcage-init.py aiofcage-run /opt/aiofcage/
+{{end}}COPY aiofcage-init.py aiofcage-run agent-turn.py /opt/aiofcage/
 COPY bashrc /home/agent/.bashrc
 # Agent 常直接调用 python（Codex 实测会先试 python 再退回 python3），所以补一个 python 链接。
 RUN chmod 0755 /opt/aiofcage/aiofcage-init.py /opt/aiofcage/aiofcage-run \
