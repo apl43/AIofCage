@@ -104,10 +104,20 @@ func connectorContext() (buildContext, error) {
 }
 
 func agentContext(agents []session.Agent) (buildContext, error) {
+	return agentContextVersions(agents, nil)
+}
+
+func agentContextVersions(agents []session.Agent, versions map[session.Agent]string) (buildContext, error) {
 	var specs []AgentSpec
 	for _, spec := range agentCatalog { // catalog order keeps shared layers cacheable
 		for _, agent := range agents {
 			if agent == spec.Agent {
+				if version := versions[agent]; version != "" {
+					if !ValidAgentVersion(version) {
+						return buildContext{}, errors.New("智能体版本无效")
+					}
+					spec.Version = version
+				}
 				specs = append(specs, spec)
 			}
 		}

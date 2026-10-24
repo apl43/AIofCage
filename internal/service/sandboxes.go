@@ -386,7 +386,6 @@ func (a *App) AddSandboxAgents(id string, agents []session.Agent) error {
 		return err
 	}
 	defer done()
-	a.closeSandboxConversations(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
 	return a.manager.AddAgents(ctx, id, agents)

@@ -2,6 +2,7 @@
 import { html, PageTitle, Icon } from "./core.js";
 import { EnvironmentPanel } from "./sandboxes.js";
 import { ExplainerSettings } from "./ai.js";
+import { AgentUpdateSettings } from "./agent-versions.js";
 
 export function SettingsPage({ overview, providers, notify }) {
   if (!overview) return null;
@@ -13,7 +14,6 @@ export function SettingsPage({ overview, providers, notify }) {
         <div><dt>应用数据（不含任何密钥）</dt><dd class="mono">${overview.data_dir}</dd></div>
         <div><dt>专用虚拟机</dt><dd class="mono">colima profile aiofcage · 4 CPU / 6 GiB / 40 GiB</dd></div>
         <div><dt>Docker context</dt><dd class="mono">colima-aiofcage（不会改动你的默认 context）</dd></div>
-        <div><dt>可安装的 Agent</dt><dd>${overview.agents.map((a) => html`<span class="binding">${a.name} <span class="mono">${a.version}</span></span>`)}</dd></div>
         <${ExplainerSettings} providers=${providers} notify=${notify} />
         <div><dt>版本</dt><dd class="mono">${overview.version}</dd></div>
         <div><dt>窗口</dt><dd><button onClick=${async () => {
@@ -23,6 +23,7 @@ export function SettingsPage({ overview, providers, notify }) {
           else runtime.WindowFullscreen();
         }}><${Icon} name="expand" />切换全屏</button></dd></div>
       </dl>
+      <${AgentUpdateSettings} notify=${notify} />
       <${EnvironmentPanel} environment=${overview.environment} />
     </section>`;
 }
