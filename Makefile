@@ -1,7 +1,7 @@
 GO ?= go
 WAILS_VERSION := v2.17.0
 
-.PHONY: desktop app gatekeeper gatekeeper-linux connector-linux cagectl dev check test clean
+.PHONY: desktop app icons gatekeeper gatekeeper-linux connector-linux cagectl dev check test clean
 
 GATEKEEPER_LINUX := internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64
 CONNECTOR_LINUX := internal/runtime/assets/connector/connector-linux-arm64
@@ -16,7 +16,12 @@ app: desktop
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp bin/AIofCage $(APP)/Contents/MacOS/AIofCage
 	cp packaging/macos/Info.plist $(APP)/Contents/Info.plist
+	cp packaging/macos/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
 	codesign --force --sign - $(APP)
+
+# 修改 Logo SVG 后重新生成 PNG 和包含 16—1024 像素图像的 ICNS；日常打包直接使用已生成的图标。
+icons:
+	swift packaging/macos/generate-icon.swift frontend/src/assets/logo.svg packaging/macos
 
 gatekeeper:
 	$(GO) build -trimpath -o bin/gatekeeper ./cmd/gatekeeper

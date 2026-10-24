@@ -22,7 +22,7 @@ var assets embed.FS
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "AIofCage 启动失败:", err)
+		fmt.Fprintln(os.Stderr, "AiOf Cage 启动失败:", err)
 		os.Exit(1)
 	}
 }
@@ -54,7 +54,7 @@ func run() error {
 		})
 	})
 	return wails.Run(&options.App{
-		Title: "AIofCage", Width: 1180, Height: 800, MinWidth: 900, MinHeight: 640,
+		Title: "AiOf Cage", Width: 1180, Height: 800, MinWidth: 900, MinHeight: 640,
 		BackgroundColour: options.NewRGB(245, 246, 248),
 		AssetServer:      &assetserver.Options{Assets: frontend},
 		OnStartup: func(ctx context.Context) {
