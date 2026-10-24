@@ -1,4 +1,4 @@
-// AIofCage 桌面界面：左侧导航 + 各页面。样式见 main.css。
+// AiOf Cage 桌面界面：左侧导航 + 各页面。样式见 main.css。
 import "./js/frames.js";
 import { render } from "preact";
 import { useEffect, useState, useCallback } from "preact/hooks";
@@ -143,7 +143,7 @@ function App() {
 
   return html`
     <aside class="sidebar">
-      <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>智能体工作区</small></span></div>
+      <div class="brand"><img class="brand-icon" src="/assets/logo.svg" alt="" width="36" height="36" /><span>AiOf Cage<small>笼中 AI · 沙箱</small></span></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
           aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}><span class="nav-icon" aria-hidden="true">${item.icon}</span>${item.title}</button>`)}

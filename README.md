@@ -1,6 +1,6 @@
-# AIofCage
+# AiOf Cage
 
-桌面上的智能体工作区：为 Codex、Claude Code 和 DeepSeek Harness 配置供应商，在独立沙箱中工作，并查看用量、费用估算和运行状态。
+AiOf Cage，寓意“笼中 AI”，是结合独立沙箱的桌面智能体工作区：为 Codex、Claude Code 和 DeepSeek Harness 配置供应商，在沙箱中工作，并查看用量、费用估算和运行状态。
 
 Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silicon。
 
@@ -48,6 +48,8 @@ make test                # 后端测试与竞态检查
 make cagectl             # 共用相同运行时的命令行工具
 make dev                 # Wails 热开发
 ```
+
+应用 Logo 以笼体围住 AI 核心，表达“笼中 AI”。矢量源文件为 `frontend/src/assets/logo.svg`，界面与 macOS 图标使用同一设计。修改后运行 `make icons`，通过系统 WebKit 和 `iconutil` 重新生成 `packaging/macos/AppIcon.png`（1024 像素）与 `AppIcon.icns`（16—1024 像素），再运行 `make app` 打包。
 
 前端调度回归测试使用 Node 内置测试器：
 

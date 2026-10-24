@@ -124,7 +124,7 @@ function ServiceDialog({ presets, initial, onClose, onSaved }) {
                 ? html`<label for="m-url">地址（streamable HTTP）</label>
                   <input id="m-url" required class="mono" placeholder="https://" value=${form.url} onInput=${set("url")} />
                   <p class="caption">保存后会打开浏览器，请在服务的官方页面登录并同意授权，不需要复制任何令牌。${""
-                    }授权保存在 macOS 钥匙串，由 AIofCage 自动续期；沙箱里只有占位符，门卫在请求发出时注入令牌。${""
+                    }授权保存在 macOS 钥匙串，由 AiOf Cage 自动续期；沙箱里只有占位符，门卫在请求发出时注入令牌。${""
                     }${preset?.docs ? html` 参考：<span class="mono">${preset.docs}</span>` : ""}</p>
                   ${saving === "等待浏览器授权…" && html`<p class="test-result" role="status">请在打开的浏览器页面里登录并同意授权…</p>`}`
                 : isDatabase(form)

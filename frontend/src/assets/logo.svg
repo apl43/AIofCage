@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>AiOf Cage</title>
+  <desc>青绿色笼体围住双眼 AI 核心，寓意“笼中 AI”：智能体在独立沙箱中工作。</desc>
+  <defs>
+    <linearGradient id="surface" x1="180" y1="64" x2="816" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2D7C70"/>
+      <stop offset=".5" stop-color="#1B544C"/>
+      <stop offset="1" stop-color="#102F2D"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="512" y1="64" x2="512" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".04"/>
+    </linearGradient>
+    <linearGradient id="boundary" x1="350" y1="200" x2="650" y2="820" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F1FFF5"/>
+      <stop offset="1" stop-color="#B6E4CE"/>
+    </linearGradient>
+    <linearGradient id="core" x1="448" y1="462" x2="592" y2="636" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#BBF8D8"/>
+      <stop offset="1" stop-color="#63CDA5"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1024" height="1024" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#061F1B" flood-opacity=".22"/>
+    </filter>
+    <filter id="relief" x="180" y="128" width="664" height="760" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="9" stdDeviation="7" flood-color="#041E19" flood-opacity=".2"/>
+    </filter>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#surface)" filter="url(#shadow)"/>
+  <rect x="66" y="66" width="892" height="892" rx="198" stroke="url(#rim)" stroke-width="4"/>
+  <g filter="url(#relief)">
+    <path d="M474 256V222a38 38 0 0 1 76 0v34" stroke="url(#boundary)" stroke-width="36" stroke-linecap="round"/>
+    <path d="M286 752V468c0-128 100-202 226-202s226 74 226 202v284" stroke="url(#boundary)" stroke-width="58" stroke-linecap="round"/>
+    <path d="M410 752V474c0-112 46-196 102-208 56 12 102 96 102 208v278" stroke="url(#boundary)" stroke-width="30" stroke-linecap="round"/>
+    <path d="M266 792h492" stroke="url(#boundary)" stroke-width="58" stroke-linecap="round"/>
+    <path d="M512 470v-40" stroke="#A6F1CE" stroke-width="24" stroke-linecap="round"/>
+    <rect x="400" y="462" width="224" height="174" rx="52" fill="url(#core)"/>
+    <rect x="460" y="530" width="28" height="36" rx="14" fill="#17483F"/>
+    <rect x="536" y="530" width="28" height="36" rx="14" fill="#17483F"/>
+  </g>
+</svg>
