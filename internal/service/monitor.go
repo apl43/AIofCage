@@ -35,11 +35,14 @@ type monitor struct {
 	lastID map[string]string
 	live   map[string]runtime.GateUsage
 	stats  map[string]runtime.ContainerStats
+	// oauthAlerted remembers services whose expired login was already reported.
+	oauthAlerted map[string]bool
 }
 
 func newMonitor() *monitor {
 	return &monitor{subs: map[string]context.CancelFunc{}, rings: map[string][]audit.Event{},
-		lastID: map[string]string{}, live: map[string]runtime.GateUsage{}, stats: map[string]runtime.ContainerStats{}}
+		lastID: map[string]string{}, live: map[string]runtime.GateUsage{}, stats: map[string]runtime.ContainerStats{},
+		oauthAlerted: map[string]bool{}}
 }
 
 // StartMonitor runs until ctx ends. The desktop app calls it once the window exists.
@@ -56,6 +59,18 @@ func (a *App) StartMonitor(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+			}
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(oauthCheckInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				a.refreshOAuth(ctx)
 			}
 		}
 	}()

@@ -89,3 +89,17 @@ func TestConnectorService(t *testing.T) {
 		t.Fatal("HTTP services keep their URL and all tools")
 	}
 }
+
+func TestOAuthService(t *testing.T) {
+	s := Service{ID: "notion", Name: "Notion", Kind: KindOAuth, URL: "https://mcp.notion.com/mcp", KeyRef: KeyRefFor("notion")}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if s.IsConnector() || !s.IsOAuth() || s.AgentURL() != s.URL || len(s.Rules()) != 1 || s.Rules()[0].SecretRef != "mcp-notion" {
+		t.Fatalf("oauth services are remote HTTP services: %+v", s.Rules())
+	}
+	s.URL = "http://mcp.notion.com/mcp"
+	if s.Validate() == nil {
+		t.Fatal("OAuth services must use https")
+	}
+}

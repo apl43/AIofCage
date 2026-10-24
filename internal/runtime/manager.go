@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/netip"
 	"path/filepath"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"github.com/shaoxier/AIofCage/internal/audit"
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
 	"github.com/shaoxier/AIofCage/internal/mcp"
+	"github.com/shaoxier/AIofCage/internal/oauth"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
@@ -48,6 +50,8 @@ type Manager struct {
 
 	// Progress, when set, receives human-readable steps for long operations.
 	Progress func(sandboxID, message string)
+	// OAuth refreshes tokens of OAuth MCP services before they are handed to a gatekeeper.
+	OAuth *oauth.Client
 
 	mu              sync.Mutex
 	gates           map[string]*gateClient
@@ -60,7 +64,8 @@ func NewManager(st *store.Store, secrets vault.Store) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{env: env, docker: env.docker, store: st, vault: secrets,
+	client := &http.Client{Timeout: 20 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second}}
+	return &Manager{env: env, docker: env.docker, store: st, vault: secrets, OAuth: oauth.NewClient(client, nil),
 		gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}, connectorTokens: map[string]string{}}, nil
 }
 
@@ -525,7 +530,12 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 		if service.IsConnector() {
 			continue // its secret goes to the connector, not to the gatekeeper
 		}
-		token, err := m.vault.Read(ctx, service.KeyRef)
+		token, err := m.serviceToken(ctx, service)
+		if err != nil && service.IsOAuth() {
+			// An expired login is routine: the sandbox still starts, only this service stays closed.
+			m.progress(sbx.ID, fmt.Sprintf("MCP 服务「%s」需要重新登录授权，本次先不开放（%v）", service.Name, err))
+			continue
+		}
 		if err != nil {
 			return config, fmt.Errorf("MCP 服务「%s」的令牌不可用：%w", service.Name, err)
 		}
@@ -538,6 +548,23 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 		config.Policy.Rules = append(config.Policy.Rules, service.Rules()...)
 	}
 	return config, nil
+}
+
+// OAuthMargin is how long an OAuth access token must stay valid when handed to a gatekeeper.
+const OAuthMargin = 5 * time.Minute
+
+// serviceToken returns the bearer token of a remote MCP service. OAuth tokens are refreshed on
+// the host first when they would expire soon; refresh tokens never leave the host.
+func (m *Manager) serviceToken(ctx context.Context, service mcp.Service) (string, error) {
+	if service.IsOAuth() {
+		creds, _, err := m.OAuth.AccessToken(ctx, m.vault, service.KeyRef, OAuthMargin)
+		if err != nil {
+			return "", err
+		}
+		return creds.AccessToken, nil
+	}
+	token, err := m.vault.Read(ctx, service.KeyRef)
+	return string(token), err
 }
 
 func (m *Manager) configure(ctx context.Context, client *gateClient, sbx sandbox.Sandbox, providers map[string]provider.Provider,

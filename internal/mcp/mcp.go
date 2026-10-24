@@ -1,11 +1,11 @@
 // Package mcp describes MCP services a sandbox may use without holding their secrets.
 //
-// Two kinds exist. Remote streamable-HTTP servers with a static bearer token (e.g. GitHub's
-// official remote MCP): the sandbox only gets a placeholder and the gatekeeper injects the real
-// token for the service's exact host and path. Connector services (e.g. a PostgreSQL database):
-// a stdio MCP server runs in a trusted connector container that holds the password; the agent
-// reaches it only through the gatekeeper's MCP entrypoint, which checks the placeholder and the
-// tool. OAuth services remain on the roadmap (see docs).
+// Remote streamable-HTTP servers authenticate with a bearer token: either a static token (e.g.
+// GitHub's official remote MCP) or one obtained by an OAuth login on the host (e.g. Notion,
+// Linear). The sandbox only gets a placeholder and the gatekeeper injects the real token for the
+// service's exact host and path. Connector services (e.g. a PostgreSQL database): a stdio MCP
+// server runs in a trusted connector container that holds the password; the agent reaches it
+// only through the gatekeeper's MCP entrypoint, which checks the placeholder and the tool.
 package mcp
 
 import (
@@ -76,7 +76,7 @@ func (s Service) Validate() error {
 		if password != "" {
 			return errors.New("连接串里不能保存密码")
 		}
-	} else if s.Kind != "" && s.Kind != KindHTTP {
+	} else if s.Kind != "" && s.Kind != KindHTTP && s.Kind != KindOAuth {
 		return errors.New("不支持的 MCP 服务类型")
 	} else if _, _, err := s.Endpoint(); err != nil {
 		return err

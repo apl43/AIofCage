@@ -30,9 +30,10 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `store` | 供应商与沙箱的 JSON 持久化（`~/Library/Application Support/AIofCage`，0600，原子写入） | 不存任何密钥 |
 | `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口只转发到已配置的可信连接器；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
 | `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
-| `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验 | 不绑定到前端；读方法只供运行时下发给门卫 |
+| `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验。普通 API key 原样保存；含空格、引号的密码和 OAuth 授权（JSON）以 base64 保存，超过约 3.4 KB 时拆成 `<条目>-partN` 多个条目（`security -i` 每行约 4 KB 上限） | 不绑定到前端；读方法只供运行时下发给门卫 |
+| `oauth` | MCP 标准 OAuth：受保护资源元数据（RFC 9728）→ 授权服务器元数据（RFC 8414）→ 动态注册客户端（RFC 7591）→ 浏览器授权（PKCE S256、`resource` 参数）→ 回调到 `127.0.0.1` 随机端口（校验 state）→ 换取令牌；按条目串行续期（兼容轮换的刷新令牌） | 只支持能自动注册客户端的服务；授权只在宿主进行，刷新令牌从不离开宿主 |
 | `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫 SSE；应用侧订阅、续传、JSONL 落盘、缺口事件 | 审计日志不做防篡改（hash 链在路线图） |
-| `mcp` | 两类服务：远程 streamable HTTP MCP（Bearer 令牌，门卫注入）与连接器服务（PostgreSQL：连接串不含密码，密码进钥匙串）；预设、放行规则、连接串校验（只允许 sslmode 等安全参数）、连接器目录（包和版本固定、允许的工具） | OAuth 在路线图；连接器目前只有 PostgreSQL；dsh 暂不配置 MCP |
+| `mcp` | 远程 streamable HTTP MCP（静态 Bearer 令牌或 OAuth 登录得到的令牌，门卫注入）与连接器服务（PostgreSQL：连接串不含密码，密码进钥匙串）；预设、放行规则、连接串校验（只允许 sslmode 等安全参数）、连接器目录（包和版本固定、允许的工具） | 连接器目前只有 PostgreSQL；dsh 暂不配置 MCP |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
 | `connector` | 可信连接器：在独立容器里按会话启动 stdio MCP 服务，转成 streamable HTTP，只接受门卫的连接器令牌；启动配置经 `docker exec` 标准输入写入 tmpfs，读后即删；子进程日志脱敏 | 只运行连接器目录里固定的命令，不运行传入的命令或镜像；连接器容器可以出网（要连数据库），这是它作为可信组件的残余风险 |
 | `buildinfo` | 桌面与门卫共用的版本与 `skeleton` 阶段 | 发布时注入真实版本 |
@@ -61,7 +62,8 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量 |
 | `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
 | `ListMCPPresets()` / `ListMCPServices()` | MCP 预设与已保存的服务（不含令牌） |
-| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走）；在用时不能删除；HTTP 服务测试发送 MCP `initialize`，数据库测试从本机连通端口 |
+| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走；OAuth 服务不接受粘贴的令牌）；在用时不能删除；HTTP/OAuth 服务测试发送 MCP `initialize`（OAuth 先按需续期），数据库测试从本机连通端口 |
+| `AuthorizeMCPService(id)` | OAuth 服务在默认浏览器里登录授权（最多等 5 分钟），授权保存到钥匙串，运行中的沙箱立即换上新令牌；应用每分钟检查一次在用的 OAuth 服务，令牌 10 分钟内到期就续期并下发，续期失败时提醒一次 |
 | `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
 | `ListAttacks()` / `SimulateAttacks(id)` | 7 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传、找数据库密码并直连数据库），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
 | `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；结果按事件缓存；AI 不参与放行 |
@@ -90,6 +92,8 @@ make cagectl
 ./bin/cagectl sandbox events demo                      # 实时事件
 ./bin/cagectl mcp add --kind postgres --id shopdb --name 商城数据库 \
     --url 'postgresql://app@localhost:5432/shop?sslmode=disable' --token-stdin   # 密码从标准输入进钥匙串
+./bin/cagectl mcp add --kind oauth --id notion --name Notion --url https://mcp.notion.com/mcp
+./bin/cagectl mcp login notion                          # 打开浏览器登录授权
 ./bin/cagectl sandbox mcp demo shopdb                  # 运行中立即启动连接器并下发
 ./bin/cagectl sandbox stop demo
 ```
@@ -123,6 +127,7 @@ make cagectl
 |---|---|---|
 | 远程 HTTP MCP（Bearer 令牌，例如 GitHub 官方 `https://api.githubcopilot.com/mcp/`） | 令牌存钥匙串 `aiofcage-mcp-<ID>`；启用后门卫为该服务地址放行 GET/POST/DELETE 并注入令牌 | Codex：`[mcp_servers.<ID>] url + bearer_token_env_var`；Claude Code：`~/.claude.json` 的 `mcpServers`（整体由 AIofCage 管理），请求头里只有占位符 |
 | PostgreSQL 数据库（密码） | 连接串（不含密码）存在 `mcp.json`，密码存钥匙串 `aiofcage-mcp-<ID>`；沙箱启动时为它起一个可信连接器容器，运行 `@modelcontextprotocol/server-postgres@0.6.2`（每条查询都在只读事务里执行）；门卫的 MCP 入口 `8890` 校验占位符、只放行 `query` 工具、记录工具名（不记录 SQL 和结果），再用连接器令牌转发 | 两个 Agent 都配置为 `http://gatekeeper:8890/mcp/<ID>`，请求头里只有占位符；沙箱里既没有密码，也没有通往数据库的网络 |
+| 远程 OAuth MCP（例如 Notion `https://mcp.notion.com/mcp`、Linear、Sentry） | 用户在 MCP 页点“登录授权”，应用在宿主完成 OAuth 并把授权（客户端 ID、访问令牌、刷新令牌）存进钥匙串 `aiofcage-mcp-<ID>`；门卫只拿到访问令牌，按与静态令牌相同的规则注入；应用在令牌到期前续期并重新下发 | 与静态令牌服务相同：URL + 占位符请求头。因为请求头已设置，Claude Code 不会自己发起 OAuth；登录过期时这个服务暂不开放，沙箱照常启动 |
 | 内置 filesystem | 镜像内置 `@modelcontextprotocol/server-filesystem@2.0.0`，参数只有项目目录 | 两个 Agent 都配置为 stdio 服务，无需密钥 |
 
 服务的 ID 同时是 Agent 配置里的服务名（GitHub 预设默认用 `github`）。界面里“测试连接”：HTTP 服务由桌面进程直接发送 MCP `initialize` 请求；数据库只检查端口能否连通，密码在沙箱启动时由连接器使用。
