@@ -1,0 +1,16 @@
+frontend/src/js/ai.js: 通过
+frontend/src/js/core.js: 通过
+frontend/src/js/frames.js: 通过
+frontend/src/js/health.js: 通过
+frontend/src/js/icons.js: 通过
+frontend/src/js/logs.js: 通过
+frontend/src/js/mcp.js: 通过
+frontend/src/js/providers.js: 通过
+frontend/src/js/sandbox-detail.js: 通过
+frontend/src/js/sandboxes.js: 通过
+frontend/src/js/settings.js: 通过
+frontend/src/js/terminal-draft.js: 通过
+frontend/src/js/terminal.js: 通过
+frontend/src/js/usage.js: 通过
+frontend/src/main.js: 通过
+共 15 个文件，全部通过。

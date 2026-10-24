@@ -1,6 +1,6 @@
 // 沙箱页：参考 Docker Desktop 的容器列表——创建、启停、打开终端、切换供应商、删除。
 import { useEffect, useState } from "preact/hooks";
-import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes } from "./core.js";
+import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes, Icon, agentIcon, PageTitle } from "./core.js";
 import { MCPChoices } from "./mcp.js";
 import { AttackDialog } from "./ai.js";
 import { useTerminals } from "./terminal.js";
@@ -81,20 +81,17 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
   return html`
     <section class="page">
       <div class="section-heading">
-        <div>
-          <h2>沙箱</h2>
-          <p>管理项目、智能体和运行状态。</p>
-        </div>
-        <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>＋ 创建沙箱</button>
+        <${PageTitle} icon="box" title="沙箱" description="管理项目、智能体和运行状态。" />
+        <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}><${Icon} name="plus" />创建沙箱</button>
       </div>
       ${sandboxes.length > 0 && html`<div class="toolbar sandbox-toolbar">
-        <input type="search" aria-label="搜索沙箱" placeholder="搜索名称或项目目录" value=${query} onInput=${(e) => setQuery(e.target.value)} />
+        <div class="search-field"><${Icon} name="search" /><input type="search" aria-label="搜索沙箱" placeholder="搜索名称或项目目录" value=${query} onInput=${(e) => setQuery(e.target.value)} /></div>
         <div class="segmented" aria-label="沙箱状态">
           ${[{ id: "all", label: `全部 ${sandboxes.length}` }, { id: "running", label: `运行中 ${sandboxes.filter((s) => s.state === "running").length}` }, { id: "stopped", label: "未运行" }].map((f) => html`<button aria-pressed=${filter === f.id} class=${filter === f.id ? "active" : ""} onClick=${() => setFilter(f.id)}>${f.label}</button>`)}
         </div></div>`}
       ${sandboxes.length === 0
         ? html`<div class="panel empty">
-            <span class="empty-icon">▢</span>
+            <span class="empty-icon"><${Icon} name="box" size=${40} /></span>
             <h3>还没有沙箱</h3>
             <p>创建一个工作区，按需添加智能体。</p>
             <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>创建第一个沙箱</button>
@@ -105,7 +102,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id] ?? s.operation} progress=${progress[s.id] || s.progress} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
-            ${!visible.length && html`<div class="panel empty"><h3>没有匹配的沙箱</h3><p>试试其他名称或状态。</p><button onClick=${() => { setQuery(""); setFilter("all"); }}>重置筛选</button></div>`}
+            ${!visible.length && html`<div class="panel empty"><span class="empty-icon"><${Icon} name="search" size=${40} /></span><h3>没有匹配的沙箱</h3><p>试试其他名称或状态。</p><button onClick=${() => { setQuery(""); setFilter("all"); }}>重置筛选</button></div>`}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
       ${dialogs}
@@ -152,7 +149,7 @@ export function UsageStats({ sandbox, usage, onLogs }) {
       ${quotaPercent(usage?.requests, maxRequests)}</span>
     <span><strong>${formatTokens(usage?.tokens ?? sandbox.usage.tokens)}</strong> token${maxTokens ? ` / ${formatTokens(maxTokens)}` : ""}
       ${quotaPercent(usage?.tokens, maxTokens)}</span>
-    ${usage?.stats?.valid && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
+    ${usage?.stats?.valid && html`<span class="resource-usage"><span>CPU ${usage.stats.cpu_percent.toFixed(1)}%</span><span>内存 ${formatBytes(usage.stats.memory_bytes)}</span></span>`}
     ${onLogs && html`<button class="link" onClick=${onLogs}>${usage?.denied ? html`<span class="count bad">拦截 ${usage.denied}</span> ` : ""}查看日志</button>`}
   </div>`;
 }
@@ -166,24 +163,24 @@ function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, on
     onOpen({ tab: "terminal", open: openTerminals.length ? undefined : { agent: sandbox.bindings.find((b) => b.provider_id)?.agent ?? "", nonce: Date.now() } });
   };
   return html`<article class="panel sandbox-row">
-    <div class="sandbox-main">
+    <div class="sandbox-identity"><span class=${`sandbox-avatar ${running ? "running" : ""}`}><${Icon} name="box" size=${28} /></span><div class="sandbox-main">
       <div class="sandbox-title"><span class=${`status-dot ${state.tone}`} aria-hidden="true"></span>
         <button class="title-link" onClick=${() => onOpen({ tab: "overview" })}><h3>${sandbox.name}</h3></button>
         <span class=${`pill ${busy ? "warn" : state.tone}`}>${busy ? `${busy}中…` : state.label}</span></div>
       <p class="mono project-path" title=${sandbox.project_path}>${sandbox.project_path}</p>
-      <div class="agent-summary">${sandbox.bindings.length ? sandbox.bindings.map((b) => html`<span class="binding">${agentName(b.agent)}<span class="muted"> · ${b.provider_name || "待配置"}</span></span>`) : html`<span class="caption">空白沙箱</span>`}</div>
+      <div class="agent-summary">${sandbox.bindings.length ? sandbox.bindings.map((b) => html`<span class="binding"><${Icon} name=${agentIcon(b.agent)} size=${16} />${agentName(b.agent)}<span class="muted"> · ${b.provider_name || "待配置"}</span></span>`) : html`<span class="caption">空白沙箱</span>`}</div>
       ${sandbox.config_pending && html`<span class="caption">配置待重启生效</span>`}
       ${busy && html`<p class="progress" role="status">${progress || "正在处理…"}</p>`}
-    </div>
+    </div></div>
     <${UsageStats} sandbox=${sandbox} usage=${usage} />
     <div class="row-actions">
-      <button class="primary" onClick=${enter} disabled=${Boolean(busy)}>${running ? (openTerminals.length ? "继续工作" : "打开") : "启动并打开"}</button>
-      <details class="action-menu"><summary aria-label=${`更多操作：${sandbox.name}`}>•••</summary><div class="menu-items">
-        <button onClick=${() => onOpen({ tab: "agents" })}>管理智能体</button>
-        <button onClick=${() => onOpen({ tab: "overview" })}>沙箱详情</button>
-        <button onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}>在访达中打开</button>
-        ${running && html`<button disabled=${Boolean(busy)} onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)}>停止沙箱</button>`}
-        <button class="danger" disabled=${Boolean(busy)} onClick=${onDelete}>删除沙箱…</button>
+      <button class="primary" onClick=${enter} disabled=${Boolean(busy)}><${Icon} name=${running ? "terminal" : "play"} size=${18} />${running ? (openTerminals.length ? "继续工作" : "打开") : "启动并打开"}</button>
+      <details class="action-menu"><summary aria-label=${`更多操作：${sandbox.name}`}><${Icon} name="more" /></summary><div class="menu-items">
+        <button onClick=${() => onOpen({ tab: "agents" })}><${Icon} name="cpu" size=${18} />管理智能体</button>
+        <button onClick=${() => onOpen({ tab: "overview" })}><${Icon} name="box" size=${18} />沙箱详情</button>
+        <button onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}><${Icon} name="folder" size=${18} />在访达中打开</button>
+        ${running && html`<button disabled=${Boolean(busy)} onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)}><${Icon} name="stop" size=${18} />停止沙箱</button>`}
+        <button class="danger" disabled=${Boolean(busy)} onClick=${onDelete}><${Icon} name="trash" size=${18} />删除沙箱…</button>
       </div></details>
     </div></article>`;
 }
@@ -239,7 +236,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && !saving && onClose()}>
       <div class="dialog wide" role="dialog" aria-modal="true" aria-label="创建沙箱">
         <div class="dialog-heading"><h2>创建沙箱</h2>
-          <button type="button" class="icon-button" aria-label="关闭" disabled=${saving} onClick=${onClose}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" disabled=${saving} onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
         <form onSubmit=${(e) => { e.preventDefault(); submit(true); }}>
           <label for="s-name">名称</label>
           <input id="s-name" required maxlength="60" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="例如：我的网站" />
@@ -267,7 +264,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
                 <label class="check"><input type="checkbox" checked=${Boolean(agents[a.id])}
                   onChange=${(e) => setAgents({ ...agents, [a.id]: e.target.checked })} />${a.name}</label>
                 ${agents[a.id] && (options.length
-                  ? html`<select value=${bindings[a.id]} onChange=${(e) => setBindings({ ...bindings, [a.id]: e.target.value })}>
+                  ? html`<select aria-label=${`${a.name} 的供应商`} value=${bindings[a.id]} onChange=${(e) => setBindings({ ...bindings, [a.id]: e.target.value })}>
                       <option value="">暂不配置</option>
                       ${options.map((p) => html`<option value=${p.id}>${p.name}</option>`)}
                     </select>`
@@ -291,11 +288,11 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
           </details>
 
           ${error && html`<p class="form-error" role="alert">${error}</p>`}
+          <p class="caption">首次启动需要准备镜像，可在沙箱列表查看进度。</p>
           <div class="dialog-actions">
             <button type="button" onClick=${() => submit(false)} disabled=${saving}>只创建</button>
             <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : "创建并启动"}</button>
           </div>
-          <p class="caption">首次启动需要准备镜像，可在沙箱列表查看进度。</p>
         </form>
       </div>
     </div>`;
@@ -348,7 +345,7 @@ function MCPDialog({ sandbox, services, onClose, onSave }) {
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label="MCP 设置">
         <div class="dialog-heading"><h2>「${sandbox.name}」的 MCP 服务</h2>
-          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
         <${MCPChoices} services=${services} selected=${selected} filesystem=${filesystem} onChange=${(ids, fs) => { setSelected(ids); setFilesystem(fs); }} />
         <p class="caption">运行中的沙箱会立即更新配置，Agent 下次启动时生效。</p>
         <div class="dialog-actions">
@@ -364,7 +361,7 @@ function AddAgentsDialog({ sandbox, onClose, onAdd }) {
   const available = AGENTS.filter((a) => !sandbox.bindings.some((b) => b.agent === a.id));
   return html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
     <div class="dialog" role="dialog" aria-modal="true" aria-label="添加智能体">
-      <div class="dialog-heading"><h2>添加智能体</h2><button class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+      <div class="dialog-heading"><h2>添加智能体</h2><button class="icon-button" aria-label="关闭" onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
       ${available.map((a) => html`<label class="check"><input type="checkbox" checked=${Boolean(selected[a.id])}
         onChange=${(e) => setSelected({ ...selected, [a.id]: e.target.checked })} />${a.name}</label>`)}
       <p class="caption">项目文件和主目录会保留。${sandbox.state === "running" ? "镜像准备完成后会重建运行容器，当前终端会话将结束。" : "首次准备镜像可能需要几分钟。"}</p>

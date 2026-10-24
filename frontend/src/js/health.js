@@ -1,5 +1,5 @@
 import { useEffect, useState } from "preact/hooks";
-import { html, call, formatBytes, REASONS, STATES } from "./core.js";
+import { html, call, formatBytes, REASONS, STATES, Icon } from "./core.js";
 
 const KINDS = { agent: "智能体环境", gate: "出网代理", mcp: "MCP 连接器" };
 const COMPONENT_STATES = { running: "运行中", exited: "已停止", created: "待启动", restarting: "重启中", paused: "已暂停", dead: "异常退出", missing: "未创建", unknown: "未采集" };
@@ -34,20 +34,20 @@ export function HealthPanel({ sandbox, vm, events = [] }) {
   const recent = events.filter((e) => e.session_id === sandbox.id && (e.model_request || e.action === "mcp.call")).sort((a,b) => new Date(b.ts)-new Date(a.ts)).slice(0,6);
   const state = STATES[h?.state] || STATES.unknown;
   return html`<div class="health-page">
-    <div class="section-heading compact"><div class="health-status"><h3>运行状态</h3>${h && html`<span class=${`pill ${state.tone}`}>${state.label}</span>`}</div><button onClick=${() => setRefresh((n) => n + 1)}>刷新</button></div>
+    <div class="section-heading"><div class="health-status"><h3>运行状态</h3>${h && html`<span class=${`pill ${state.tone}`}>${state.label}</span>`}</div><button onClick=${() => setRefresh((n) => n + 1)}><${Icon} name="refresh" size=${18} />刷新</button></div>
     ${error && html`<p class="feedback error" role="alert">${error}</p>`}
     ${!h ? html`<div class="panel empty">正在读取运行状态…</div>` : html`
       <p class="caption health-stamp">${stale ? "样本已过期 · " : ""}采集于 ${date(h.collected_at)} · 耗时 ${(h.duration_ms/1000).toFixed(1)} 秒 · 约每 5 秒更新</p>
       ${(h.error || stale || s.error) && html`<p class="feedback ${h.state === "stopped" || h.state === "not_created" ? "" : "error"}" role="status">${h.error || (stale ? "暂未收到新样本，以下资源值不可用。" : s.error)}</p>`}
       <div class="metric-grid">
-        <div class="panel metric"><span>CPU</span><strong>${valid ? `${s.cpu_percent.toFixed(1)}%` : "—"}</strong><small>100% = 1 个核心</small></div>
-        <div class="panel metric"><span>内存</span><strong>${valid ? bytes(s.memory_bytes) : "—"}</strong><small>所有运行组件之和</small></div>
-        <div class="panel metric"><span>进程 / 线程</span><strong>${valid ? s.pids : "—"}</strong><small>Docker PIDs</small></div>
-        <div class="panel metric"><span>代理管理接口</span><strong class="health-value">${stale ? "样本过期" : h.gate_api ? "可响应" : h.gate_error ? "无响应" : "未检测"}</strong><small>不发送模型计费请求</small></div>
+        <div class="panel metric"><span><${Icon} name="cpu" />CPU</span><strong>${valid ? `${s.cpu_percent.toFixed(1)}%` : "—"}</strong><small>100% = 1 个核心</small></div>
+        <div class="panel metric"><span><${Icon} name="memory" />内存</span><strong>${valid ? bytes(s.memory_bytes) : "—"}</strong><small>所有运行组件之和</small></div>
+        <div class="panel metric"><span><${Icon} name="activity" />进程 / 线程</span><strong>${valid ? s.pids : "—"}</strong><small>Docker PIDs</small></div>
+        <div class="panel metric"><span><${Icon} name="shield" />代理管理接口</span><strong class="health-value">${stale ? "样本过期" : h.gate_api ? "可响应" : h.gate_error ? "无响应" : "未检测"}</strong><small>不发送模型计费请求</small></div>
       </div>
       <div class="health-charts"><${Trend} history=${report.history} field="cpu_percent" label="CPU 趋势" format=${(v) => `${v.toFixed(1)}%`} minimum=${100} /><${Trend} history=${report.history} field="memory_bytes" label="内存趋势" format=${bytes} minimum=${1 << 20} /></div>
       <div class="section-heading compact"><h3>组件</h3><span class="caption">资源上限按组件独立执行</span></div>
-      <div class="panel data-scroll"><table class="data-table component-table"><thead><tr><th>组件 / 状态</th><th>CPU / 上限</th><th>内存 / 上限</th><th>退出与恢复</th><th>健康检查</th></tr></thead><tbody>
+      <div class="panel data-scroll" tabindex="0" role="region" aria-label="沙箱组件状态表格"><table class="data-table component-table"><thead><tr><th>组件 / 状态</th><th>CPU / 上限</th><th>内存 / 上限</th><th>退出与恢复</th><th>健康检查</th></tr></thead><tbody>
         ${h.components.map((c) => html`<tr><td><strong>${KINDS[c.kind] || c.kind}</strong><small class="mono">${c.kind === "mcp" ? c.name.split("-mcp-")[1] : c.id?.slice(0,12)}</small><span class=${`pill ${c.running ? "ok" : c.state === "unknown" ? "warn" : "idle"}`}>${COMPONENT_STATES[c.state] || c.state}</span>${c.error && html`<small class="danger">${c.error}</small>`}</td>
           <td>${c.stats?.valid && !stale ? `${c.stats.cpu_percent.toFixed(1)}%` : "—"}<small>${!c.id ? "—" : c.cpu_limit > 0 ? `${c.cpu_limit} 核` : "未单独限制"}</small></td>
           <td>${c.stats?.valid && !stale ? bytes(c.stats.memory_bytes) : "—"}<small>${!c.id ? "—" : c.memory_limit ? bytes(c.memory_limit) : "未单独限制"}</small>${c.stats?.error && html`<small class="danger">${c.stats.error}</small>`}</td>
@@ -78,5 +78,5 @@ function Trend({ history = [], field, label, format, minimum }) {
     path += `l0.15,0 `;
     previous = time;
   }
-  return html`<div class="panel trend"><div><h4>${label}</h4><span class="caption">0 — ${format(max)}</span></div><svg viewBox="0 0 400 96" role="img" aria-label=${`${label}，${available.length} 个有效样本，缺失处断开`}><path d="M4,86 H396 M4,47 H396 M4,8 H396" class="trend-grid" /><path d=${path} class="trend-line" /></svg><p class="caption">${history.length ? `${new Date(start).toLocaleTimeString()} — ${new Date(end).toLocaleTimeString()}` : "等待采样"} · 最近 ${history.length}/120 个样本 · 应用重开后重新记录</p></div>`;
+  return html`<div class="panel trend"><div><h4>${label}</h4><span class="caption">0 — ${format(max)}</span></div><svg viewBox="0 0 400 96" preserveAspectRatio="none" role="img" aria-label=${`${label}，${available.length} 个有效样本，缺失处断开`}><path d="M4,86 H396 M4,47 H396 M4,8 H396" class="trend-grid" /><path d=${path} class="trend-line" /></svg><p class="caption">${history.length ? `${new Date(start).toLocaleTimeString()} — ${new Date(end).toLocaleTimeString()}` : "等待采样"} · 最近 ${history.length}/120 个样本 · 应用重开后重新记录</p></div>`;
 }

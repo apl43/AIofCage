@@ -1,0 +1,12 @@
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64 ./cmd/gatekeeper
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o internal/runtime/assets/connector/connector-linux-arm64 ./cmd/connector
+go build -tags production -trimpath -o bin/AIofCage .
+# github.com/shaoxier/AIofCage
+ld: warning: ignoring duplicate libraries: '-lobjc'
+rm -rf bin/AIofCage.app
+mkdir -p bin/AIofCage.app/Contents/MacOS bin/AIofCage.app/Contents/Resources
+cp bin/AIofCage bin/AIofCage.app/Contents/MacOS/AIofCage
+cp packaging/macos/Info.plist bin/AIofCage.app/Contents/Info.plist
+cp packaging/macos/AppIcon.icns bin/AIofCage.app/Contents/Resources/AppIcon.icns
+codesign --force --sign - bin/AIofCage.app
+bin/AIofCage.app: replacing existing signature

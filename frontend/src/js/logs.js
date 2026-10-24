@@ -1,6 +1,6 @@
 // 日志页：所有沙箱经过门卫的请求，实时滚动；拦截的请求标红。
 import { useState } from "preact/hooks";
-import { html, call, REASONS, DECISIONS, formatTokens } from "./core.js";
+import { html, call, REASONS, DECISIONS, formatTokens, Icon, PageTitle } from "./core.js";
 import { ExplainDialog } from "./ai.js";
 
 const FILTERS = [
@@ -22,15 +22,13 @@ export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandb
   return html`
     <section class="page">
       <div class="section-heading">
-        <div>
-          <h2>请求日志</h2>
-          <p>每一条都来自门卫的真实判定。日志只记录主机、路径、结果和用量，不记录请求内容和任何密钥。</p>
-        </div>
+        ${embedded ? html`<div><h3>请求日志</h3><p>查看请求结果和用量，不记录请求正文。</p></div>`
+          : html`<${PageTitle} icon="list" title="请求日志" description="查看请求结果和用量，不记录请求正文。" />`}
         <div class="heading-actions">
           ${sandboxFilter && html`<button onClick=${() => call("RevealAuditLog", sandboxFilter).catch((e) => notify(e.message, true))}>
             在访达中显示日志文件</button>`}
           <button class="primary" disabled=${!sandboxFilter} title=${sandboxFilter ? "" : "先选择一个沙箱"}
-            onClick=${() => setExplain({ sandboxId: sandboxFilter, sandboxName: sandboxes.find((s) => s.id === sandboxFilter)?.name })}>AI 总结</button>
+            onClick=${() => setExplain({ sandboxId: sandboxFilter, sandboxName: sandboxes.find((s) => s.id === sandboxFilter)?.name })}><${Icon} name="sparkles" size=${18} />AI 总结</button>
         </div>
       </div>
       <div class="toolbar">
@@ -39,17 +37,17 @@ export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandb
           ${sandboxes.map((s) => html`<option value=${s.id}>${s.name}</option>`)}
         </select>`}
         <div class="segmented" role="tablist">
-          ${FILTERS.map((f) => html`<button role="tab" aria-selected=${f.id === filter} class=${f.id === filter ? "active" : ""}
+          ${FILTERS.map((f) => html`<button role="tab" aria-selected=${f.id === filter} tabindex=${f.id === filter ? 0 : -1} class=${f.id === filter ? "active" : ""}
             onClick=${() => setFilter(f.id)}>${f.label}${f.id === "deny" && denied ? html` <span class="count bad">${denied}</span>` : ""}</button>`)}
         </div>
       </div>
       ${visible.length === 0
         ? (events.some((e) => !sandboxFilter || e.session_id === sandboxFilter)
-          ? html`<div class="panel empty"><span class="empty-icon">≡</span><h3>这个筛选下暂无记录</h3>
+          ? html`<div class="panel empty"><span class="empty-icon"><${Icon} name="search" size=${40} /></span><h3>这个筛选下暂无记录</h3>
               <p>换一个筛选条件，或选择“全部”查看所有记录。</p></div>`
-          : html`<div class="panel empty"><span class="empty-icon">≡</span><h3>还没有记录</h3>
+          : html`<div class="panel empty"><span class="empty-icon"><${Icon} name="list" size=${40} /></span><h3>还没有记录</h3>
               <p>启动沙箱后，Agent 发出的每一个网络请求都会实时出现在这里。</p></div>`)
-        : html`<div class="panel log-table">
+        : html`<div class="panel log-table" tabindex="0" role="region" aria-label="请求日志表格">
             <div class="log-row head"><span>时间</span><span>沙箱</span><span>结果</span><span>说明</span><span>目标</span><span>供应商</span><span title="输入 token / 输出 token">token 入/出</span><span>耗时</span><span></span></div>
             ${visible.map((e) => {
               const decision = DECISIONS[e.decision] ?? { label: e.decision, tone: "idle" };

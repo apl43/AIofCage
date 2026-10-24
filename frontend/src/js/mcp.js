@@ -2,28 +2,24 @@
 // 远程 HTTP 服务由门卫在请求发出时注入令牌（OAuth 令牌由应用在浏览器登录后获取并自动续期）；
 // 数据库由沙箱外的可信连接器代持密码，Agent 经门卫访问。
 import { useState } from "preact/hooks";
-import { html, call, ConfirmDialog } from "./core.js";
+import { html, call, ConfirmDialog, Icon, PageTitle } from "./core.js";
 
 export function MCPPage({ services, presets, reload, notify }) {
   const [dialog, setDialog] = useState(null);
   return html`
     <section class="page">
       <div class="section-heading">
-        <div>
-          <h2>MCP 服务</h2>
-          <p>在这里登录 MCP 服务、保存访问令牌或数据库密码，再到沙箱里勾选启用。沙箱里的配置文件只有占位符，真实凭据始终留在沙箱外。</p>
-        </div>
-        <button class="primary" onClick=${() => setDialog({})}>＋ 添加 MCP 服务</button>
+        <${PageTitle} icon="plug" title="工具连接" description="管理 MCP 服务，再到沙箱中选择启用。凭据保存在 macOS 钥匙串。" />
+        <button class="primary" onClick=${() => setDialog({})}><${Icon} name="plus" />添加 MCP 服务</button>
       </div>
       <div class="card-grid">
         <article class="panel provider-card builtin">
-          <div class="card-top"><h3>项目文件（filesystem）</h3><span class="pill ok">内置</span></div>
-          <p>让 Agent 通过 MCP 读写当前项目文件夹。不需要任何密钥，只能访问项目目录，在创建沙箱时勾选即可。</p>
+          <div class="card-top"><div class="card-identity"><span class="card-icon"><${Icon} name="folder" size=${22} /></span><h3>项目文件（filesystem）</h3></div><span class="pill ok">内置</span></div>
+          <p>读取和修改当前项目文件，创建沙箱时勾选启用。仅访问当前项目目录，无需凭据。</p>
         </article>
         ${services.map((s) => html`<${ServiceCard} key=${s.id} service=${s} onEdit=${() => setDialog({ service: s })} reload=${reload} notify=${notify} />`)}
       </div>
-      <p class="caption">支持四类：浏览器登录授权的远程 MCP（OAuth，例如 Notion、Linear、Sentry）、用令牌认证的远程 MCP（例如 GitHub 官方 MCP）、${""
-        }需要密码的 PostgreSQL 数据库、内置的 filesystem。Codex 与 Claude Code 会自动配置；dsh 暂不支持 MCP。</p>
+      <p class="caption">在沙箱的“概览”中选择启用工具连接。DeepSeek Harness 暂不支持 MCP。</p>
       ${dialog && html`<${ServiceDialog} presets=${presets} initial=${dialog.service} onClose=${() => { setDialog(null); reload(); }}
         onSaved=${async (saved) => { setDialog(null); notify(`已保存「${saved.name}」`); await reload(); }} />`}
     </section>`;
@@ -60,11 +56,11 @@ function ServiceCard({ service, onEdit, reload, notify }) {
   const status = oauth
     ? (service.key_saved ? html`<span class="pill ok">已授权</span>` : html`<span class="pill warn">未登录</span>`)
     : (service.key_saved ? html`<span class="pill ok">${secret}已保存</span>` : html`<span class="pill warn">缺少${secret}</span>`);
-  const kind = database ? "数据库 · 可信连接器代持密码 · 只读查询"
-    : oauth ? "远程 HTTP · 浏览器登录授权，自动续期 · 门卫注入令牌" : "远程 HTTP · 门卫注入令牌";
+  const kind = database ? "PostgreSQL · 只读查询"
+    : oauth ? "远程 MCP · 浏览器授权" : "远程 MCP · 访问令牌";
   return html`
     <article class="panel provider-card">
-      <div class="card-top"><h3>${service.name}</h3>${status}</div>
+      <div class="card-top"><div class="card-identity"><span class="card-icon"><${Icon} name=${database ? "database" : "plug"} size=${22} /></span><h3>${service.name}</h3></div>${status}</div>
       <p class="mono">${service.url}</p>
       <dl class="facts">
         <div><dt>类型</dt><dd>${kind}</dd></div>
@@ -113,7 +109,7 @@ function ServiceDialog({ presets, initial, onClose, onSaved }) {
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label=${editing ? "编辑 MCP 服务" : "添加 MCP 服务"}>
         <div class="dialog-heading"><h2>${editing ? "编辑 MCP 服务" : form ? "填写 MCP 服务" : "选择 MCP 服务"}</h2>
-          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
         ${!form
           ? html`<div class="preset-grid">${presets.map((p) => html`<button class="preset" onClick=${() => { setPreset(p); setForm({ name: p.name, kind: p.kind ?? "", url: p.url, preset: p.id, token: "" }); }}>
               <strong>${p.name}</strong><span class="mono">${p.url || (p.kind === "postgres" ? "填写连接串" : "自己填写地址")}</span>${p.note && html`<small>${p.note}</small>`}</button>`)}</div>`
