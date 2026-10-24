@@ -25,7 +25,9 @@ type Environment struct {
 	docker  runner
 }
 
-type vmInfo struct {
+type VMInfo struct {
+	CPUs   int    `json:"cpus"`
+	Memory uint64 `json:"memory"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Arch   string `json:"arch"`
@@ -52,14 +54,14 @@ func NewEnvironment() (*Environment, error) {
 	}, nil
 }
 
-func (e *Environment) vm(ctx context.Context) (*vmInfo, error) {
+func (e *Environment) vm(ctx context.Context) (*VMInfo, error) {
 	out, err := e.colima.run(ctx, 30*time.Second, nil, "list", "--json")
 	if err != nil {
 		return nil, err
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(out))
 	for scanner.Scan() {
-		var info vmInfo
+		var info VMInfo
 		if json.Unmarshal(scanner.Bytes(), &info) == nil && info.Name == ColimaProfile {
 			return &info, nil
 		}
@@ -217,5 +219,5 @@ func (e *Environment) Inspect(ctx context.Context) Report {
 			ready = false
 		}
 	}
-	return Report{Ready: ready, Checks: checks}
+	return Report{Ready: ready, Checks: checks, VM: vm}
 }

@@ -15,6 +15,7 @@ type Check struct {
 }
 
 type Report struct {
+	VM     *VMInfo `json:"vm,omitempty"`
 	Ready  bool    `json:"ready"`
 	Checks []Check `json:"checks"`
 }

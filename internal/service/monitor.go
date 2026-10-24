@@ -29,18 +29,20 @@ const (
 // monitor follows every running sandbox: it subscribes to the gatekeeper event stream, appends
 // events to a per-sandbox JSONL audit log, and polls usage and container stats for the UI.
 type monitor struct {
-	mu     sync.Mutex
-	subs   map[string]context.CancelFunc
-	rings  map[string][]audit.Event
-	lastID map[string]string
-	live   map[string]runtime.GateUsage
-	stats  map[string]runtime.ContainerStats
+	health  map[string]runtime.SandboxHealth
+	history map[string][]runtime.ContainerStats
+	mu      sync.Mutex
+	subs    map[string]context.CancelFunc
+	rings   map[string][]audit.Event
+	lastID  map[string]string
+	live    map[string]runtime.GateUsage
+	stats   map[string]runtime.ContainerStats
 	// oauthAlerted remembers services whose expired login was already reported.
 	oauthAlerted map[string]bool
 }
 
 func newMonitor() *monitor {
-	return &monitor{subs: map[string]context.CancelFunc{}, rings: map[string][]audit.Event{},
+	return &monitor{health: map[string]runtime.SandboxHealth{}, history: map[string][]runtime.ContainerStats{}, subs: map[string]context.CancelFunc{}, rings: map[string][]audit.Event{},
 		lastID: map[string]string{}, live: map[string]runtime.GateUsage{}, stats: map[string]runtime.ContainerStats{},
 		oauthAlerted: map[string]bool{}}
 }
@@ -81,10 +83,14 @@ func (a *App) tick(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	var running []string
+	ids := make([]string, 0, len(sandboxes))
 	for _, s := range sandboxes {
-		if a.manager.Status(ctx, s.ID).State == "running" {
-			running = append(running, s.ID)
+		ids = append(ids, s.ID)
+	}
+	health := a.manager.SampleHealth(ctx, ids)
+	stats := map[string]runtime.ContainerStats{}
+	for _, s := range sandboxes {
+		if health[s.ID].GateRunning() {
 			a.subscribe(ctx, s)
 			if usage, err := a.manager.Usage(ctx, s.ID); err == nil {
 				_ = a.manager.RecordUsage(s.ID, usage)
@@ -92,16 +98,36 @@ func (a *App) tick(ctx context.Context) {
 				a.monitor.live[s.ID] = usage
 				a.monitor.mu.Unlock()
 				a.emit("sandbox:usage", map[string]any{"id": s.ID, "usage": usage})
+				h := health[s.ID]
+				h.GateAPI = true
+				health[s.ID] = h
+			} else {
+				h := health[s.ID]
+				h.GateError = "代理管理接口暂时无响应"
+				health[s.ID] = h
 			}
 		} else {
 			a.unsubscribe(s.ID)
 		}
 	}
-	stats := a.manager.Stats(ctx, running)
 	a.monitor.mu.Lock()
+	a.monitor.health = health
+	for id, h := range health {
+		stats[id] = h.Stats
+		points := append(a.monitor.history[id], h.Stats)
+		if len(points) > 120 {
+			points = append([]runtime.ContainerStats{}, points[len(points)-120:]...)
+		}
+		a.monitor.history[id] = points
+	}
+	for id := range a.monitor.history {
+		if _, ok := health[id]; !ok {
+			delete(a.monitor.history, id)
+		}
+	}
 	a.monitor.stats = stats
 	for id := range a.monitor.live {
-		if _, ok := stats[id]; !ok {
+		if h, ok := health[id]; !ok || !h.GateRunning() {
 			delete(a.monitor.live, id)
 		}
 	}
