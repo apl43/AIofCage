@@ -74,7 +74,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
       <div class="section-heading">
         <div>
           <h2>沙箱</h2>
-          <p>每个沙箱只能看到自己的项目目录，所有网络请求都经过它自己的门卫；Agent 拿到的只是占位符。</p>
+          <p>管理项目、智能体和运行状态。</p>
         </div>
         <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>＋ 创建沙箱</button>
       </div>
@@ -82,7 +82,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
         ? html`<div class="panel empty">
             <span class="empty-icon">▢</span>
             <h3>还没有沙箱</h3>
-            <p>沙箱 = 一个项目文件夹 + 要用的 Agent + 每个 Agent 的供应商。</p>
+            <p>创建一个工作区，按需添加智能体。</p>
             <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>创建第一个沙箱</button>
           </div>`
         : html`<div class="sandbox-list">
@@ -314,7 +314,7 @@ const CHECK_LABELS = { ready: "就绪", detected: "已检测", missing: "缺失"
 export function EnvironmentPanel({ environment }) {
   if (!environment) return null;
   return html`
-    <div class="section-heading compact"><div><h2>运行环境</h2><p>专用虚拟机只共享 ~/CageWorkspace，不影响你自己的 Docker。首次启动沙箱时会自动创建或启动它。</p></div></div>
+    <details class="environment-details"><summary>运行环境 · ${environment.ready ? "就绪" : "需要检查"}</summary>
     <div class="panel">
       ${environment.checks.map(
         (check) => html`<div class="check-row" key=${check.id}>
@@ -323,7 +323,7 @@ export function EnvironmentPanel({ environment }) {
             ${CHECK_LABELS[check.status] ?? check.status}</span>
         </div>`
       )}
-    </div>`;
+    </div></details>`;
 }
 
 function quotaPercent(used, limit) {

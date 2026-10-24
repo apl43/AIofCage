@@ -11,7 +11,7 @@ export function ProvidersPage({ providers, presets, summary, reload, notify }) {
       <div class="section-heading">
         <div>
           <h2>模型供应商</h2>
-          <p>API Key 只保存在 macOS 钥匙串；沙箱里只有占位符，由门卫在请求发出时换成真 key。</p>
+          <p>按智能体管理供应商，在各个沙箱中独立选择。</p>
         </div>
         <button class="primary" onClick=${() => setDialog({ mode: "add" })}>＋ 添加供应商</button>
       </div>
@@ -85,7 +85,6 @@ function ProviderCard({ provider, usage, onEdit, reload, notify }) {
       <dl class="facts">
         <div><dt>模型</dt><dd class="mono">${provider.model}</dd></div>
         <div><dt>协议</dt><dd>${PROTOCOLS[provider.protocol] ?? provider.protocol}</dd></div>
-        <div><dt>钥匙串</dt><dd class="mono">${provider.key_ref}</dd></div>
         <div><dt>使用中</dt><dd>${provider.used_by.length ? provider.used_by.join("、") : "暂无沙箱"}</dd></div>
         <div><dt>累计用量</dt><dd title="包括已删除沙箱的用量；只统计经过门卫的模型请求">${usage
           ? `${usage.requests} 次请求 · 输入 ${formatTokens(usage.input_tokens)} / 输出 ${formatTokens(usage.output_tokens)} token`
