@@ -70,7 +70,7 @@ func TestSandboxActionsNeedRuntime(t *testing.T) {
 
 func TestTerminalCommandQuoting(t *testing.T) {
 	args := []string{"/usr/local/bin/docker", "--context", "colima-aiofcage", "exec", "--workdir", "/Users/u/CageWorkspace/it's here", "x", "codex"}
-	command := terminalCommand(`a'b"c\d`, args)
+	command := systemTerminalScript(`a'b"c\d`, args)
 	// The shell must see exactly the original arguments.
 	out, err := exec.Command("/bin/sh", "-c", "set -- "+strings.SplitN(command, "; clear; ", 2)[1]+`; printf '%s\n' "$@"`).Output()
 	if err != nil {

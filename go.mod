@@ -3,6 +3,7 @@ module github.com/shaoxier/AIofCage
 go 1.26.4
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/elazarl/goproxy v1.9.2
 	github.com/wailsapp/wails/v2 v2.17.0
 )

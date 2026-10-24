@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -839,4 +840,13 @@ func (m *Manager) removeConnectors(ctx context.Context, sandboxID string) error 
 		m.mu.Unlock()
 	}
 	return nil
+}
+
+// TerminalCommand returns an unstarted command that runs command as the agent user inside the
+// sandbox with a TTY, for the desktop app's built-in terminal. The caller attaches a PTY.
+func (m *Manager) TerminalCommand(sbx sandbox.Sandbox, command ...string) *exec.Cmd {
+	args := m.ExecArgs(sbx, true, command...)
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Env = childEnv()
+	return cmd
 }

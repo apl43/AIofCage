@@ -27,6 +27,7 @@ function App() {
   const [summary, setSummary] = useState({ sandboxes: [], providers: {} });
   const [logSandbox, setLogSandbox] = useState("");
   const [logFilter, setLogFilter] = useState("all");
+  const [detail, setDetail] = useState(null); // 打开的沙箱详情：{ id, tab, open? }
   const [services, setServices] = useState([]);
   const [mcpPresets, setMcpPresets] = useState([]);
 
@@ -91,6 +92,7 @@ function App() {
 
   const content = {
     sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} overview=${overview} summary=${summary}
+      events=${events} detail=${detail} setDetail=${setDetail}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
@@ -105,14 +107,14 @@ function App() {
       <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>Agent 的安全工作区</small></span></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
-          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setPage(item.id); }}>${item.title}</button>`)}
+          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); }}>${item.title}</button>`)}
       </nav>
       <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
         ${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}
         <small>${overview ? `v${overview.version}` : ""}</small></div>
     </aside>
     <main>
-      <header><div><p class="eyebrow">YOUR AGENTS. YOUR BOUNDARIES.</p><h1>${PAGES.find((p) => p.id === page).title}</h1></div></header>
+      ${!(page === "sandboxes" && detail) && html`<header><div><p class="eyebrow">YOUR AGENTS. YOUR BOUNDARIES.</p><h1>${PAGES.find((p) => p.id === page).title}</h1></div></header>`}
       ${toast && html`<p class=${toast.isError ? "feedback error" : "feedback"} role="status" aria-live="polite">${toast.message}</p>`}
       ${content}
     </main>`;

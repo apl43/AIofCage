@@ -3,8 +3,10 @@ import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes } from "./core.js";
 import { MCPChoices } from "./mcp.js";
 import { AttackDialog } from "./ai.js";
+import { useTerminals } from "./terminal.js";
+import { SandboxDetail } from "./sandbox-detail.js";
 
-export function SandboxesPage({ sandboxes, providers, services, overview, summary, reload, notify, onAddProvider, onLogs }) {
+export function SandboxesPage({ sandboxes, providers, services, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
   const [editingMCP, setEditingMCP] = useState(null);
   const [attacking, setAttacking] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -33,6 +35,40 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
     }
   };
 
+  const dialogs = html`
+      ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
+        onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id, "deny"); }} />`}
+      ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
+        onSave=${async (ids, filesystem) => {
+          const target = editingMCP;
+          setEditingMCP(null);
+          if (await run(target, "更新 MCP", "SetSandboxMCP", target.id, ids, filesystem)) notify(`已更新「${target.name}」的 MCP 服务`);
+        }} />`}
+      ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider}
+        onClose=${() => setCreating(false)} onCreated=${async (created, start) => {
+          setCreating(false);
+          notify(`已创建沙箱「${created.name}」`);
+          await reload();
+          if (start) await run(created, "启动", "StartSandbox", created.id);
+        }} />`}
+      ${deleting && html`<${DeleteDialog} sandbox=${deleting} onClose=${() => setDeleting(null)} onConfirm=${async (keepHome) => {
+          const target = deleting;
+          setDeleting(null);
+          if (await run(target, "删除", "DeleteSandbox", target.id, keepHome)) {
+            notify(`已删除沙箱「${target.name}」，项目文件夹保留`);
+            if (detail?.id === target.id) setDetail(null);
+          }
+        }} />`}`;
+
+  const current = detail && sandboxes.find((s) => s.id === detail.id);
+  if (current) {
+    return html`<${SandboxDetail} sandbox=${current} detail=${detail} setDetail=${setDetail} providers=${providers}
+      services=${services} events=${events} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
+      busy=${busy[current.id] ?? current.operation} progress=${progress[current.id] || current.progress} run=${run} notify=${notify}
+      onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)} onDelete=${() => setDeleting(current)}
+      onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
+  }
+
   return html`
     <section class="page">
       <div class="section-heading">
@@ -54,87 +90,76 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id] ?? s.operation} progress=${progress[s.id] || s.progress} run=${run} notify=${notify}
-              onDelete=${() => setDeleting(s)} />`)}
+              onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
-      ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
-        onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id, "deny"); }} />`}
-      ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
-        onSave=${async (ids, filesystem) => {
-          const target = editingMCP;
-          setEditingMCP(null);
-          if (await run(target, "更新 MCP", "SetSandboxMCP", target.id, ids, filesystem)) notify(`已更新「${target.name}」的 MCP 服务`);
-        }} />`}
-      ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider}
-        onClose=${() => setCreating(false)} onCreated=${async (created, start) => {
-          setCreating(false);
-          notify(`已创建沙箱「${created.name}」`);
-          await reload();
-          if (start) await run(created, "启动", "StartSandbox", created.id);
-        }} />`}
-      ${deleting && html`<${DeleteDialog} sandbox=${deleting} onClose=${() => setDeleting(null)} onConfirm=${async (keepHome) => {
-          const target = deleting;
-          setDeleting(null);
-          if (await run(target, "删除", "DeleteSandbox", target.id, keepHome)) notify(`已删除沙箱「${target.name}」，项目文件夹保留`);
-        }} />`}
+      ${dialogs}
     </section>`;
 }
 
-function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP, onAttack }) {
-  const state = STATES[sandbox.state] ?? STATES.unknown;
+// 沙箱行与详情页共用的几块内容。
+export function BindingSelects({ sandbox, providers, busy, run, notify }) {
   const running = sandbox.state === "running";
-  const maxRequests = usage?.max_requests || sandbox.limits.max_requests;
-  const maxTokens = usage?.max_tokens || sandbox.limits.max_tokens;
-  const [terminalAgent, setTerminalAgent] = useState(sandbox.bindings[0]?.agent ?? "");
-  const openTerminal = async () => {
-    try {
-      await call("OpenTerminal", sandbox.id, terminalAgent);
-    } catch (error) {
-      notify(error.message, true);
-    }
-  };
   const bind = (agent) => async (event) => {
     const providerID = event.target.value;
     if (await run(sandbox, "切换供应商", "BindProvider", sandbox.id, agent, providerID)) {
       notify(running ? `已切换：${agentName(agent)} 下次启动时使用新的供应商` : `已切换 ${agentName(agent)} 的供应商`);
     }
   };
+  return html`<div class="bindings">
+    ${sandbox.bindings.map((b) => html`<label class="binding-select">
+      <span>${agentName(b.agent)}</span>
+      <select value=${b.provider_id} onChange=${bind(b.agent)} disabled=${Boolean(busy)}>
+        <option value="">未配置供应商</option>
+        ${providers.filter((p) => p.agent === b.agent).map((p) => html`<option value=${p.id}>${p.name}</option>`)}
+      </select>
+    </label>`)}
+  </div>`;
+}
+
+export function MCPLine({ sandbox, services, busy, onEditMCP }) {
+  return html`<div class="mcp-line">
+    <span class="faint">MCP</span>
+    ${sandbox.filesystem_mcp && html`<span class="binding">filesystem</span>`}
+    ${sandbox.mcp.map((id) => html`<span class="binding">${services.find((s) => s.id === id)?.name ?? id}</span>`)}
+    ${!sandbox.filesystem_mcp && sandbox.mcp.length === 0 && html`<span class="faint">未启用</span>`}
+    <button class="link" onClick=${onEditMCP} disabled=${Boolean(busy)}>设置</button>
+  </div>`;
+}
+
+export function UsageStats({ sandbox, usage, onLogs }) {
+  const maxRequests = usage?.max_requests || sandbox.limits.max_requests;
+  const maxTokens = usage?.max_tokens || sandbox.limits.max_tokens;
+  return html`<div class="usage">
+    <span><strong>${usage?.requests ?? sandbox.usage.requests}</strong> 次请求${maxRequests ? ` / ${maxRequests}` : ""}
+      ${quotaPercent(usage?.requests, maxRequests)}</span>
+    <span><strong>${formatTokens(usage?.tokens ?? sandbox.usage.tokens)}</strong> token${maxTokens ? ` / ${formatTokens(maxTokens)}` : ""}
+      ${quotaPercent(usage?.tokens, maxTokens)}</span>
+    ${usage?.stats && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
+    ${onLogs && html`<button class="link" onClick=${onLogs}>${usage?.denied ? html`<span class="count bad">拦截 ${usage.denied}</span> ` : ""}查看日志</button>`}
+  </div>`;
+}
+
+function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP, onAttack, onOpen }) {
+  const state = STATES[sandbox.state] ?? STATES.unknown;
+  const running = sandbox.state === "running";
+  const [terminalAgent, setTerminalAgent] = useState(sandbox.bindings[0]?.agent ?? "");
+  const openTerminals = useTerminals(sandbox.id).filter((t) => !t.exited).length;
   return html`
     <article class="panel sandbox-row">
       <div class="sandbox-main">
         <div class="sandbox-title">
           <span class=${`status-dot ${state.tone}`} aria-hidden="true"></span>
-          <h3>${sandbox.name}</h3>
+          <button class="title-link" onClick=${() => onOpen({ tab: "overview" })} title="打开沙箱详情"><h3>${sandbox.name}</h3></button>
           <span class=${`pill ${busy ? "warn" : state.tone}`}>${busy ? `${busy}中…` : state.label}</span>
         </div>
         <button class="link mono" onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}
           title="在访达中打开">${sandbox.project_path}</button>
         ${busy && progress && html`<p class="progress" role="status">${progress}</p>`}
-        <div class="mcp-line">
-          <span class="faint">MCP</span>
-          ${sandbox.filesystem_mcp && html`<span class="binding">filesystem</span>`}
-          ${sandbox.mcp.map((id) => html`<span class="binding">${services.find((s) => s.id === id)?.name ?? id}</span>`)}
-          ${!sandbox.filesystem_mcp && sandbox.mcp.length === 0 && html`<span class="faint">未启用</span>`}
-          <button class="link" onClick=${onEditMCP} disabled=${Boolean(busy)}>设置</button>
-        </div>
+        <${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} />
       </div>
-      <div class="bindings">
-        ${sandbox.bindings.map((b) => html`<label class="binding-select">
-          <span>${agentName(b.agent)}</span>
-          <select value=${b.provider_id} onChange=${bind(b.agent)} disabled=${Boolean(busy)}>
-            <option value="">未配置供应商</option>
-            ${providers.filter((p) => p.agent === b.agent).map((p) => html`<option value=${p.id}>${p.name}</option>`)}
-          </select>
-        </label>`)}
-      </div>
-      <div class="usage">
-        <span><strong>${usage?.requests ?? sandbox.usage.requests}</strong> 次请求${maxRequests ? ` / ${maxRequests}` : ""}
-          ${quotaPercent(usage?.requests, maxRequests)}</span>
-        <span><strong>${formatTokens(usage?.tokens ?? sandbox.usage.tokens)}</strong> token${maxTokens ? ` / ${formatTokens(maxTokens)}` : ""}
-          ${quotaPercent(usage?.tokens, maxTokens)}</span>
-        ${usage?.stats && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
-        <button class="link" onClick=${onLogs}>${usage?.denied ? html`<span class="count bad">拦截 ${usage.denied}</span> ` : ""}查看日志</button>
-      </div>
+      <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} />
+      <${UsageStats} sandbox=${sandbox} usage=${usage} onLogs=${onLogs} />
       <div class="row-actions">
         ${running
           ? html`<button onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)} disabled=${Boolean(busy)}>停止</button>`
@@ -144,7 +169,8 @@ function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, 
             ${sandbox.bindings.map((b) => html`<option value=${b.agent}>${agentName(b.agent)}</option>`)}
             <option value="">Shell</option>
           </select>
-          <button onClick=${openTerminal} disabled=${!running || Boolean(busy)}>打开终端</button>
+          <button onClick=${() => onOpen({ tab: "terminal", open: { agent: terminalAgent, nonce: Date.now() } })}
+            disabled=${!running || Boolean(busy)}>打开终端${openTerminals ? `（${openTerminals}）` : ""}</button>
         </div>
         <button onClick=${onAttack} disabled=${!running || Boolean(busy)} title=${running ? "" : "先启动沙箱"}>模拟攻击</button>
         <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除</button>
