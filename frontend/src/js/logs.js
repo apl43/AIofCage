@@ -11,8 +11,8 @@ const FILTERS = [
   { id: "system", label: "系统" },
 ];
 
-export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandboxFilter, notify }) {
-  const [filter, setFilter] = useState("all");
+export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandboxFilter, notify, initialFilter = "all" }) {
+  const [filter, setFilter] = useState(initialFilter);
   const [explain, setExplain] = useState(null);
   const providerName = (id) => providers.find((p) => p.id === id)?.name ?? id;
   const visible = events.filter((e) => (!sandboxFilter || e.session_id === sandboxFilter) && (
@@ -44,10 +44,13 @@ export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandb
         </div>
       </div>
       ${visible.length === 0
-        ? html`<div class="panel empty"><span class="empty-icon">≡</span><h3>还没有记录</h3>
-            <p>启动沙箱后，Agent 发出的每一个网络请求都会实时出现在这里。</p></div>`
+        ? (events.some((e) => !sandboxFilter || e.session_id === sandboxFilter)
+          ? html`<div class="panel empty"><span class="empty-icon">≡</span><h3>这个筛选下暂无记录</h3>
+              <p>换一个筛选条件，或选择“全部”查看所有记录。</p></div>`
+          : html`<div class="panel empty"><span class="empty-icon">≡</span><h3>还没有记录</h3>
+              <p>启动沙箱后，Agent 发出的每一个网络请求都会实时出现在这里。</p></div>`)
         : html`<div class="panel log-table">
-            <div class="log-row head"><span>时间</span><span>沙箱</span><span>结果</span><span>说明</span><span>目标</span><span>供应商</span><span>token</span><span>耗时</span><span></span></div>
+            <div class="log-row head"><span>时间</span><span>沙箱</span><span>结果</span><span>说明</span><span>目标</span><span>供应商</span><span title="输入 token / 输出 token">token 入/出</span><span>耗时</span><span></span></div>
             ${visible.map((e) => {
               const decision = DECISIONS[e.decision] ?? { label: e.decision, tone: "idle" };
               return html`<div class=${`log-row ${decision.tone}`} key=${`${e.session_id}-${e.id}`}>

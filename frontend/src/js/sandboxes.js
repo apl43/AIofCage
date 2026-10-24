@@ -53,12 +53,12 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
             ${sandboxes.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
-              busy=${busy[s.id]} progress=${progress[s.id]} run=${run} notify=${notify}
+              busy=${busy[s.id] ?? s.operation} progress=${progress[s.id] || s.progress} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} />`)}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
       ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
-        onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id); }} />`}
+        onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id, "deny"); }} />`}
       ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
         onSave=${async (ids, filesystem) => {
           const target = editingMCP;
@@ -276,7 +276,7 @@ function DeleteDialog({ sandbox, onClose, onConfirm }) {
         <label class="check"><input type="checkbox" checked=${keepHome} onChange=${(e) => setKeepHome(e.target.checked)} />
           保留 Agent 的配置和会话记录（下次用同名沙箱时不会自动恢复）</label>
         <div class="dialog-actions">
-          <button onClick=${onClose}>取消</button>
+          <button data-dismiss onClick=${onClose}>取消</button>
           <button class="danger-solid" onClick=${() => onConfirm(keepHome)}>删除</button>
         </div>
       </div>

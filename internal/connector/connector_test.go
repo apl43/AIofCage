@@ -3,6 +3,7 @@ package connector
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,6 +52,11 @@ func fakeServer() {
 			if !scanner.Scan() || !strings.Contains(scanner.Text(), `"srv-1"`) {
 				os.Exit(3)
 			}
+		}
+		if msg.Method == "tools/call" && os.Getenv("FAKE_FAIL") == "1" {
+			_ = out.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID,
+				"error": map[string]any{"code": -32603, "message": "password authentication failed (" + os.Getenv("FAKE_PASSWORD") + ")"}})
+			continue
 		}
 		_ = out.Encode(map[string]any{"jsonrpc": "2.0", "method": "notifications/message", "params": map[string]string{"data": "noise"}})
 		_ = out.Encode(map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": map[string]string{
@@ -189,5 +195,24 @@ func TestNotConfiguredAndGET(t *testing.T) {
 	}
 	if resp := post(t, ts.URL, "", testToken, `{"jsonrpc":"2.0","id":1,"method":"initialize"}`); resp.StatusCode != 502 {
 		t.Fatalf("missing binary: %d", resp.StatusCode)
+	}
+}
+
+func TestCheck(t *testing.T) {
+	executable, _ := os.Executable()
+	launch := Launch{Token: testToken, Command: []string{executable}, Redact: []string{testSecret},
+		Env: map[string]string{"AIOFCAGE_FAKE_MCP": "1", "FAKE_PASSWORD": testSecret}}
+	ctx := context.Background()
+	if _, err := Check(ctx, launch, "query", map[string]any{"sql": "SELECT 1"}, log.New(io.Discard, "", 0)); err != nil {
+		t.Fatalf("check against a working server: %v", err)
+	}
+	launch.Env["FAKE_FAIL"] = "1"
+	_, err := Check(ctx, launch, "query", map[string]any{"sql": "SELECT 1"}, log.New(io.Discard, "", 0))
+	if err == nil || !strings.Contains(err.Error(), "password authentication failed") || strings.Contains(err.Error(), testSecret) {
+		t.Fatalf("a failed login must be reported, redacted: %v", err)
+	}
+	launch.Command = []string{"/nonexistent/server"}
+	if _, err := Check(ctx, launch, "query", nil, log.New(io.Discard, "", 0)); err == nil {
+		t.Fatal("a missing server must fail")
 	}
 }

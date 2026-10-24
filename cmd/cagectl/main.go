@@ -119,7 +119,18 @@ func run(args []string) error {
 		if len(args) != 3 {
 			return errors.New("用法：cagectl provider rm ID")
 		}
-		return st.DeleteProvider(args[2])
+		p, err := st.Provider(args[2])
+		if err != nil {
+			return err
+		}
+		if err := st.DeleteProvider(p.ID); err != nil {
+			return err
+		}
+		// Like the desktop app: only items AIofCage created are deleted, never e.g. sbx-builderday-key.
+		if p.KeyRef == provider.KeyRefFor(p.ID) {
+			return keychain.Delete(ctx, p.KeyRef)
+		}
+		return nil
 	case "mcp add":
 		return mcpAdd(ctx, st, keychain, args[2:])
 	case "mcp ls":

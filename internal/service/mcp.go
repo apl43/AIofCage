@@ -16,6 +16,7 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/oauth"
+	"github.com/shaoxier/AIofCage/internal/runtime"
 )
 
 // MCPServiceView never contains the token, only whether one is saved. For OAuth services
@@ -202,7 +203,7 @@ func (a *App) TestMCPService(id string) (TestResult, error) {
 		return TestResult{Message: "钥匙串中没有这个服务的令牌"}, nil
 	}
 	if service.IsConnector() {
-		return a.testDatabase(ctx, service), nil
+		return a.testDatabase(service, string(token)), nil
 	}
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{
 		"protocolVersion": "2025-06-18", "capabilities": map[string]any{},
@@ -248,9 +249,57 @@ func (a *App) SetSandboxMCP(id string, ids []string, filesystem bool) error {
 	return a.manager.SetMCP(ctx, id, ids, filesystem)
 }
 
-// testDatabase checks from the Mac that the database port is reachable. The password is only
-// used later, by the connector, when a sandbox starts.
-func (a *App) testDatabase(ctx context.Context, service mcp.Service) TestResult {
+// testDatabase logs in through a throwaway connector and runs a read-only query, which checks the
+// password and the path from the VM. Before the connector image exists (it is built when the
+// first sandbox with a database starts), or without the VM, it falls back to a port check.
+func (a *App) testDatabase(service mcp.Service, password string) TestResult {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	fallback := "（完整的登录检查需要虚拟机，且第一次启动带数据库的沙箱后才可用）"
+	if a.manager != nil {
+		started := a.now()
+		ok, message, err := a.manager.CheckConnector(ctx, service, password)
+		result := TestResult{LatencyMS: a.now().Sub(started).Milliseconds()}
+		switch {
+		case errors.Is(err, runtime.ErrConnectorNotBuilt):
+			fallback = "（完整的登录检查会在第一次启动带数据库的沙箱后可用）"
+		case err != nil:
+			fallback = "（无法运行登录检查：" + err.Error() + "）"
+		case ok:
+			result.OK, result.Message = true, "登录成功：连接器用保存的密码连上了数据库，只读查询正常"
+			return result
+		default:
+			result.Message = "连接器登录数据库失败：" + databaseReason(message)
+			return result
+		}
+	}
+	result := a.testDatabasePort(ctx, service)
+	if result.OK {
+		result.Message = "数据库端口可以连通，但还没验证密码" + fallback
+	}
+	return result
+}
+
+// databaseReason turns common driver errors into plain language and keeps the original.
+func databaseReason(message string) string {
+	lower := strings.ToLower(message)
+	switch {
+	case strings.Contains(lower, "password authentication failed") || strings.Contains(lower, "authentication failed"):
+		return "用户名或密码不对（" + message + "）"
+	case strings.Contains(lower, "does not exist"):
+		return "数据库或用户不存在（" + message + "）"
+	case strings.Contains(lower, "econnrefused"):
+		return "连不上数据库端口，请确认数据库正在运行"
+	case strings.Contains(lower, "enotfound") || strings.Contains(lower, "eai_again"):
+		return "找不到数据库主机，请检查连接串里的主机名"
+	case strings.Contains(lower, "timeout") || strings.Contains(message, "超时"):
+		return "连接超时"
+	}
+	return message
+}
+
+// testDatabasePort checks from the Mac that the database port is reachable.
+func (a *App) testDatabasePort(ctx context.Context, service mcp.Service) TestResult {
 	u, err := url.Parse(service.URL)
 	if err != nil {
 		return TestResult{Message: "连接串无效"}
@@ -268,6 +317,6 @@ func (a *App) testDatabase(ctx context.Context, service mcp.Service) TestResult 
 		return result
 	}
 	conn.Close()
-	result.OK, result.Message = true, "数据库端口可以连通；密码会在沙箱启动时交给连接器使用"
+	result.OK = true
 	return result
 }

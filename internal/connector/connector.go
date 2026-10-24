@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -439,4 +440,68 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// Check starts the server once, calls one read-only tool and reports the result: a real login
+// test (e.g. the database password) from the same place the sandbox will connect from.
+func Check(ctx context.Context, launch Launch, tool string, arguments map[string]any, logger *log.Logger) (string, error) {
+	sess := &session{id: "check-00", pending: map[string]chan []byte{}, done: make(chan struct{})}
+	if err := sess.start(launch, logger); err != nil {
+		return "", errors.New("无法启动 MCP 服务")
+	}
+	defer sess.kill()
+	call := func(id int, method string, params any) (json.RawMessage, error) {
+		key := fmt.Sprint(id)
+		reply := sess.register(key)
+		defer sess.unregister(key)
+		line, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+		if err := sess.write(append(line, '\n')); err != nil {
+			return nil, errors.New("MCP 服务已退出")
+		}
+		select {
+		case data := <-reply:
+			var response struct {
+				Result json.RawMessage `json:"result"`
+				Error  *struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(data, &response); err != nil {
+				return nil, errors.New("MCP 服务返回了无法解析的内容")
+			}
+			if response.Error != nil {
+				return nil, errors.New(redact(response.Error.Message, launch.Redact))
+			}
+			return response.Result, nil
+		case <-sess.done:
+			return nil, errors.New("MCP 服务已退出")
+		case <-ctx.Done():
+			return nil, errors.New("超时")
+		}
+	}
+	if _, err := call(1, "initialize", map[string]any{"protocolVersion": "2024-11-05", "capabilities": map[string]any{},
+		"clientInfo": map[string]string{"name": "AIofCage check", "version": "1"}}); err != nil {
+		return "", err
+	}
+	initialized, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
+	_ = sess.write(append(initialized, '\n'))
+	raw, err := call(2, "tools/call", map[string]any{"name": tool, "arguments": arguments})
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		IsError bool `json:"isError"`
+		Content []struct {
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	_ = json.Unmarshal(raw, &result)
+	text := ""
+	if len(result.Content) > 0 {
+		text = truncate(redact(result.Content[0].Text, launch.Redact), 300)
+	}
+	if result.IsError {
+		return "", errors.New(text)
+	}
+	return text, nil
 }

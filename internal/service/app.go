@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/buildinfo"
@@ -36,6 +37,9 @@ type App struct {
 	terminal   TerminalOpener
 	monitor    *monitor
 	explain    explainCache
+	ops        operations
+	usageMu    sync.Mutex
+	demos      demoLog
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then
@@ -43,9 +47,17 @@ type App struct {
 func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, managerErr error, picker DirectoryPicker) *App {
 	// Connection tests and OAuth go straight to the service; shell proxy settings are ignored on purpose.
 	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}
-	return &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
+	a := &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
 		emit: func(string, any) {}, terminal: openInTerminal, monitor: newMonitor(), explain: explainCache{items: map[string]Explanation{}},
 		client: client, oauth: oauth.NewClient(client, openURL)}
+	if manager != nil {
+		// Progress is remembered as well as emitted, so a page opened later still shows it.
+		manager.Progress = func(id, message string) {
+			a.ops.setProgress(id, message)
+			a.emit("sandbox:progress", map[string]string{"id": id, "message": message})
+		}
+	}
+	return a
 }
 
 type AgentInfo struct {
@@ -253,6 +265,7 @@ func (a *App) DeleteProvider(id string) error {
 	if err := a.store.DeleteProvider(id); err != nil {
 		return err
 	}
+	a.forgetRetiredUsage(p.ID)
 	if p.KeyRef == provider.KeyRefFor(p.ID) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -349,6 +362,9 @@ type SandboxView struct {
 	MCP         []string       `json:"mcp"`
 	Filesystem  bool           `json:"filesystem_mcp"`
 	CreatedAt   time.Time      `json:"created_at"`
+	// Operation is the lifecycle operation in progress (启动、停止、删除) and Progress its latest step.
+	Operation string `json:"operation,omitempty"`
+	Progress  string `json:"progress,omitempty"`
 }
 
 type BindingView struct {
@@ -380,6 +396,7 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 		if a.manager != nil {
 			view.State = a.manager.Status(ctx, s.ID).State
 		}
+		view.Operation, view.Progress = a.ops.get(s.ID)
 		for _, b := range s.Bindings {
 			view.Bindings = append(view.Bindings, BindingView{Agent: b.Agent, ProviderID: b.ProviderID, ProviderName: names[b.ProviderID]})
 		}

@@ -116,7 +116,7 @@ func (p Provider) Endpoint() (string, string, error) {
 	u, err := url.Parse(p.BaseURL)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		(u.Port() != "" && u.Port() != "443") {
-		return "", "", errors.New("接口地址须为 https:// 开头、不带端口以外参数的网址")
+		return "", "", errors.New("接口地址须为 https:// 开头的网址，不能带端口、“?”查询参数或“#”片段")
 	}
 	host := strings.ToLower(u.Hostname())
 	if !policy.ValidHost(host, false) {
