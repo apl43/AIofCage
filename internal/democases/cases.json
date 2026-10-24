@@ -1,0 +1,72 @@
+[
+  {
+    "id": "sales",
+    "name": "渠道退款复盘",
+    "category": "经营分析",
+    "description": "对比渠道收入与退款，追查活动订单异常，生成经营建议。",
+    "task": "请使用案例 MCP 分析 2026-10-20 的订单。先读取 case_overview，再用 summarize_data 按 channel 汇总 orders，计算退款金额占比、退款订单比例与净收入。追查异常订单及原因，引用 order_id，不要把相关性当成因果。将分析、计算口径和建议写入 report.md。全部数据为合成演示数据，不能用作真实经营结论。",
+    "datasets": {
+      "orders": [
+        {"order_id":"O-101","channel":"campaign","paid_cny":1000,"refund_cny":1000,"status":"refunded","reason":"重复扣款"},
+        {"order_id":"O-102","channel":"campaign","paid_cny":600,"refund_cny":600,"status":"refunded","reason":"重复扣款"},
+        {"order_id":"O-103","channel":"campaign","paid_cny":400,"refund_cny":400,"status":"refunded","reason":"活动说明不清"},
+        {"order_id":"O-104","channel":"campaign","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-105","channel":"organic","paid_cny":800,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-106","channel":"organic","paid_cny":600,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-107","channel":"organic","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-108","channel":"partner","paid_cny":300,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-109","channel":"partner","paid_cny":500,"refund_cny":0,"status":"paid","reason":""},
+        {"order_id":"O-110","channel":"partner","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""}
+      ]
+    }
+  },
+  {
+    "id": "incident",
+    "name": "发布故障排查",
+    "category": "运维排障",
+    "description": "关联发布时间线、变更和日志，区分已证实原因与待验证线索。",
+    "task": "请使用案例 MCP 的 case_overview 与 read_data 调查 checkout 在 2026-10-21 09:10 至 09:30 UTC 的故障。关联 events、releases、logs，列出带证据 ID 的时间线，区分已知事实、原因判断和待验证项，提出恢复与预防方案。不要执行发布、回滚或修改外部系统。将结果写入 incident-review.md，注明是合成演示数据。",
+    "datasets": {
+      "events": [
+        {"event_id":"E-01","at":"2026-10-21T09:10:00Z","service":"checkout","event":"发布 v2.8.0 开始"},
+        {"event_id":"E-02","at":"2026-10-21T09:12:00Z","service":"checkout","event":"新实例错误率升至 38%"},
+        {"event_id":"E-03","at":"2026-10-21T09:14:00Z","service":"payments","event":"延迟与错误率正常"},
+        {"event_id":"E-04","at":"2026-10-21T09:20:00Z","service":"checkout","event":"人工回滚至 v2.7.4"},
+        {"event_id":"E-05","at":"2026-10-21T09:23:00Z","service":"checkout","event":"错误率恢复至 0.2%"}
+      ],
+      "releases": [
+        {"release_id":"R-274","version":"v2.7.4","change":"使用默认税率配置","required_config":"无新增"},
+        {"release_id":"R-280","version":"v2.8.0","change":"税率读取改为必填配置，部署模板遗漏该字段","required_config":"TAX_REGION"}
+      ],
+      "logs": [
+        {"log_id":"L-01","at":"2026-10-21T09:11:30Z","version":"v2.8.0","message":"ConfigError: missing TAX_REGION"},
+        {"log_id":"L-02","at":"2026-10-21T09:12:10Z","version":"v2.8.0","message":"POST /checkout returned 500: tax config unavailable"},
+        {"log_id":"L-03","at":"2026-10-21T09:12:20Z","version":"v2.7.4","message":"POST /checkout returned 200"},
+        {"log_id":"L-04","at":"2026-10-21T09:23:00Z","version":"v2.7.4","message":"health checks passed"}
+      ]
+    }
+  },
+  {
+    "id": "release",
+    "name": "交付风险复核",
+    "category": "研发交付",
+    "description": "结合依赖清单、合成安全通告和变更记录，给出有依据的交付建议。",
+    "task": "请使用案例 MCP 检查本次发布，读取 dependencies、advisories、changes。识别运行时与开发依赖的不同风险，核对修复版本与测试证据，输出发布建议、优先级和待验证项，引用记录 ID。通告编号 DEMO-* 为虚构演示编号，不是真实 CVE，不要联网宣传为真实漏洞。不要自动升级或发布，将报告写入 release-review.md，并注明全部数据为合成数据。",
+    "datasets": {
+      "dependencies": [
+        {"dependency_id":"D-01","package":"demo-http-client","version":"1.4.0","scope":"runtime"},
+        {"dependency_id":"D-02","package":"demo-build-tool","version":"3.2.0","scope":"dev"},
+        {"dependency_id":"D-03","package":"demo-parser","version":"2.3.1","scope":"runtime"}
+      ],
+      "advisories": [
+        {"advisory_id":"DEMO-001","package":"demo-http-client","affected_version":"1.4.0","fixed_version":"1.4.2","severity":"high","condition":"允许不受信任 URL 时可能访问内网"},
+        {"advisory_id":"DEMO-002","package":"demo-build-tool","affected_version":"3.2.0","fixed_version":"3.2.1","severity":"medium","condition":"构建时处理不受信任压缩包"}
+      ],
+      "changes": [
+        {"change_id":"C-01","change":"新增用户提交 URL 的导入接口","test_evidence":"尚未覆盖内网地址拒绝"},
+        {"change_id":"C-02","change":"CI 安装构建工具，构建输入仅来自受保护分支","test_evidence":"常规构建通过"},
+        {"change_id":"C-03","change":"锁文件仍使用 demo-http-client 1.4.0","test_evidence":"未提供升级验证"}
+      ]
+    }
+  }
+]

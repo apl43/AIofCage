@@ -77,7 +77,7 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider, ser
 			files = append(files, agentFile{Path: ".aiofcage/dsh-console.py", Mode: 0o600, Content: string(console)})
 			env["AIOFCAGE_DSH_API_KEY"] = placeholder
 			env["DSH_HOME"] = "/home/agent/.dsh"
-			files = append(files, agentFile{Path: ".dsh/cordis.patch.yml", Mode: 0o600, Content: dshConfig(p)})
+			files = append(files, agentFile{Path: ".dsh/cordis.patch.yml", Mode: 0o600, Content: dshConfig(p) + dshMCPConfig(sbx, services)})
 			env["DSH_TELEMETRY_DISABLED"] = "1"
 		}
 	}
@@ -169,4 +169,20 @@ func dshConfigWithEffort(p provider.Provider, effort string) string {
 		selection = fmt.Sprintf("    reasoningEffort: %s\n", tomlString(effort))
 	}
 	return fmt.Sprintf("- id: llm-pi-ai\n  config:\n    providers:\n      aiofcage:\n        apiKeyEnv: AIOFCAGE_DSH_API_KEY\n        api: %s\n        baseURL: %s\n        models:\n          - id: %s\n            input: [%s]\n%s- id: agent-default-model\n  config:\n    provider: aiofcage\n    model: %s\n%s", api, tomlString(p.BaseURL), tomlString(p.Model), input, reasoning, tomlString(p.Model), selection)
+}
+
+// 官方 MCP 插件使用显式占位符标头；真正的服务凭据仍由门卫或可信连接器持有。
+func dshMCPConfig(sbx sandbox.Sandbox, services map[string]mcp.Service) string {
+	var b strings.Builder
+	for _, id := range sbx.MCP {
+		service, ok := services[id]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&b, "- insert:\n    - id: %s\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: %s\n        transport: streamable-http\n        url: %s\n        headers:\n          Authorization: %s\n        failOnStartupError: true\n", tomlString("aiofcage-mcp-"+id), tomlString(id), tomlString(service.AgentURL()), tomlString("Bearer "+sbx.Placeholders[mcp.PlaceholderKey(id)]))
+	}
+	if sbx.FilesystemMCP {
+		fmt.Fprintf(&b, "- insert:\n    - id: aiofcage-mcp-filesystem\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        serverName: filesystem\n        transport: stdio\n        command: mcp-server-filesystem\n        args: [%s]\n        failOnStartupError: true\n", tomlString(sbx.ProjectPath))
+	}
+	return b.String()
 }

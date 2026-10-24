@@ -393,6 +393,7 @@ func networkReason(err error) string {
 
 // SandboxView is what the sandbox list shows.
 type SandboxView struct {
+	DemoCase    string         `json:"demo_case,omitempty"`
 	ID          string         `json:"id"`
 	Name        string         `json:"name"`
 	ProjectPath string         `json:"project_path"`
@@ -441,7 +442,7 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 	defer cancel()
 	views := make([]SandboxView, 0, len(sandboxes))
 	for _, s := range sandboxes {
-		view := SandboxView{ID: s.ID, Name: s.Name, ProjectPath: s.ProjectPath, State: "unknown",
+		view := SandboxView{ID: s.ID, Name: s.Name, ProjectPath: s.ProjectPath, DemoCase: s.DemoCase, State: "unknown",
 			Limits: s.Limits, Usage: s.Usage, CreatedAt: s.CreatedAt, Bindings: []BindingView{},
 			MCP: append([]string{}, s.MCP...), Filesystem: s.FilesystemMCP}
 		if a.manager != nil {

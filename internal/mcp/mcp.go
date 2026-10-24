@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shaoxier/AIofCage/internal/democases"
 	"github.com/shaoxier/AIofCage/internal/policy"
 )
 
@@ -53,6 +54,8 @@ func EnvVar(id string) string {
 // ValidID accepts the IDs used as MCP server names in agent configs.
 func ValidID(id string) bool { return nameIDPattern.MatchString(id) }
 
+func (s Service) IsBuiltin() bool { return s.Kind == KindDemo }
+
 func (s *Service) Normalize() {
 	s.Name = strings.TrimSpace(s.Name)
 	s.URL = strings.TrimSpace(s.URL)
@@ -64,6 +67,13 @@ func (s Service) Validate() error {
 	}
 	if s.Name == "" || len([]rune(s.Name)) > 60 {
 		return errors.New("MCP 服务名称须为 1 至 60 个字符")
+	}
+	if s.IsBuiltin() {
+		if !strings.HasPrefix(s.URL, "builtin://") || s.KeyRef != "" {
+			return errors.New("内置案例不接受密钥或自定义地址")
+		}
+		_, err := democases.Find(strings.TrimPrefix(s.URL, "builtin://"))
+		return err
 	}
 	if s.IsConnector() {
 		if _, ok := ConnectorFor(s.Kind); !ok {

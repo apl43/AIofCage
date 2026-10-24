@@ -139,7 +139,8 @@ function App() {
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
-    mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
+    mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} providers=${providers} reload=${reload} notify=${notify}
+      onCreated=${(id) => { setPage("sandboxes"); setDetail({ id, tab: "overview" }); }} />`,
     usage: html`<${UsagePage} sandboxes=${sandboxes} providers=${providers} />`,
     logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify} initialFilter=${logFilter}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
