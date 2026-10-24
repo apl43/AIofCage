@@ -52,6 +52,9 @@ func terminalCommand(sbx sandbox.Sandbox, agent session.Agent) ([]string, error)
 	for _, installed := range sbx.Agents() {
 		if installed == agent {
 			if spec, ok := runtime.Spec(agent); ok {
+				if agent == session.DSH {
+					return []string{"python3", "/home/agent/.aiofcage/dsh-console.py"}, nil
+				}
 				return []string{spec.Command}, nil
 			}
 		}

@@ -7,6 +7,8 @@ import { useTerminals } from "./terminal.js";
 import { SandboxDetail } from "./sandbox-detail.js";
 
 export function SandboxesPage({ sandboxes, providers, services, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
   const [addingAgents, setAddingAgents] = useState(null);
   const [editingMCP, setEditingMCP] = useState(null);
   const [attacking, setAttacking] = useState(null);
@@ -54,7 +56,8 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
           setCreating(false);
           notify(`已创建沙箱「${created.name}」`);
           await reload();
-          if (start) await run(created, "启动", "StartSandbox", created.id);
+          setDetail({ id: created.id, tab: start ? "terminal" : "overview" });
+          if (start && await run(created, "启动", "StartSandbox", created.id)) setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
         }} />`}
       ${deleting && html`<${DeleteDialog} sandbox=${deleting} onClose=${() => setDeleting(null)} onConfirm=${async (keepHome) => {
           const target = deleting;
@@ -74,6 +77,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
       onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
   }
 
+  const visible = sandboxes.filter((s) => `${s.name} ${s.project_path}`.toLowerCase().includes(query.toLowerCase()) && (filter === "all" || (filter === "running" ? s.state === "running" : s.state !== "running")));
   return html`
     <section class="page">
       <div class="section-heading">
@@ -83,6 +87,11 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
         </div>
         <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>＋ 创建沙箱</button>
       </div>
+      ${sandboxes.length > 0 && html`<div class="toolbar sandbox-toolbar">
+        <input type="search" aria-label="搜索沙箱" placeholder="搜索名称或项目目录" value=${query} onInput=${(e) => setQuery(e.target.value)} />
+        <div class="segmented" aria-label="沙箱状态">
+          ${[{ id: "all", label: `全部 ${sandboxes.length}` }, { id: "running", label: `运行中 ${sandboxes.filter((s) => s.state === "running").length}` }, { id: "stopped", label: "未运行" }].map((f) => html`<button aria-pressed=${filter === f.id} class=${filter === f.id ? "active" : ""} onClick=${() => setFilter(f.id)}>${f.label}</button>`)}
+        </div></div>`}
       ${sandboxes.length === 0
         ? html`<div class="panel empty">
             <span class="empty-icon">▢</span>
@@ -91,11 +100,12 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
             <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}>创建第一个沙箱</button>
           </div>`
         : html`<div class="sandbox-list">
-            ${sandboxes.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
+            ${visible.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id] ?? s.operation} progress=${progress[s.id] || s.progress} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
+            ${!visible.length && html`<div class="panel empty"><h3>没有匹配的沙箱</h3><p>试试其他名称或状态。</p><button onClick=${() => { setQuery(""); setFilter("all"); }}>重置筛选</button></div>`}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
       ${dialogs}
@@ -147,42 +157,35 @@ export function UsageStats({ sandbox, usage, onLogs }) {
   </div>`;
 }
 
-function SandboxRow({ sandbox, providers, services, usage, busy, progress, run, notify, onDelete, onLogs, onEditMCP, onAttack, onOpen }) {
+function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, onDelete, onOpen }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
-  const [terminalAgent, setTerminalAgent] = useState(sandbox.bindings[0]?.agent ?? "");
-  const openTerminals = useTerminals(sandbox.id).filter((t) => !t.exited).length;
-  return html`
-    <article class="panel sandbox-row">
-      <div class="sandbox-main">
-        <div class="sandbox-title">
-          <span class=${`status-dot ${state.tone}`} aria-hidden="true"></span>
-          <button class="title-link" onClick=${() => onOpen({ tab: "overview" })} title="打开沙箱详情"><h3>${sandbox.name}</h3></button>
-          <span class=${`pill ${busy ? "warn" : state.tone}`}>${busy ? `${busy}中…` : state.label}</span>
-        </div>
-        <button class="link mono" onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}
-          title="在访达中打开">${sandbox.project_path}</button>
-        ${busy && progress && html`<p class="progress" role="status">${progress}</p>`}
-        <${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} />
-      </div>
-      <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} />
-      <${UsageStats} sandbox=${sandbox} usage=${usage} onLogs=${onLogs} />
-      <div class="row-actions">
-        ${running
-          ? html`<button onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)} disabled=${Boolean(busy)}>停止</button>`
-          : html`<button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}>启动</button>`}
-        <div class="terminal-picker">
-          <select aria-label="终端里运行" value=${terminalAgent} onChange=${(e) => setTerminalAgent(e.target.value)} disabled=${!running}>
-            ${sandbox.bindings.map((b) => html`<option value=${b.agent}>${agentName(b.agent)}</option>`)}
-            <option value="">Shell</option>
-          </select>
-          <button onClick=${() => onOpen({ tab: "terminal", open: { agent: terminalAgent, nonce: Date.now() } })}
-            disabled=${!running || Boolean(busy)}>打开终端${openTerminals ? `（${openTerminals}）` : ""}</button>
-        </div>
-        <button onClick=${onAttack} disabled=${!running || Boolean(busy)} title=${running ? "" : "先启动沙箱"}>模拟攻击</button>
-        <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除</button>
-      </div>
-    </article>`;
+  const openTerminals = useTerminals(sandbox.id).filter((t) => !t.exited);
+  const enter = async () => {
+    if (!running && !await run(sandbox, "启动", "StartSandbox", sandbox.id)) return;
+    onOpen({ tab: "terminal", open: openTerminals.length ? undefined : { agent: sandbox.bindings.find((b) => b.provider_id)?.agent ?? "", nonce: Date.now() } });
+  };
+  return html`<article class="panel sandbox-row">
+    <div class="sandbox-main">
+      <div class="sandbox-title"><span class=${`status-dot ${state.tone}`} aria-hidden="true"></span>
+        <button class="title-link" onClick=${() => onOpen({ tab: "overview" })}><h3>${sandbox.name}</h3></button>
+        <span class=${`pill ${busy ? "warn" : state.tone}`}>${busy ? `${busy}中…` : state.label}</span></div>
+      <p class="mono project-path" title=${sandbox.project_path}>${sandbox.project_path}</p>
+      <div class="agent-summary">${sandbox.bindings.length ? sandbox.bindings.map((b) => html`<span class="binding">${agentName(b.agent)}<span class="muted"> · ${b.provider_name || "待配置"}</span></span>`) : html`<span class="caption">空白沙箱</span>`}</div>
+      ${sandbox.config_pending && html`<span class="caption">配置待重启生效</span>`}
+      ${busy && html`<p class="progress" role="status">${progress || "正在处理…"}</p>`}
+    </div>
+    <${UsageStats} sandbox=${sandbox} usage=${usage} />
+    <div class="row-actions">
+      <button class="primary" onClick=${enter} disabled=${Boolean(busy)}>${running ? (openTerminals.length ? "继续工作" : "打开") : "启动并打开"}</button>
+      <details class="action-menu"><summary aria-label=${`更多操作：${sandbox.name}`}>•••</summary><div class="menu-items">
+        <button onClick=${() => onOpen({ tab: "agents" })}>管理智能体</button>
+        <button onClick=${() => onOpen({ tab: "overview" })}>沙箱详情</button>
+        <button onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}>在访达中打开</button>
+        ${running && html`<button disabled=${Boolean(busy)} onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)}>停止沙箱</button>`}
+        <button class="danger" disabled=${Boolean(busy)} onClick=${onDelete}>删除沙箱…</button>
+      </div></details>
+    </div></article>`;
 }
 
 function CreateSandboxDialog({ providers, services, overview, onClose, onCreated, onAddProvider }) {
@@ -233,10 +236,10 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
     }
   };
   return html`
-    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && !saving && onClose()}>
       <div class="dialog wide" role="dialog" aria-modal="true" aria-label="创建沙箱">
         <div class="dialog-heading"><h2>创建沙箱</h2>
-          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" disabled=${saving} onClick=${onClose}>×</button></div>
         <form onSubmit=${(e) => { e.preventDefault(); submit(true); }}>
           <label for="s-name">名称</label>
           <input id="s-name" required maxlength="60" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="例如：我的网站" />
@@ -292,7 +295,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
             <button type="button" onClick=${() => submit(false)} disabled=${saving}>只创建</button>
             <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : "创建并启动"}</button>
           </div>
-          <p class="caption">某种 Agent 组合第一次启动时，要在专用虚拟机里构建镜像，通常需要 5–10 分钟；之后启动只要几秒。构建期间可以切到其他页面。</p>
+          <p class="caption">首次启动需要准备镜像，可在沙箱列表查看进度。</p>
         </form>
       </div>
     </div>`;
