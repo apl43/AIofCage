@@ -50,6 +50,18 @@ func TestAgentFilesContainOnlyPlaceholders(t *testing.T) {
 	}
 }
 
+func TestConnectorImageContext(t *testing.T) {
+	build, err := connectorContext()
+	if err != nil {
+		t.Skip("connector binary not built (make connector-linux)")
+	}
+	dockerfile := string(build.files["Dockerfile"])
+	if !strings.Contains(dockerfile, `"@modelcontextprotocol/server-postgres@0.6.2"`) || !strings.Contains(dockerfile, "--ignore-scripts") ||
+		!strings.Contains(dockerfile, "USER 1000:1000") || !strings.HasPrefix(build.tag, "aiofcage/connector:") {
+		t.Fatalf("connector image:\n%s", dockerfile)
+	}
+}
+
 func TestAgentImageContext(t *testing.T) {
 	a, err := agentContext([]session.Agent{session.DSH, session.Codex})
 	if err != nil {
@@ -85,17 +97,20 @@ func TestMCPConfigUsesPlaceholdersOnly(t *testing.T) {
 	codex := provider.Provider{ID: "xapi", Name: "x", Agent: session.Codex, Protocol: provider.OpenAIResponses,
 		BaseURL: "https://xapi.qiniu.io/v1", Model: "m", Auth: provider.AuthBearer, KeyRef: "k"}
 	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
-	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "n", ProjectPath: "/Users/u/CageWorkspace/p", FilesystemMCP: true, MCP: []string{"github"},
-		Bindings:     []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode}},
-		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "mcp:github": "cage-GGGGGGGGGGGGGGGGGGGG"}}
-	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex}, map[string]mcp.Service{"github": github})
+	shop := mcp.Service{ID: "shop", Name: "Shop", Kind: mcp.KindPostgres, URL: "postgresql://app@localhost/shop", KeyRef: mcp.KeyRefFor("shop")}
+	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "n", ProjectPath: "/Users/u/CageWorkspace/p", FilesystemMCP: true, MCP: []string{"github", "shop"},
+		Bindings: []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode}},
+		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "mcp:github": "cage-GGGGGGGGGGGGGGGGGGGG",
+			"mcp:shop": "cage-SSSSSSSSSSSSSSSSSSSS"}}
+	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex}, map[string]mcp.Service{"github": github, "shop": shop})
 	byPath := map[string]agentFile{}
 	for _, f := range files {
 		byPath[f.Path] = f
 	}
 	config := byPath[".codex/config.toml"].Content
 	for _, want := range []string{"[mcp_servers.github]", `url = "https://api.githubcopilot.com/mcp/"`,
-		`bearer_token_env_var = "AIOFCAGE_MCP_GITHUB_TOKEN"`, "[mcp_servers.filesystem]", `args = ["/Users/u/CageWorkspace/p"]`} {
+		`bearer_token_env_var = "AIOFCAGE_MCP_GITHUB_TOKEN"`, "[mcp_servers.filesystem]", `args = ["/Users/u/CageWorkspace/p"]`,
+		"[mcp_servers.shop]", `url = "http://gatekeeper:8890/mcp/shop"`, `bearer_token_env_var = "AIOFCAGE_MCP_SHOP_TOKEN"`} {
 		if !strings.Contains(config, want) {
 			t.Errorf("codex config missing %q:\n%s", want, config)
 		}
@@ -105,7 +120,8 @@ func TestMCPConfigUsesPlaceholdersOnly(t *testing.T) {
 	}
 	claude := byPath[".claude.json"]
 	if !claude.MergeJSON || len(claude.ReplaceKeys) != 1 || !strings.Contains(claude.Content, `"Authorization":"Bearer cage-GGGGGGGGGGGGGGGGGGGG"`) ||
-		!strings.Contains(claude.Content, `"command":"mcp-server-filesystem"`) {
+		!strings.Contains(claude.Content, `"command":"mcp-server-filesystem"`) ||
+		!strings.Contains(claude.Content, `"url":"http://gatekeeper:8890/mcp/shop"`) || strings.Contains(claude.Content, "postgresql://") {
 		t.Errorf("claude state: %+v", claude)
 	}
 }

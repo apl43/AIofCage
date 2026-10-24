@@ -38,6 +38,7 @@ type Gate struct {
 	caPEM     []byte
 	proxy     *goproxy.ProxyHttpServer
 	transport *http.Transport
+	mcpClient *http.Client
 	events    *eventLog
 	now       func() time.Time
 
@@ -92,6 +93,7 @@ func NewGate() (*Gate, error) {
 	g := &Gate{runID: runID, ca: ca, caPEM: caPEM, now: time.Now, warned: map[string]bool{},
 		stats: stats{Secrets: map[string]*secretStat{}}}
 	g.events = newEventLog(runID, func() time.Time { return g.now() })
+	g.mcpClient = newMCPClient()
 	g.transport = &http.Transport{
 		Proxy: nil, DialContext: publicDial, ForceAttemptHTTP2: false,
 		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},

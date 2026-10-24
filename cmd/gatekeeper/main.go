@@ -30,7 +30,7 @@ func run() error {
 	var tokenOut string
 	flag.StringVar(&addresses.Management, "management-listen", "127.0.0.1:8899", "管理接口 IP:端口")
 	flag.StringVar(&addresses.Proxy, "proxy-listen", "127.0.0.1:8888", "代理入口 IP:端口")
-	flag.StringVar(&addresses.MCP, "mcp-listen", "127.0.0.1:8890", "MCP 入口 IP:端口（尚未实现，始终拒绝）")
+	flag.StringVar(&addresses.MCP, "mcp-listen", "127.0.0.1:8890", "MCP 入口 IP:端口（只转发到已配置的可信连接器）")
 	flag.BoolVar(&tokenFromStdin, "token-stdin", false, "从标准输入第一行读取管理 token（避免出现在 docker inspect 中）")
 	flag.StringVar(&tokenOut, "token-out", "", "自行生成管理 token 并写入该文件（应位于只有门卫可读的 tmpfs；宿主用 docker exec 读取）")
 	flag.Parse()

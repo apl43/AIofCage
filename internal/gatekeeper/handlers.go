@@ -72,11 +72,7 @@ func (g *Gate) Handlers(token string) (Handlers, error) {
 		}
 		management.ServeHTTP(w, r)
 	})
-	// The MCP gateway is not implemented yet; it stays closed.
-	mcp := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeProblem(w, http.StatusServiceUnavailable, "not_configured")
-	})
-	return Handlers{Management: authenticated, Proxy: g.proxy, MCP: mcp}, nil
+	return Handlers{Management: authenticated, Proxy: g.proxy, MCP: http.HandlerFunc(g.serveMCP)}, nil
 }
 
 type healthResponse struct {

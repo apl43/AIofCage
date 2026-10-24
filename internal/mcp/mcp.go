@@ -1,9 +1,11 @@
 // Package mcp describes MCP services a sandbox may use without holding their secrets.
 //
-// First version: remote streamable-HTTP MCP servers with a static bearer token (e.g. GitHub's
-// official remote MCP). The sandbox only gets a placeholder; the gatekeeper injects the real token
-// for the service's exact host and path. Tool-level authorization through a protocol gateway,
-// OAuth services and password-based connectors remain on the roadmap (see docs).
+// Two kinds exist. Remote streamable-HTTP servers with a static bearer token (e.g. GitHub's
+// official remote MCP): the sandbox only gets a placeholder and the gatekeeper injects the real
+// token for the service's exact host and path. Connector services (e.g. a PostgreSQL database):
+// a stdio MCP server runs in a trusted connector container that holds the password; the agent
+// reaches it only through the gatekeeper's MCP entrypoint, which checks the placeholder and the
+// tool. OAuth services remain on the roadmap (see docs).
 package mcp
 
 import (
@@ -19,8 +21,12 @@ import (
 )
 
 type Service struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Kind is empty or "http" for remote HTTP services, otherwise a connector kind.
+	Kind Kind `json:"kind,omitempty"`
+	// URL is the service address for HTTP services and the connection URL without password for
+	// connector services.
 	URL       string    `json:"url"`
 	KeyRef    string    `json:"key_ref"`
 	Preset    string    `json:"preset,omitempty"`
@@ -59,7 +65,20 @@ func (s Service) Validate() error {
 	if s.Name == "" || len([]rune(s.Name)) > 60 {
 		return errors.New("MCP 服务名称须为 1 至 60 个字符")
 	}
-	if _, _, err := s.Endpoint(); err != nil {
+	if s.IsConnector() {
+		if _, ok := ConnectorFor(s.Kind); !ok {
+			return errors.New("不支持的 MCP 服务类型")
+		}
+		_, password, err := SplitDatabaseURL(s.Kind, s.URL)
+		if err != nil {
+			return err
+		}
+		if password != "" {
+			return errors.New("连接串里不能保存密码")
+		}
+	} else if s.Kind != "" && s.Kind != KindHTTP {
+		return errors.New("不支持的 MCP 服务类型")
+	} else if _, _, err := s.Endpoint(); err != nil {
 		return err
 	}
 	if !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`).MatchString(s.KeyRef) {
@@ -69,6 +88,9 @@ func (s Service) Validate() error {
 }
 
 func (s Service) Endpoint() (string, string, error) {
+	if s.IsConnector() {
+		return "", "", errors.New("连接器服务没有远程地址")
+	}
 	u, err := url.Parse(s.URL)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		(u.Port() != "" && u.Port() != "443") {
@@ -91,6 +113,9 @@ func (s Service) Endpoint() (string, string, error) {
 // Rules allows the streamable-HTTP methods on exactly the service endpoint (and sub-paths, which
 // some servers use for sessions), with the token injected.
 func (s Service) Rules() []policy.Rule {
+	if s.IsConnector() {
+		return nil // reached through the MCP entrypoint, never through the proxy
+	}
 	host, p, err := s.Endpoint()
 	if err != nil {
 		return nil
@@ -107,6 +132,7 @@ func (s Service) Rules() []policy.Rule {
 type Preset struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Kind Kind   `json:"kind,omitempty"`
 	URL  string `json:"url"`
 	Note string `json:"note,omitempty"`
 	Docs string `json:"docs,omitempty"`

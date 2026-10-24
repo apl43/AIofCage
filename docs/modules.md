@@ -28,13 +28,13 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
 | `sandbox` | 沙箱元数据、Agent→供应商绑定、每个沙箱+供应商一个占位符、项目必须位于 `~/CageWorkspace` 且无符号链接 | 改变已装 Agent 需重建 Agent 容器（home 数据卷保留） |
 | `store` | 供应商与沙箱的 JSON 持久化（`~/Library/Application Support/AIofCage`，0600，原子写入） | 不存任何密钥 |
-| `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口仍拒绝；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
+| `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口只转发到已配置的可信连接器；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
 | `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
 | `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验 | 不绑定到前端；读方法只供运行时下发给门卫 |
 | `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫 SSE；应用侧订阅、续传、JSONL 落盘、缺口事件 | 审计日志不做防篡改（hash 链在路线图） |
-| `mcp` | 远程 streamable HTTP MCP（Bearer 令牌）服务模型、预设、放行规则（服务地址的 GET/POST/DELETE）；令牌存钥匙串，沙箱里只有占位符，门卫注入 | 工具/参数级授权网关、OAuth、密码型连接器在路线图；dsh 暂不配置 MCP |
+| `mcp` | 两类服务：远程 streamable HTTP MCP（Bearer 令牌，门卫注入）与连接器服务（PostgreSQL：连接串不含密码，密码进钥匙串）；预设、放行规则、连接串校验（只允许 sslmode 等安全参数）、连接器目录（包和版本固定、允许的工具） | OAuth 在路线图；连接器目前只有 PostgreSQL；dsh 暂不配置 MCP |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
-| `connector` | 固定服务定义与运行接口 | 镜像摘要审查、私有网络和秘密交付；不运行传入的命令或镜像 |
+| `connector` | 可信连接器：在独立容器里按会话启动 stdio MCP 服务，转成 streamable HTTP，只接受门卫的连接器令牌；启动配置经 `docker exec` 标准输入写入 tmpfs，读后即删；子进程日志脱敏 | 只运行连接器目录里固定的命令，不运行传入的命令或镜像；连接器容器可以出网（要连数据库），这是它作为可信组件的残余风险 |
 | `buildinfo` | 桌面与门卫共用的版本与 `skeleton` 阶段 | 发布时注入真实版本 |
 
 ## 桌面开发接口
@@ -61,9 +61,9 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量 |
 | `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
 | `ListMCPPresets()` / `ListMCPServices()` | MCP 预设与已保存的服务（不含令牌） |
-| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌只写入钥匙串；在用时不能删除；测试发送 MCP `initialize` |
+| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走）；在用时不能删除；HTTP 服务测试发送 MCP `initialize`，数据库测试从本机连通端口 |
 | `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
-| `ListAttacks()` / `SimulateAttacks(id)` | 6 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
+| `ListAttacks()` / `SimulateAttacks(id)` | 7 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传、找数据库密码并直连数据库），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
 | `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；结果按事件缓存；AI 不参与放行 |
 | `ExplainerProvider()` / `SetExplainerProvider(id)` | AI 解说使用的供应商，默认取第一个已保存密钥的供应商 |
 
@@ -77,7 +77,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 
 ## 沙箱运行时与 cagectl
 
-`make cagectl` 先编译 Linux 门卫并把它嵌入程序，再生成 `bin/cagectl`。它和桌面应用共用同一套运行时与数据目录，用于开发、自动检查和演示兜底：
+`make cagectl` 先编译 Linux 门卫和连接器并把它们嵌入程序，再生成 `bin/cagectl`。它和桌面应用共用同一套运行时与数据目录，用于开发、自动检查和演示兜底：
 
 ```bash
 make cagectl
@@ -88,6 +88,9 @@ make cagectl
 ./bin/cagectl sandbox start demo
 ./bin/cagectl sandbox exec demo -t -- codex            # 交互；非交互运行请关闭标准输入（codex exec 会等待管道输入）
 ./bin/cagectl sandbox events demo                      # 实时事件
+./bin/cagectl mcp add --kind postgres --id shopdb --name 商城数据库 \
+    --url 'postgresql://app@localhost:5432/shop?sslmode=disable' --token-stdin   # 密码从标准输入进钥匙串
+./bin/cagectl sandbox mcp demo shopdb                  # 运行中立即启动连接器并下发
 ./bin/cagectl sandbox stop demo
 ```
 
@@ -96,12 +99,13 @@ make cagectl
 | 对象 | 名称 | 要点 |
 |---|---|---|
 | 内部网络 | `aiofcage-<ID>-in` | `--internal`，无默认路由 |
-| 出网网络 | `aiofcage-<ID>-out` | 只有门卫接入 |
+| 出网网络 | `aiofcage-<ID>-out` | 只有门卫和连接器接入，Agent 不在这里 |
 | 门卫容器 | `aiofcage-<ID>-gate` | 只读根、无特权；管理端口只发布到宿主 `127.0.0.1` 的随机端口；管理 token 由门卫自己生成，写在只有门卫能读的 tmpfs，宿主用 `docker exec` 读取，不进 `docker inspect` |
 | Agent 容器 | `aiofcage-<ID>-agent` | UID 1000、只读根、无特权、`--dns 127.0.0.1`；只挂载项目目录（与宿主同一路径）；`/etc/ssl/certs` 与 `/tmp` 为 tmpfs，每次启动写入门卫 CA |
+| 连接器容器 | `aiofcage-<ID>-mcp-<服务ID>` | 每个启用的数据库 MCP 一个；标签 `io.aiofcage.role=connector`；UID 1000、只读根、无特权；只接入出网网络；启动配置（含密码）写在只有连接器能读的 tmpfs，读后即删 |
 | home 数据卷 | `aiofcage-<ID>-home` | Agent 的配置与会话记录，跨重启保留 |
 
-启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 下发策略与密钥（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉两个容器，不留下“Agent 在跑、门卫没配置”的状态。
+启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 启动连接器并投递密码（如有）→ 下发策略、密钥与连接器路由（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉所有容器，不留下“Agent 在跑、门卫没配置”的状态。停止时先停 Agent，再停连接器，最后停门卫。
 
 ## 各 Agent 的接入方式
 
@@ -118,9 +122,14 @@ make cagectl
 | 类型 | 做法 | 沙箱里看到的 |
 |---|---|---|
 | 远程 HTTP MCP（Bearer 令牌，例如 GitHub 官方 `https://api.githubcopilot.com/mcp/`） | 令牌存钥匙串 `aiofcage-mcp-<ID>`；启用后门卫为该服务地址放行 GET/POST/DELETE 并注入令牌 | Codex：`[mcp_servers.<ID>] url + bearer_token_env_var`；Claude Code：`~/.claude.json` 的 `mcpServers`（整体由 AIofCage 管理），请求头里只有占位符 |
+| PostgreSQL 数据库（密码） | 连接串（不含密码）存在 `mcp.json`，密码存钥匙串 `aiofcage-mcp-<ID>`；沙箱启动时为它起一个可信连接器容器，运行 `@modelcontextprotocol/server-postgres@0.6.2`（每条查询都在只读事务里执行）；门卫的 MCP 入口 `8890` 校验占位符、只放行 `query` 工具、记录工具名（不记录 SQL 和结果），再用连接器令牌转发 | 两个 Agent 都配置为 `http://gatekeeper:8890/mcp/<ID>`，请求头里只有占位符；沙箱里既没有密码，也没有通往数据库的网络 |
 | 内置 filesystem | 镜像内置 `@modelcontextprotocol/server-filesystem@2.0.0`，参数只有项目目录 | 两个 Agent 都配置为 stdio 服务，无需密钥 |
 
-服务的 ID 同时是 Agent 配置里的服务名（GitHub 预设默认用 `github`）。界面里“测试连接”由桌面进程直接发送 MCP `initialize` 请求。
+服务的 ID 同时是 Agent 配置里的服务名（GitHub 预设默认用 `github`）。界面里“测试连接”：HTTP 服务由桌面进程直接发送 MCP `initialize` 请求；数据库只检查端口能否连通，密码在沙箱启动时由连接器使用。
+
+本机数据库填 `localhost` 即可：连接器在虚拟机里，会改用 `host.lima.internal` 访问 Mac 的本机端口。建议给 Agent 用只读数据库账号；即使账号有写权限，`server-postgres` 也只在只读事务里执行查询。
+
+一次数据库调用的路径：Agent → `gatekeeper:8890/mcp/<ID>`（占位符）→ 门卫校验服务、方法和工具 → 连接器（连接器令牌，只有门卫和连接器知道）→ 每个 MCP 会话一个 `mcp-server-postgres` 进程 → 数据库。Claude Code 2.1.309 会先试探 `server/discover`，门卫按“方法不存在”回答且不记为拦截，它随后改用 `initialize`。
 
 ## 门卫本机开发
 
@@ -143,9 +152,9 @@ docker --context colima-aiofcage build -t aiofcage/gatekeeper:dev build/gatekeep
 | `GET /usage` | 请求数、拒绝数、额度计数、按密钥 ID 的请求与 token；不含任何密钥 |
 | `GET /ca` | 本次运行的公有 CA 证书（私钥只在内存） |
 | 代理 | 未配置时一律 503；配置后按 §6.2 的顺序授权，拒绝时返回 403/429 和 `X-Aiofcage-Reason` |
-| MCP | 尚未实现，一律 503 |
+| MCP | 未配置时 503；`/mcp/<服务ID>` 须带该服务的占位符（否则 403，从不返回 401，避免 Agent 转去走 OAuth 登录）；只允许标准 MCP 方法，`tools/call` 只允许连接器目录里列出的工具（拒绝时返回 JSON-RPC 错误）；连接、工具调用和所有拦截写入事件 `mcp.call`（只记方法和工具名） |
 
-`PUT /config` 的结构见 `internal/gatekeeper/config.go`：`policy`（规则）、`secrets`（ID、占位符、注入头 `Authorization` 或 `X-Api-Key`、前缀、真值）、`limits`（请求数/token 上限及基线）。
+`PUT /config` 的结构见 `internal/gatekeeper/config.go`：`policy`（规则）、`secrets`（ID、占位符、注入头 `Authorization` 或 `X-Api-Key`、前缀、真值）、`limits`（请求数/token 上限及基线）、`connectors`（服务 ID、占位符、连接器地址——必须是 `http://内网IP:端口`、连接器令牌、允许的工具）。
 
 ## 验证与接续开发
 

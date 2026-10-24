@@ -1,0 +1,172 @@
+package mcp
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"net/netip"
+	"net/url"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+)
+
+type Kind string
+
+const (
+	KindHTTP     Kind = "http"
+	KindPostgres Kind = "postgres"
+)
+
+// ConnectorSpec pins the stdio MCP server a connector runs. Packages are installed into the
+// connector image at fixed versions, never fetched at run time.
+type ConnectorSpec struct {
+	Kind    Kind
+	Name    string
+	Package string
+	Version string
+	Command string
+	// Tools are the tools agents may call; the gatekeeper refuses every other tool.
+	Tools       []string
+	DefaultPort string
+	Schemes     []string
+}
+
+var connectorCatalog = []ConnectorSpec{
+	// The reference PostgreSQL server: one read-only "query" tool (each query runs in a READ ONLY
+	// transaction) plus table schemas as resources.
+	{Kind: KindPostgres, Name: "PostgreSQL", Package: "@modelcontextprotocol/server-postgres", Version: "0.6.2",
+		Command: "mcp-server-postgres", Tools: []string{"query"}, DefaultPort: "5432", Schemes: []string{"postgresql", "postgres"}},
+}
+
+func Connectors() []ConnectorSpec { return append([]ConnectorSpec(nil), connectorCatalog...) }
+
+func ConnectorFor(kind Kind) (ConnectorSpec, bool) {
+	for _, spec := range connectorCatalog {
+		if spec.Kind == kind {
+			return spec, true
+		}
+	}
+	return ConnectorSpec{}, false
+}
+
+// GatewayPort is the gatekeeper's MCP entrypoint on the sandbox network.
+const GatewayPort = 8890
+
+// GatewayURL is where agents reach a connector service.
+func GatewayURL(id string) string { return fmt.Sprintf("http://gatekeeper:%d/mcp/%s", GatewayPort, id) }
+
+// LocalHost is how a connector inside the VM reaches services listening on the Mac's loopback.
+const LocalHost = "host.lima.internal"
+
+func (s Service) IsConnector() bool { return s.Kind != "" && s.Kind != KindHTTP }
+
+// AgentURL is the address written into agent configurations.
+func (s Service) AgentURL() string {
+	if s.IsConnector() {
+		return GatewayURL(s.ID)
+	}
+	return s.URL
+}
+
+// Tools returns the tools agents may call on a connector service (nil means all, for HTTP).
+func (s Service) Tools() []string {
+	if spec, ok := ConnectorFor(s.Kind); ok && s.IsConnector() {
+		return append([]string(nil), spec.Tools...)
+	}
+	return nil
+}
+
+var (
+	dbHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
+	// Parameters that name files, other hosts or options are refused.
+	postgresParams = map[string]bool{"sslmode": true, "application_name": true, "connect_timeout": true}
+	sslModes       = map[string]bool{"disable": true, "allow": true, "prefer": true, "require": true, "verify-ca": true, "verify-full": true}
+)
+
+// SplitDatabaseURL validates a connection URL and returns it without the password, plus the
+// password when one was pasted in, so that it can go to the Keychain instead.
+func SplitDatabaseURL(kind Kind, raw string) (string, string, error) {
+	spec, ok := ConnectorFor(kind)
+	if !ok {
+		return "", "", errors.New("不支持的数据库类型")
+	}
+	example := spec.Schemes[0] + "://用户名@主机:" + spec.DefaultPort + "/数据库"
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !slices.Contains(spec.Schemes, u.Scheme) || u.Opaque != "" || u.Fragment != "" {
+		return "", "", fmt.Errorf("连接串格式应为 %s", example)
+	}
+	if u.User == nil || u.User.Username() == "" {
+		return "", "", fmt.Errorf("连接串里缺少用户名，格式应为 %s", example)
+	}
+	host := strings.ToLower(u.Hostname())
+	if _, ipErr := netip.ParseAddr(host); ipErr != nil && !dbHostPattern.MatchString(host) {
+		return "", "", errors.New("连接串里的主机名无效")
+	}
+	if port := u.Port(); port != "" {
+		if value, err := strconv.Atoi(port); err != nil || value < 1 || value > 65535 {
+			return "", "", errors.New("连接串里的端口无效")
+		}
+	}
+	database := strings.TrimPrefix(u.Path, "/")
+	if database == "" || strings.Contains(database, "/") || u.RawPath != "" {
+		return "", "", fmt.Errorf("连接串里缺少数据库名，格式应为 %s", example)
+	}
+	query := u.Query()
+	for key, values := range query {
+		if !postgresParams[key] || len(values) != 1 {
+			return "", "", fmt.Errorf("不支持连接参数 %s（只支持 sslmode、application_name、connect_timeout）", key)
+		}
+	}
+	if mode := query.Get("sslmode"); mode != "" && !sslModes[mode] {
+		return "", "", errors.New("sslmode 的取值无效")
+	}
+	password, _ := u.User.Password()
+	u.User = url.User(u.User.Username())
+	u.Host = strings.ToLower(u.Host)
+	return u.String(), password, nil
+}
+
+// Address is where the connector reaches the database: localhost means the Mac, which the VM
+// reaches as LocalHost.
+func (s Service) Address() (string, error) {
+	spec, ok := ConnectorFor(s.Kind)
+	if !ok || !s.IsConnector() {
+		return "", errors.New("不是连接器服务")
+	}
+	u, err := url.Parse(s.URL)
+	if err != nil {
+		return "", err
+	}
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = spec.DefaultPort
+	}
+	if ip, err := netip.ParseAddr(host); host == "localhost" || (err == nil && ip.IsLoopback()) {
+		host = LocalHost
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+// Launch returns the command line that starts the service's MCP server with its secret, and the
+// strings to redact from that server's logs. It is only ever sent to the connector container.
+func (s Service) Launch(secret string) ([]string, []string, error) {
+	address, err := s.Address()
+	if err != nil {
+		return nil, nil, err
+	}
+	spec, _ := ConnectorFor(s.Kind)
+	u, err := url.Parse(s.URL)
+	if err != nil {
+		return nil, nil, err
+	}
+	u.Host = address
+	u.User = url.UserPassword(u.User.Username(), secret)
+	escaped := strings.TrimPrefix(url.UserPassword("x", secret).String(), "x:")
+	redact := []string{secret}
+	if escaped != secret {
+		redact = append(redact, escaped)
+	}
+	return []string{spec.Command, u.String()}, redact, nil
+}
