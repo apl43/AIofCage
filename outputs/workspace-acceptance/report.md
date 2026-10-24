@@ -21,7 +21,7 @@
 | 09 | 全组件运行状态及资源采集 | [#30](https://github.com/shaoxier/AIofCage/pull/30) |
 | 10 | 健康面板、资源趋势与异常状态 | [#31](https://github.com/shaoxier/AIofCage/pull/31) |
 | 11 | 按实际证据展示隔离检查 | [#32](https://github.com/shaoxier/AIofCage/pull/32) |
-| 12 | 用户路径验收、交付修复与证据 | 创建后补充链接 |
+| 12 | 用户路径验收、交付修复与证据 | [#33](https://github.com/shaoxier/AIofCage/pull/33) |
 
 依赖顺序为 01 → 12，每个 PR 的 base 是前一步分支。PR 保持打开，由团队按顺序使用 merge commit 合并，未自行合并或推送 main。
 
