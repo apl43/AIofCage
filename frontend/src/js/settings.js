@@ -1,10 +1,11 @@
-// 设置页：只读展示运行环境与 Agent 版本。
+// 设置页：运行资源、智能体版本与应用信息。
 import { html, PageTitle, Icon } from "./core.js";
 import { EnvironmentPanel } from "./sandboxes.js";
 import { ExplainerSettings } from "./ai.js";
 import { AgentUpdateSettings } from "./agent-versions.js";
+import { EnvironmentResources } from "./environment-resources.js";
 
-export function SettingsPage({ overview, providers, notify }) {
+export function SettingsPage({ overview, providers, notify, onEnvironmentChanged }) {
   if (!overview) return null;
   return html`
     <section class="page">
@@ -12,7 +13,7 @@ export function SettingsPage({ overview, providers, notify }) {
       <dl class="panel settings-list">
         <div><dt>工作区（虚拟机唯一可见的目录）</dt><dd class="mono">${overview.workspace}</dd></div>
         <div><dt>应用数据（不含任何密钥）</dt><dd class="mono">${overview.data_dir}</dd></div>
-        <div><dt>专用虚拟机</dt><dd class="mono">colima profile aiofcage · 4 CPU / 6 GiB / 40 GiB</dd></div>
+        <div><dt>专用虚拟机</dt><dd class="mono">colima profile aiofcage</dd></div>
         <div><dt>Docker context</dt><dd class="mono">colima-aiofcage（不会改动你的默认 context）</dd></div>
         <${ExplainerSettings} providers=${providers} notify=${notify} />
         <div><dt>版本</dt><dd class="mono">${overview.version}</dd></div>
@@ -23,6 +24,7 @@ export function SettingsPage({ overview, providers, notify }) {
           else runtime.WindowFullscreen();
         }}><${Icon} name="expand" />切换全屏</button></dd></div>
       </dl>
+      <${EnvironmentResources} notify=${notify} onChanged=${onEnvironmentChanged} />
       <${AgentUpdateSettings} notify=${notify} />
       <${EnvironmentPanel} environment=${overview.environment} />
     </section>`;

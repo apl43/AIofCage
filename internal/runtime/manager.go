@@ -57,13 +57,14 @@ type Manager struct {
 	OAuth *oauth.Client
 
 	mu              sync.Mutex
+	environmentMu   sync.RWMutex
 	gates           map[string]*gateClient
 	locks           map[string]*sync.Mutex
 	connectorTokens map[string]string
 }
 
 func NewManager(st *store.Store, secrets vault.Store) (*Manager, error) {
-	env, err := NewEnvironment()
+	env, err := NewEnvironment(st)
 	if err != nil {
 		return nil, err
 	}
@@ -277,6 +278,8 @@ func (m *Manager) providersFor(sbx sandbox.Sandbox) (map[string]provider.Provide
 // Start brings the sandbox up: VM, images, networks, gatekeeper (configured before the agent runs),
 // then the agent with the gatekeeper CA and agent settings.
 func (m *Manager) Start(ctx context.Context, id string) error {
+	m.environmentMu.RLock()
+	defer m.environmentMu.RUnlock()
 	defer m.lock(id)()
 	return m.start(ctx, id)
 }
