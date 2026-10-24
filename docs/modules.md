@@ -26,10 +26,13 @@ cmd/gatekeeper
 |---|---|---|
 | `service` | 环境概览、选择目录、创建/列出会话草稿、拒绝启动 | 生命周期协调、持久化、控制面和用户授权；不绑定 vault 的读方法 |
 | `session` | 会话/Agent/状态类型、线程安全内存存储 | 持久化与重启对账；草稿不代表任何容器存在 |
-| `runtime` | 后端接口；平台与命令路径探测；不可用后端 | 专用 Colima、网络、挂载、就绪检查和安全停机；永不回退宿主执行 |
+| `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量 | 桌面应用尚未接入（S5）；永不回退宿主执行 |
+| `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
+| `sandbox` | 沙箱元数据、Agent→供应商绑定、每个沙箱+供应商一个占位符、项目必须位于 `~/CageWorkspace` 且无符号链接 | 改变已装 Agent 需重建 Agent 容器（home 数据卷保留） |
+| `store` | 供应商与沙箱的 JSON 持久化（`~/Library/Application Support/AIofCage`，0600，原子写入） | 不存任何密钥 |
 | `gatekeeper` | 三个独立监听；`PUT /config` 原子下发策略、密钥与额度；自签 CA + MITM；先授权再校验占位符，配了密钥的域名拒绝外来 key；只改请求头；不跟随重定向；上游错误正文脱敏；按沙箱的请求数/token 额度与 80% 告警；SSE 事件流（序号、补发、缺口）；用量统计 | 只支持 443 端口 HTTPS；MCP 入口仍拒绝；配置不落盘，门卫重启后需应用重新下发（额度用基线延续） |
 | `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
-| `vault` | 秘密存取接口 | Keychain 与安全交付；无文件、环境变量或内存假存储兜底 |
+| `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验 | 不绑定到前端；读方法只供运行时下发给门卫 |
 | `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫侧 SSE 已实现 | 应用侧订阅、去重、JSONL 落盘与缺口提示（S6） |
 | `mcp` | 服务绑定草案与网关接口 | 协议 SDK、工具/参数/资源授权及会话映射；绑定草案不是可执行权限 |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
@@ -47,6 +50,34 @@ cmd/gatekeeper
 | `StartSession(id)` | 错误 | 会话不存在报错；存在也始终返回未就绪，不改变草稿状态 |
 
 例如登记 `/example/project` 和 `codex` 只保存路径文字；并不验证目录内容或授予文件权限。未来接入运行时前必须重新解析真实路径、符号链接、导入状态和共享范围，不能信任草稿的路径文字直接挂载。
+
+## 沙箱运行时与 cagectl
+
+`make cagectl` 先编译 Linux 门卫并把它嵌入程序，再生成 `bin/cagectl`。它和桌面应用共用同一套运行时与数据目录，用于开发、自动检查和演示兜底：
+
+```bash
+make cagectl
+./bin/cagectl env up                                   # 创建/启动专用虚拟机并核对共享边界
+./bin/cagectl provider add --id xapi --name "七牛 xapi" --agent codex --protocol openai-responses \
+    --base-url https://xapi.qiniu.io/v1 --model gpt-6.1-sol --keychain-service sbx-builderday-key
+./bin/cagectl sandbox create --name demo --project ~/CageWorkspace/demo --bind codex=xapi --max-requests 200
+./bin/cagectl sandbox start demo
+./bin/cagectl sandbox exec demo -t -- codex            # 交互；非交互运行请关闭标准输入（codex exec 会等待管道输入）
+./bin/cagectl sandbox events demo                      # 实时事件
+./bin/cagectl sandbox stop demo
+```
+
+一个沙箱对应的 Docker 对象（都带标签 `io.aiofcage.sandbox=<ID>`）：
+
+| 对象 | 名称 | 要点 |
+|---|---|---|
+| 内部网络 | `aiofcage-<ID>-in` | `--internal`，无默认路由 |
+| 出网网络 | `aiofcage-<ID>-out` | 只有门卫接入 |
+| 门卫容器 | `aiofcage-<ID>-gate` | 只读根、无特权；管理端口只发布到宿主 `127.0.0.1` 的随机端口；管理 token 由门卫自己生成，写在只有门卫能读的 tmpfs，宿主用 `docker exec` 读取，不进 `docker inspect` |
+| Agent 容器 | `aiofcage-<ID>-agent` | UID 1000、只读根、无特权、`--dns 127.0.0.1`；只挂载项目目录（与宿主同一路径）；`/etc/ssl/certs` 与 `/tmp` 为 tmpfs，每次启动写入门卫 CA |
+| home 数据卷 | `aiofcage-<ID>-home` | Agent 的配置与会话记录，跨重启保留 |
+
+启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 下发策略与密钥（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉两个容器，不留下“Agent 在跑、门卫没配置”的状态。
 
 ## 门卫本机开发
 

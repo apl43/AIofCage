@@ -1,0 +1,95 @@
+package runtime
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/shaoxier/AIofCage/internal/provider"
+	"github.com/shaoxier/AIofCage/internal/sandbox"
+	"github.com/shaoxier/AIofCage/internal/session"
+)
+
+// agentFile is written into /home/agent by aiofcage-init.py. Contents are never secret: they hold
+// placeholders, base URLs and model names only.
+type agentFile struct {
+	Path    string `json:"path"`
+	Mode    int    `json:"mode"`
+	Content string `json:"content"`
+}
+
+// tomlString renders a TOML basic string. JSON string escaping is a subset of TOML's.
+func tomlString(value string) string {
+	data, _ := json.Marshal(value)
+	return string(data)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+// agentFiles renders configuration for every installed agent. An agent without a provider gets
+// no model configuration and will report that it is not configured.
+func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider) []agentFile {
+	env := map[string]string{"AIOFCAGE_SANDBOX": sbx.Name}
+	var files []agentFile
+	for _, agent := range sbx.Agents() {
+		p, ok := providers[sbx.ProviderFor(agent)]
+		if !ok {
+			continue
+		}
+		placeholder := sbx.Placeholders[p.ID]
+		switch agent {
+		case session.Codex:
+			env["AIOFCAGE_CODEX_API_KEY"] = placeholder
+			files = append(files, agentFile{Path: ".codex/config.toml", Mode: 0o600, Content: codexConfig(sbx, p)})
+		case session.ClaudeCode:
+			env["ANTHROPIC_BASE_URL"] = p.BaseURL
+			if p.Auth == provider.AuthXAPIKey {
+				env["ANTHROPIC_API_KEY"] = placeholder
+			} else {
+				env["ANTHROPIC_AUTH_TOKEN"] = placeholder
+			}
+			env["ANTHROPIC_MODEL"] = p.Model
+			env["ANTHROPIC_SMALL_FAST_MODEL"] = p.Model
+			env["DISABLE_TELEMETRY"] = "1"
+			env["DISABLE_ERROR_REPORTING"] = "1"
+			env["DISABLE_AUTOUPDATER"] = "1"
+			env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+		case session.DSH:
+			env["AIOFCAGE_DSH_BASE_URL"] = p.BaseURL
+			env["AIOFCAGE_DSH_API_KEY"] = placeholder
+			env["AIOFCAGE_DSH_MODEL"] = p.Model
+		}
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var script strings.Builder
+	script.WriteString("# 由 AIofCage 生成，切换供应商时会被覆盖。这里只有占位符，没有真实密钥。\n")
+	for _, key := range keys {
+		fmt.Fprintf(&script, "export %s=%s\n", key, shellQuote(env[key]))
+	}
+	return append(files, agentFile{Path: ".aiofcage/env", Mode: 0o600, Content: script.String()})
+}
+
+func codexConfig(sbx sandbox.Sandbox, p provider.Provider) string {
+	var b strings.Builder
+	b.WriteString("# 由 AIofCage 生成，切换供应商时会被覆盖。\n")
+	b.WriteString("# 沙箱本身就是隔离边界，所以 Codex 内部不再叠加自己的沙箱。\n")
+	fmt.Fprintf(&b, "model = %s\n", tomlString(p.Model))
+	b.WriteString("model_provider = \"aiofcage\"\n")
+	b.WriteString("approval_policy = \"on-request\"\n")
+	b.WriteString("sandbox_mode = \"danger-full-access\"\n\n")
+	b.WriteString("[model_providers.aiofcage]\n")
+	fmt.Fprintf(&b, "name = %s\n", tomlString(p.Name))
+	fmt.Fprintf(&b, "base_url = %s\n", tomlString(p.BaseURL))
+	b.WriteString("env_key = \"AIOFCAGE_CODEX_API_KEY\"\n")
+	b.WriteString("wire_api = \"responses\"\n\n")
+	fmt.Fprintf(&b, "[projects.%s]\n", tomlString(sbx.ProjectPath))
+	b.WriteString("trust_level = \"trusted\"\n")
+	return b.String()
+}
