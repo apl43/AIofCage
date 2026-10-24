@@ -1,8 +1,15 @@
 // 公共工具：Preact/htm、后端调用与中文标签。
 import { h } from "preact";
 import htm from "htm";
+import { Icon } from "./icons.js";
+export { Icon, agentIcon } from "./icons.js";
 
 export const html = htm.bind(h);
+
+export function PageTitle({ icon, title, description }) {
+  return html`<div class="page-title"><span class="page-icon"><${Icon} name=${icon} size=${26} /></span>
+    <div><h1>${title}</h1>${description && html`<p>${description}</p>`}</div></div>`;
+}
 
 // 调用 Wails 绑定的 Go 方法；错误统一转成可直接展示的中文字符串。
 export async function call(method, ...args) {

@@ -109,7 +109,7 @@ export async function openTerminal(sandbox, agent) {
   wire();
   const id = newID();
   const term = new Terminal({
-    fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: 13, lineHeight: 1.15,
+    fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: 14, lineHeight: 1.3,
     screenReaderMode: true, cursorBlink: true, scrollback: 5000, theme: THEME, allowProposedApi: false,
   });
   const fit = new FitAddon();

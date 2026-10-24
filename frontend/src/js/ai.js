@@ -1,6 +1,6 @@
 // AI 安全解说与隔离检查。AI 只负责解释，不参与放行决定。
 import { useEffect, useState } from "preact/hooks";
-import { html, call } from "./core.js";
+import { html, call, Icon } from "./core.js";
 
 const RISK_TONE = { 高: "bad", 中: "warn", 低: "ok" };
 
@@ -15,7 +15,7 @@ export function ExplainDialog({ request, onClose }) {
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label="AI 安全解说">
         <div class="dialog-heading"><h2>${request.eventId ? "AI 解读这条记录" : `AI 总结「${request.sandboxName}」`}</h2>
-          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
         ${state.loading && html`<p class="caption" role="status">正在请模型分析（只发送主机、路径、结果等元数据，不发送请求内容和密钥）…</p>`}
         ${state.error && html`<p class="form-error" role="alert">${state.error}</p>
           <p class="caption">可以在“设置”页换一个 AI 解说使用的供应商，或检查网络后重试。</p>`}
@@ -47,7 +47,7 @@ export function AttackDialog({ sandbox, onClose, onLogs }) {
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && !running && onClose()}>
       <div class="dialog wide" role="dialog" aria-modal="true" aria-label="隔离检查">
         <div class="dialog-heading"><h2>隔离检查 · 「${sandbox.name}」</h2>
-          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose} disabled=${running}>×</button></div>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose} disabled=${running}><${Icon} name="x" size=${20} /></button></div>
         <p class="caption">使用固定测试数据，读取凭据与网络配置；宿主会创建临时测试文件并在检查后清理。结果只覆盖本次检查，不代表完整安全审计。</p>
         ${results && html`<div class="diagnostic-summary" role="status">${Object.entries(statuses).map(([key,value]) => html`<span class=${`pill ${value.tone}`}>${value.label} ${results.filter((r) => r.status === key).length}</span>`)}</div>`}
         <div class="attack-list">

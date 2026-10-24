@@ -2,7 +2,7 @@
 import "./js/frames.js";
 import { render } from "preact";
 import { useEffect, useState, useCallback } from "preact/hooks";
-import { html, call } from "./js/core.js";
+import { html, call, Icon } from "./js/core.js";
 import { ProvidersPage } from "./js/providers.js";
 import { SandboxesPage } from "./js/sandboxes.js";
 import { UsagePage } from "./js/usage.js";
@@ -11,12 +11,12 @@ import { LogsPage } from "./js/logs.js";
 import { MCPPage } from "./js/mcp.js";
 
 const PAGES = [
-  { id: "sandboxes", title: "沙箱", icon: "▦" },
-  { id: "providers", title: "模型供应商", icon: "◇" },
-  { id: "mcp", title: "工具连接", icon: "⌘" },
-  { id: "usage", title: "用量与费用", icon: "▤" },
-  { id: "logs", title: "请求日志", icon: "≡" },
-  { id: "settings", title: "设置", icon: "⚙" },
+  { id: "sandboxes", title: "沙箱", icon: "box" },
+  { id: "providers", title: "模型供应商", icon: "layers" },
+  { id: "mcp", title: "工具连接", icon: "plug" },
+  { id: "usage", title: "用量与费用", icon: "chart" },
+  { id: "logs", title: "请求日志", icon: "list" },
+  { id: "settings", title: "设置", icon: "settings" },
 ];
 
 function App() {
@@ -109,6 +109,11 @@ function App() {
         if (e.shiftKey && (document.activeElement === first || !topDialog.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && (document.activeElement === last || !topDialog.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
       }
+      // WKWebView 不会为所有可聚焦容器提供默认横向滚动，表格区域显式支持方向键。
+      if (["ArrowLeft", "ArrowRight"].includes(e.key) && e.target.matches(".data-scroll, .log-table")) {
+        e.preventDefault();
+        e.target.scrollBy({ left: e.key === "ArrowRight" ? 160 : -160 });
+      }
       if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) && e.target.getAttribute("role") === "tab") {
         const items = [...e.target.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
         const index = items.indexOf(e.target);
@@ -142,19 +147,22 @@ function App() {
   }[page];
 
   return html`
+    <a class="skip-link" href="#main-content" onClick=${(e) => { e.preventDefault(); document.getElementById("main-content").focus(); }}>跳到主要内容</a>
     <aside class="sidebar">
-      <div class="brand"><img class="brand-icon" src="/assets/logo.svg" alt="" width="36" height="36" /><span>AiOf Cage<small>笼中 AI · 沙箱</small></span></div>
+      <div class="brand"><img class="brand-icon" src="/assets/logo.svg" alt="" aria-hidden="true" width="48" height="48" /><span class="brand-name">AiOf Cage<small>笼中 AI · 沙箱</small></span></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
-          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}><span class="nav-icon" aria-hidden="true">${item.icon}</span>${item.title}</button>`)}
+          title=${item.title} aria-label=${item.title} aria-current=${item.id === page ? "page" : undefined}
+          onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}>
+          <${Icon} class="nav-icon" name=${item.icon} size=${22} /><span class="nav-label">${item.title}</span></button>`)}
       </nav>
       <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
-        ${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}
+        <span class="environment-label">${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}</span>
         <small>${overview ? `v${overview.version}` : ""}</small></div>
     </aside>
-    <main>
+    <main id="main-content" tabindex="-1">
       ${toast && html`<div class=${toast.isError ? "feedback error" : "feedback"} role=${toast.isError ? "alert" : "status"}>
-        <span>${toast.message}</span><button class="link" aria-label="关闭通知" onClick=${() => setToast(null)}>×</button></div>`}
+        <span>${toast.message}</span><button class="icon-button" aria-label="关闭通知" onClick=${() => setToast(null)}><${Icon} name="x" /></button></div>`}
       ${content}
     </main>`;
 }
