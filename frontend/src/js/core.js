@@ -69,7 +69,7 @@ export const DECISIONS = {
 };
 
 export const formatTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${(n / 1e3).toFixed(1)}k` : String(n ?? 0));
-export const formatBytes = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${Math.round(n / (1 << 20))} MB` : `${Math.round((n ?? 0) / 1024)} KB`);
+export const formatBytes = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GiB` : n >= 1 << 20 ? `${Math.round(n / (1 << 20))} MiB` : `${Math.round((n ?? 0) / 1024)} KB`);
 
 // 确认对话框。桌面窗口（WKWebView）不支持浏览器自带的 confirm()，它会直接返回“取消”。
 export function ConfirmDialog({ title, message, confirmLabel = "删除", busy, onConfirm, onClose }) {
