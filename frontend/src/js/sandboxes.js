@@ -7,6 +7,7 @@ import { useTerminals } from "./terminal.js";
 import { SandboxDetail } from "./sandbox-detail.js";
 
 export function SandboxesPage({ sandboxes, providers, services, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
+  const [addingAgents, setAddingAgents] = useState(null);
   const [editingMCP, setEditingMCP] = useState(null);
   const [attacking, setAttacking] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -36,6 +37,10 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
   };
 
   const dialogs = html`
+      ${addingAgents && html`<${AddAgentsDialog} sandbox=${addingAgents} onClose=${() => setAddingAgents(null)} onAdd=${async (agents) => {
+        const target = addingAgents; setAddingAgents(null);
+        if (await run(target, "添加智能体", "AddSandboxAgents", target.id, agents)) notify("智能体已添加，请选择供应商");
+      }} />`}
       ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
         onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id, "deny"); }} />`}
       ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
@@ -65,7 +70,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
     return html`<${SandboxDetail} sandbox=${current} detail=${detail} setDetail=${setDetail} providers=${providers}
       services=${services} events=${events} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
       busy=${busy[current.id] ?? current.operation} progress=${progress[current.id] || current.progress} run=${run} notify=${notify}
-      onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)} onDelete=${() => setDeleting(current)}
+      onAddAgents=${() => setAddingAgents(current)} onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)} onDelete=${() => setDeleting(current)}
       onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
   }
 
@@ -348,4 +353,18 @@ function MCPDialog({ sandbox, services, onClose, onSave }) {
         </div>
       </div>
     </div>`;
+}
+
+function AddAgentsDialog({ sandbox, onClose, onAdd }) {
+  const [selected, setSelected] = useState({});
+  const available = AGENTS.filter((a) => !sandbox.bindings.some((b) => b.agent === a.id));
+  return html`<div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="dialog" role="dialog" aria-modal="true" aria-label="添加智能体">
+      <div class="dialog-heading"><h2>添加智能体</h2><button class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+      ${available.map((a) => html`<label class="check"><input type="checkbox" checked=${Boolean(selected[a.id])}
+        onChange=${(e) => setSelected({ ...selected, [a.id]: e.target.checked })} />${a.name}</label>`)}
+      <p class="caption">项目文件和主目录会保留。${sandbox.state === "running" ? "镜像准备完成后会重建运行容器，当前终端会话将结束。" : "首次准备镜像可能需要几分钟。"}</p>
+      <div class="dialog-actions"><button data-dismiss onClick=${onClose}>取消</button>
+        <button class="primary" disabled=${!Object.values(selected).some(Boolean)} onClick=${() => onAdd(available.filter((a) => selected[a.id]).map((a) => a.id))}>添加</button></div>
+    </div></div>`;
 }

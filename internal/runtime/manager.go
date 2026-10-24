@@ -268,6 +268,10 @@ func (m *Manager) providersFor(sbx sandbox.Sandbox) (map[string]provider.Provide
 // then the agent with the gatekeeper CA and agent settings.
 func (m *Manager) Start(ctx context.Context, id string) error {
 	defer m.lock(id)()
+	return m.start(ctx, id)
+}
+
+func (m *Manager) start(ctx context.Context, id string) error {
 	sbx, err := m.store.Sandbox(id)
 	if err != nil {
 		return err
