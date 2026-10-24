@@ -23,30 +23,34 @@ type UsageRecord struct {
 	SandboxName string `json:"sandbox_name"`
 }
 type UsageGroup struct {
-	ProviderID       string `json:"provider_id"`
-	ProviderName     string `json:"provider_name"`
-	Model            string `json:"model"`
-	Agent            string `json:"agent"`
-	Requests         uint64 `json:"requests"`
-	Unknown          uint64 `json:"unknown"`
-	InputTokens      int64  `json:"input_tokens"`
-	OutputTokens     int64  `json:"output_tokens"`
-	CacheReadTokens  int64  `json:"cache_read_tokens"`
-	CacheWriteTokens int64  `json:"cache_write_tokens"`
+	Costs            map[string]float64 `json:"costs"`
+	Unpriced         uint64             `json:"unpriced"`
+	ProviderID       string             `json:"provider_id"`
+	ProviderName     string             `json:"provider_name"`
+	Model            string             `json:"model"`
+	Agent            string             `json:"agent"`
+	Requests         uint64             `json:"requests"`
+	Unknown          uint64             `json:"unknown"`
+	InputTokens      int64              `json:"input_tokens"`
+	OutputTokens     int64              `json:"output_tokens"`
+	CacheReadTokens  int64              `json:"cache_read_tokens"`
+	CacheWriteTokens int64              `json:"cache_write_tokens"`
 }
 type UsageReport struct {
-	Rows     []UsageRecord `json:"rows"`
-	Groups   []UsageGroup  `json:"groups"`
-	Requests uint64        `json:"requests"`
-	Unknown  uint64        `json:"unknown"`
-	Gaps     uint64        `json:"gaps"`
-	Legacy   bool          `json:"legacy"`
-	Since    time.Time     `json:"since"`
+	Costs    map[string]float64 `json:"costs"`
+	Unpriced uint64             `json:"unpriced"`
+	Rows     []UsageRecord      `json:"rows"`
+	Groups   []UsageGroup       `json:"groups"`
+	Requests uint64             `json:"requests"`
+	Unknown  uint64             `json:"unknown"`
+	Gaps     uint64             `json:"gaps"`
+	Legacy   bool               `json:"legacy"`
+	Since    time.Time          `json:"since"`
 }
 
 // QueryUsage 以持久化审计为唯一来源流式汇总，事件 ID 去重；最近明细最多 100 条。
 func (a *App) QueryUsage(query UsageQuery) (UsageReport, error) {
-	report := UsageReport{Rows: []UsageRecord{}, Groups: []UsageGroup{}}
+	report := UsageReport{Costs: map[string]float64{}, Rows: []UsageRecord{}, Groups: []UsageGroup{}}
 	now := a.now()
 	switch query.Period {
 	case "today":
@@ -118,9 +122,17 @@ func (a *App) QueryUsage(query UsageQuery) (UsageReport, error) {
 			key = event.SecretRef + "\x00" + event.Model
 			group := groups[key]
 			if group == nil {
-				group = &UsageGroup{ProviderID: event.SecretRef, ProviderName: event.ProviderName, Agent: event.Agent, Model: event.Model}
+				group = &UsageGroup{Costs: map[string]float64{}, ProviderID: event.SecretRef, ProviderName: event.ProviderName, Agent: event.Agent, Model: event.Model}
 				groups[key] = group
 			}
+			if event.EstimatedCost != nil && event.Pricing != nil {
+				group.Costs[event.Pricing.Currency] += *event.EstimatedCost
+				report.Costs[event.Pricing.Currency] += *event.EstimatedCost
+			} else {
+				group.Unpriced++
+				report.Unpriced++
+			}
+
 			group.Requests++
 			if event.UsageKind != "reported" {
 				group.Unknown++

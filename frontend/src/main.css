@@ -295,3 +295,15 @@ input:disabled, select:disabled { background: #f1f3f5; color: var(--muted); }
 .terminal-composer textarea { flex: 1; min-width: 0; resize: vertical; max-height: 140px; border: 1px solid #33493f; border-radius: 6px; color: #e3ece6; background: #0f1a16; padding: 8px 10px; font: inherit; }
 .terminal-composer textarea::placeholder { color: #9fb3aa; }
 .terminal-composer button { border: 1px solid #33493f; }
+.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+.metric { padding: 17px 18px; display: grid; align-content: start; gap: 7px; font-variant-numeric: tabular-nums; }
+.metric > span, .metric small { font-size: 12px; color: var(--muted); }
+.metric > strong { font-size: 24px; font-weight: 600; letter-spacing: -.4px; }
+.metric .cost { font-size: 18px; padding-top: 4px; }
+.data-scroll { overflow: auto; }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; font-variant-numeric: tabular-nums; }
+.data-table th { padding: 11px 16px; font-weight: 500; color: var(--muted); background: #f9fafb; white-space: nowrap; }
+.data-table td { padding: 13px 16px; border-top: 1px solid var(--line-soft); }
+.data-table small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.usage-records > summary { margin: 16px 0 10px; }
+@media (max-width: 1000px) { .metric-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }

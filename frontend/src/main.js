@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "preact/hooks";
 import { html, call } from "./js/core.js";
 import { ProvidersPage } from "./js/providers.js";
 import { SandboxesPage } from "./js/sandboxes.js";
+import { UsagePage } from "./js/usage.js";
 import { SettingsPage } from "./js/settings.js";
 import { LogsPage } from "./js/logs.js";
 import { MCPPage } from "./js/mcp.js";
@@ -12,6 +13,7 @@ const PAGES = [
   { id: "sandboxes", title: "沙箱", icon: "▦" },
   { id: "providers", title: "模型供应商", icon: "◇" },
   { id: "mcp", title: "工具连接", icon: "⌘" },
+  { id: "usage", title: "用量与费用", icon: "▤" },
   { id: "logs", title: "请求日志", icon: "≡" },
   { id: "settings", title: "设置", icon: "⚙" },
 ];
@@ -132,6 +134,7 @@ function App() {
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
     mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
+    usage: html`<${UsagePage} sandboxes=${sandboxes} providers=${providers} />`,
     logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify} initialFilter=${logFilter}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
     settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify} />`,

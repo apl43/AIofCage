@@ -2,6 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, ConfirmDialog } from "./core.js";
 import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
+import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals } from "./terminal.js";
 
@@ -11,6 +12,7 @@ const TABS = [
   { id: "overview", label: "概览" },
   { id: "agents", label: "智能体" },
   { id: "terminal", label: "终端" },
+  { id: "usage", label: "用量" },
   { id: "logs", label: "日志" },
 ];
 
@@ -60,6 +62,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         <div><h3>MCP 服务</h3><${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} /></div>
         <div><h3>用量</h3><${UsageStats} sandbox=${sandbox} usage=${usage} /></div>
       </div>`}
+      ${tab === "usage" && html`<${UsagePage} sandboxId=${sandbox.id} providers=${providers} embedded=${true} />`}
       ${tab === "logs" && html`<${LogsPage} events=${events} sandboxes=${[sandbox]} providers=${providers} notify=${notify}
         sandboxFilter=${sandbox.id} setSandboxFilter=${() => {}} embedded=${true} />`}
       ${restartConfirm && html`<${ConfirmDialog} title="重启并应用配置？" message="当前终端会话将结束，项目文件和智能体历史会保留。" confirmLabel="重启并应用" onClose=${() => setRestartConfirm(false)} onConfirm=${async () => {

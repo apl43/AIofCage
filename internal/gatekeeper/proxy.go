@@ -20,6 +20,7 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/audit"
 	"github.com/shaoxier/AIofCage/internal/policy"
+	"github.com/shaoxier/AIofCage/internal/provider"
 )
 
 const (
@@ -69,6 +70,7 @@ type connectTarget struct{ host string }
 
 // requestState replaces connectTarget for each request inside the tunnel.
 type requestState struct {
+	pricing                    *provider.Pricing
 	model, agent, providerName string
 	modelRequest               bool
 	target                     connectTarget
@@ -270,6 +272,7 @@ func (g *Gate) request(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request,
 		secret := active.secrets[decision.SecretRef]
 		event.SecretRef = secret.ID
 		state.model, state.agent, state.providerName = secret.Model, secret.Agent, secret.Name
+		state.pricing = secret.Pricing
 		state.modelRequest = secret.Agent != "" && req.Method == http.MethodPost && !strings.HasSuffix(u.Path, "/count_tokens")
 		if status, reason := g.reserve(active, secret.ID, event); reason != "" {
 			state.generated = true
@@ -483,6 +486,24 @@ func (g *Gate) finish(state *requestState, event audit.Event) {
 	}
 	if state.modelRequest && event.UsageKind == "" {
 		event.UsageKind = "unknown"
+	}
+	if state.modelRequest {
+		event.Pricing = state.pricing
+		switch {
+		case event.UsageKind != "reported":
+			event.CostStatus = "usage-unknown"
+		case state.pricing == nil:
+			event.CostStatus = "price-missing"
+		case event.Model != state.model:
+			event.CostStatus = "model-mismatch"
+		default:
+			if cost, ok := state.pricing.Cost(event.InputTokens, event.OutputTokens, event.CacheReadTokens, event.CacheWriteTokens); ok {
+				event.EstimatedCost = &cost
+				event.CostStatus = "estimated"
+			} else {
+				event.CostStatus = "usage-invalid"
+			}
+		}
 	}
 	if state.bodyIn != nil {
 		event.BytesIn = state.bodyIn.count()
