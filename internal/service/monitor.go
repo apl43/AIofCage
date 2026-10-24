@@ -168,6 +168,10 @@ func (a *App) cursor(id string) string {
 }
 
 func (a *App) record(s sandbox.Sandbox, event audit.Event) {
+	if err := a.appendAudit(s.ID, event); err != nil {
+		a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计日志写入失败：" + err.Error()})
+		return
+	}
 	a.monitor.mu.Lock()
 	if event.Action != audit.ActionGap {
 		a.monitor.lastID[s.ID] = event.ID
@@ -178,9 +182,7 @@ func (a *App) record(s sandbox.Sandbox, event audit.Event) {
 	}
 	a.monitor.rings[s.ID] = ring
 	a.monitor.mu.Unlock()
-	if err := a.appendAudit(s.ID, event); err != nil {
-		a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计日志写入失败：" + err.Error()})
-	}
+
 	a.emit("sandbox:event", EventView{Event: event, SandboxName: s.Name})
 }
 
@@ -202,7 +204,10 @@ func (a *App) appendAudit(id string, event audit.Event) error {
 		return err
 	}
 	_, err = file.Write(append(data, '\n'))
-	return err
+	if err != nil {
+		return err
+	}
+	return file.Sync()
 }
 
 // loadTail reads the last n events of a sandbox's audit log.

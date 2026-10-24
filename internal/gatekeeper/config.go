@@ -35,6 +35,9 @@ type Connector struct {
 
 // Secret maps a placeholder visible inside the sandbox to the real credential for one provider.
 type Secret struct {
+	Model       string `json:"model,omitempty"`
+	Agent       string `json:"agent,omitempty"`
+	Name        string `json:"name,omitempty"`
 	ID          string `json:"id"`
 	Placeholder string `json:"placeholder"`
 	Header      string `json:"header"`

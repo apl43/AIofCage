@@ -32,6 +32,14 @@ type Event struct {
 	DurationMS   int64  `json:"duration_ms,omitempty"`
 	InputTokens  int64  `json:"input_tokens,omitempty"`
 	OutputTokens int64  `json:"output_tokens,omitempty"`
+	// 以下均为脱敏用量元数据，不记录请求正文或凭据。
+	Model            string `json:"model,omitempty"`
+	ConfiguredModel  string `json:"configured_model,omitempty"`
+	Agent            string `json:"agent,omitempty"`
+	ProviderName     string `json:"provider_name,omitempty"`
+	CacheReadTokens  int64  `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64  `json:"cache_write_tokens,omitempty"`
+	ModelRequest     bool   `json:"model_request,omitempty"`
 	// UsageKind is "reported" when tokens came from the upstream response, "unknown" otherwise.
 	UsageKind string `json:"usage_kind,omitempty"`
 }

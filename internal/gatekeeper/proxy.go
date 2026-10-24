@@ -69,16 +69,18 @@ type connectTarget struct{ host string }
 
 // requestState replaces connectTarget for each request inside the tunnel.
 type requestState struct {
-	target    connectTarget
-	started   time.Time
-	method    string
-	path      string
-	ruleID    string
-	secretID  string
-	secret    string
-	version   uint64
-	generated bool
-	bodyIn    *countingReader
+	model, agent, providerName string
+	modelRequest               bool
+	target                     connectTarget
+	started                    time.Time
+	method                     string
+	path                       string
+	ruleID                     string
+	secretID                   string
+	secret                     string
+	version                    uint64
+	generated                  bool
+	bodyIn                     *countingReader
 }
 
 func NewGate() (*Gate, error) {
@@ -267,6 +269,8 @@ func (g *Gate) request(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request,
 	if decision.SecretRef != "" {
 		secret := active.secrets[decision.SecretRef]
 		event.SecretRef = secret.ID
+		state.model, state.agent, state.providerName = secret.Model, secret.Agent, secret.Name
+		state.modelRequest = secret.Agent != "" && req.Method == http.MethodPost && !strings.HasSuffix(u.Path, "/count_tokens")
 		if status, reason := g.reserve(active, secret.ID, event); reason != "" {
 			state.generated = true
 			return req, textResponse(req, status, reason)
@@ -473,6 +477,13 @@ func (g *Gate) response(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Respon
 
 // finish records the completed request: usage for quota and the redacted event.
 func (g *Gate) finish(state *requestState, event audit.Event) {
+	event.ConfiguredModel, event.Agent, event.ProviderName, event.ModelRequest = state.model, state.agent, state.providerName, state.modelRequest
+	if event.Model == "" {
+		event.Model = state.model
+	}
+	if state.modelRequest && event.UsageKind == "" {
+		event.UsageKind = "unknown"
+	}
 	if state.bodyIn != nil {
 		event.BytesIn = state.bodyIn.count()
 	}
@@ -553,6 +564,8 @@ func (b *observedBody) complete(reason string) {
 		if b.usage != nil {
 			input, output, found := b.usage.Result()
 			event.InputTokens, event.OutputTokens = input, output
+			event.CacheReadTokens, event.CacheWriteTokens = b.usage.cacheRead, b.usage.cacheWrite
+			event.Model = b.usage.model
 			event.UsageKind = "unknown"
 			if found {
 				event.UsageKind = "reported"
