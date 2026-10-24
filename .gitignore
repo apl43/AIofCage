@@ -33,3 +33,4 @@ node_modules/
 /.validation-runs/
 __pycache__/
 *.pyc
+/build/gatekeeper/

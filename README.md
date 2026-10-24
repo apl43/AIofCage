@@ -24,7 +24,7 @@ make test         # 后端边界测试，包含竞态检查
 make dev          # 可选：使用固定版本 Wails CLI 热开发
 ```
 
-门卫的本机开发方式及接口状态见[模块与开发说明](docs/modules.md)。门卫当前始终拒绝代理和 MCP 请求，不能配置成可转发状态；应用不会创建 VM、容器或修改用户的 Docker context。
+门卫的本机开发方式及接口见[模块与开发说明](docs/modules.md)。门卫已能按下发的策略做 MITM 转发、占位符换 key、额度和事件流（MCP 入口仍拒绝）；桌面应用尚未接上门卫，也不会创建 VM、容器或修改用户的 Docker context。
 
 独立的[第一批验证包](experiments/validation/README.md)提供环境检查、最小门卫测试、容器隔离探针和可选 Codex 真实任务；[验证记录](docs/validation/README.md)区分实测结果与阻塞项。实验通过不等于产品功能已完成或设计已冻结。
 

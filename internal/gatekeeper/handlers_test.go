@@ -29,9 +29,9 @@ func TestUnconfiguredBoundary(t *testing.T) {
 		{"duplicate auth", handlers.Management, "GET", "/health", []string{"Bearer " + token, "Bearer wrong"}, "", 401, "unauthorized"},
 		{"browser origin", handlers.Management, "GET", "/health", []string{"Bearer " + token}, "https://untrusted.example", 403, "origin_not_allowed"},
 		{"not ready", handlers.Management, "GET", "/health", []string{"Bearer " + token}, "", 503, `"ready":false`},
-		{"no fake config", handlers.Management, "PUT", "/config", []string{"Bearer " + token}, "", 501, "not_implemented"},
+		{"no fake config", handlers.Management, "PUT", "/config", []string{"Bearer " + token}, "", 400, "invalid_json"},
+		{"query rejected", handlers.Management, "GET", "/health?x=1", []string{"Bearer " + token}, "", 400, "query_not_allowed"},
 		{"proxy denied", handlers.Proxy, "GET", "https://untrusted.example/", nil, "", 503, "not_configured"},
-		{"connect denied", handlers.Proxy, "CONNECT", "untrusted.example:443", nil, "", 503, "not_configured"},
 		{"mcp denied", handlers.MCP, "POST", "/mcp", nil, "", 503, "not_configured"},
 	}
 	for _, tc := range tests {
