@@ -1,13 +1,22 @@
 GO ?= go
 WAILS_VERSION := v2.17.0
 
-.PHONY: desktop gatekeeper gatekeeper-linux connector-linux cagectl dev check test clean
+.PHONY: desktop app gatekeeper gatekeeper-linux connector-linux cagectl dev check test clean
 
 GATEKEEPER_LINUX := internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64
 CONNECTOR_LINUX := internal/runtime/assets/connector/connector-linux-arm64
+APP := bin/AIofCage.app
 
 desktop: gatekeeper-linux connector-linux
 	$(GO) build -tags production -trimpath -o bin/AIofCage .
+
+# macOS 应用包：可以在访达里双击打开，程序坞和自动化工具都按应用标识 io.aiofcage.desktop 识别它。
+app: desktop
+	rm -rf $(APP)
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
+	cp bin/AIofCage $(APP)/Contents/MacOS/AIofCage
+	cp packaging/macos/Info.plist $(APP)/Contents/Info.plist
+	codesign --force --sign - $(APP)
 
 gatekeeper:
 	$(GO) build -trimpath -o bin/gatekeeper ./cmd/gatekeeper
@@ -36,3 +45,4 @@ test:
 
 clean:
 	rm -f bin/AIofCage bin/gatekeeper bin/cagectl $(GATEKEEPER_LINUX) $(CONNECTOR_LINUX)
+	rm -rf $(APP)

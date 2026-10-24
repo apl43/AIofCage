@@ -11,7 +11,7 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 
 需求与验收以 `docs/requirements-and-acceptance.md` 为准，架构候选见 `docs/architecture.md`（v3 草案），比赛要求见 `docs/competition-rules.md`。按最新开发安排先搭可构建工程骨架，当前实现范围和模块接口见 `docs/modules.md`；这不表示 G0—G5 已通过或设计已冻结。真实隔离、凭据与 MCP 接入仍须完成对应验证，不得用模拟成功替代。旧 ADR 标记为被取代时不得照旧实现。
 
-- 构建：`make desktop`、`make cagectl`（都会先编译并嵌入 Linux 门卫）、`make gatekeeper`；检查：`make check`、`make test`。桌面编译使用 `production` tag；前端为 `frontend/src` 静态资源。
+- 构建：`make app`（生成 `bin/AIofCage.app`，应用标识 `io.aiofcage.desktop`）、`make desktop`（裸二进制）、`make cagectl`（都会先编译并嵌入 Linux 门卫与连接器）、`make gatekeeper`；检查：`make check`、`make test`。桌面编译使用 `production` tag；前端为 `frontend/src` 静态资源。
 - 门卫（`internal/gatekeeper`）在经 `PUT /config` 下发策略与密钥后才转发，未配置时一律 503；MCP 入口 `8890` 只转发到已配置的可信连接器。沙箱运行时（`internal/runtime`）与 `cagectl` 已能创建并启动沙箱；桌面应用已接入供应商管理、沙箱管理、实时请求日志（JSONL 审计）与用量监视（`internal/service`）；远程 HTTP MCP（Bearer 令牌注入）、内置 filesystem MCP、数据库密码类 MCP（PostgreSQL，可信连接器代持密码，经门卫 MCP 入口 `8890` 访问）、OAuth 类 MCP（宿主浏览器登录、自动续期，门卫注入访问令牌）、AI 安全解说与模拟攻击已接入。前端为 Preact + htm（`frontend/src/vendor`），无 npm 构建。Codex 只支持 Responses API。
 
 - Go 单仓库，桌面界面用 Wails。
