@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shaoxier/AIofCage/internal/policy"
+	"github.com/shaoxier/AIofCage/internal/provider"
 )
 
 // Config is delivered by the desktop app through PUT /config. It is the only place real secret
@@ -35,14 +36,15 @@ type Connector struct {
 
 // Secret maps a placeholder visible inside the sandbox to the real credential for one provider.
 type Secret struct {
-	Model       string `json:"model,omitempty"`
-	Agent       string `json:"agent,omitempty"`
-	Name        string `json:"name,omitempty"`
-	ID          string `json:"id"`
-	Placeholder string `json:"placeholder"`
-	Header      string `json:"header"`
-	Prefix      string `json:"prefix"`
-	Value       string `json:"value"`
+	Pricing     *provider.Pricing `json:"pricing,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	Agent       string            `json:"agent,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	ID          string            `json:"id"`
+	Placeholder string            `json:"placeholder"`
+	Header      string            `json:"header"`
+	Prefix      string            `json:"prefix"`
+	Value       string            `json:"value"`
 }
 
 // Limits are enforced per sandbox. Baselines let the app carry usage across gatekeeper restarts

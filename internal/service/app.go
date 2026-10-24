@@ -155,6 +155,7 @@ func (a *App) view(p provider.Provider, sandboxes []sandbox.Sandbox) ProviderVie
 }
 
 type SaveProviderRequest struct {
+	Pricing  *provider.Pricing `json:"pricing"`
 	ID       string            `json:"id"`
 	Name     string            `json:"name"`
 	Agent    session.Agent     `json:"agent"`
@@ -203,6 +204,18 @@ func (a *App) SaveProvider(request SaveProviderRequest) (ProviderView, error) {
 	}
 	p.Name, p.Agent, p.Protocol, p.BaseURL, p.Model, p.Auth, p.Preset =
 		request.Name, request.Agent, request.Protocol, request.BaseURL, request.Model, request.Auth, request.Preset
+	if request.Pricing != nil {
+		price := *request.Pricing
+		if p.Pricing != nil {
+			price.Version = p.Pricing.Version
+		}
+		if p.Pricing == nil || price != *p.Pricing {
+			price.Version = a.now().UTC().Format(time.RFC3339Nano)
+		}
+		p.Pricing = &price
+	} else {
+		p.Pricing = nil
+	}
 	key := strings.TrimSpace(request.APIKey)
 	switch {
 	case request.ExistingKeyRef != "":
@@ -428,7 +441,7 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 				}
 				if p, ok := s.AppliedProviders[b.ProviderID]; ok {
 					for _, current := range providers {
-						if current.ID == p.ID && (current.BaseURL != p.BaseURL || current.Model != p.Model || current.Protocol != p.Protocol || current.Auth != p.Auth || current.KeyRef != p.KeyRef) {
+						if current.ID == p.ID && (current.BaseURL != p.BaseURL || current.Model != p.Model || current.Protocol != p.Protocol || current.Auth != p.Auth || current.KeyRef != p.KeyRef || !samePricing(current.Pricing, p.Pricing)) {
 							view.ConfigPending = true
 						}
 					}
@@ -468,4 +481,11 @@ func (a *App) DuplicateProvider(id string) (ProviderView, error) {
 		return ProviderView{}, err
 	}
 	return a.view(p, nil), nil
+}
+
+func samePricing(a, b *provider.Pricing) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }

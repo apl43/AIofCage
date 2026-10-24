@@ -33,6 +33,7 @@ const (
 )
 
 type Provider struct {
+	Pricing   *Pricing      `json:"pricing,omitempty"`
 	ID        string        `json:"id"`
 	Name      string        `json:"name"`
 	Agent     session.Agent `json:"agent"`
@@ -81,6 +82,11 @@ func (p *Provider) Normalize() {
 }
 
 func (p Provider) Validate() error {
+	if p.Pricing != nil {
+		if err := p.Pricing.Validate(); err != nil {
+			return err
+		}
+	}
 	if !policy.ValidID(p.ID) {
 		return errors.New("供应商 ID 只能包含字母、数字、点、下划线和连字符")
 	}
