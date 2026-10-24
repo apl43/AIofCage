@@ -163,9 +163,6 @@ func (s Sandbox) Validate() error {
 	if err := ValidateProject(s.ProjectPath); err != nil {
 		return err
 	}
-	if len(s.Bindings) == 0 {
-		return errors.New("至少选择一个 Agent")
-	}
 	seen := map[session.Agent]bool{}
 	for _, binding := range s.Bindings {
 		if !binding.Agent.Valid() {
