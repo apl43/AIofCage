@@ -1,19 +1,20 @@
 // 沙箱详情页（参考 Docker Desktop 点开容器）：终端、概览、日志三个标签。
 import { useEffect, useState } from "preact/hooks";
-import { html, call, agentName, STATES } from "./core.js";
+import { html, call, AGENTS, agentName, STATES } from "./core.js";
 import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
 import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals } from "./terminal.js";
 
 const TABS = [
-  { id: "terminal", label: "终端" },
   { id: "overview", label: "概览" },
+  { id: "agents", label: "智能体" },
+  { id: "terminal", label: "终端" },
   { id: "logs", label: "日志" },
 ];
 
 export function SandboxDetail({ sandbox, detail, setDetail, providers, services, events, usage, busy, progress, run, notify,
-  onEditMCP, onAttack, onDelete, onLogs, dialogs }) {
-  const tab = detail.tab ?? "terminal";
+  onAddAgents, onEditMCP, onAttack, onDelete, onLogs, dialogs }) {
+  const tab = detail.tab ?? "overview";
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
   return html`
@@ -42,8 +43,13 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
       </div>
       ${tab === "terminal" && html`<${TerminalTab} sandbox=${sandbox} request=${detail.open} running=${running} busy=${busy}
         run=${run} notify=${notify} />`}
+      ${tab === "agents" && html`<div class="panel detail-overview">
+        <div class="section-heading"><div><h3>已安装智能体</h3><p class="caption">为每个智能体独立选择供应商。</p></div>
+          <button onClick=${onAddAgents} disabled=${Boolean(busy) || sandbox.bindings.length === AGENTS.length}>＋ 添加智能体</button></div>
+        <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} />
+      </div>`}
       ${tab === "overview" && html`<div class="panel detail-overview">
-        <div><h3>Agent 与供应商</h3><p class="caption">切换后，Agent 下次启动时使用新的供应商。</p>
+        <div><h3>智能体与供应商</h3><button class="link" onClick=${() => setDetail({ ...detail, tab: "agents" })}>管理智能体</button><p class="caption">切换后，Agent 下次启动时使用新的供应商。</p>
           <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} /></div>
         <div><h3>MCP 服务</h3><${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} /></div>
         <div><h3>用量</h3><${UsageStats} sandbox=${sandbox} usage=${usage} /></div>

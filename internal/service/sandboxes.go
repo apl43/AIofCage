@@ -374,3 +374,18 @@ func copyFile(source, destination string, mode fs.FileMode) error {
 	}
 	return out.Close()
 }
+
+// AddSandboxAgents 通过桌面操作增装智能体，沿用生命周期互斥和进度通知。
+func (a *App) AddSandboxAgents(id string, agents []session.Agent) error {
+	if err := a.runtimeReady(); err != nil {
+		return err
+	}
+	done, err := a.beginOperation(id, "添加智能体")
+	if err != nil {
+		return err
+	}
+	defer done()
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	return a.manager.AddAgents(ctx, id, agents)
+}
