@@ -230,6 +230,32 @@ func (s *Store) DeleteSandbox(id string) error {
 	})
 }
 
+// Setting returns a non-secret application setting ("" when unset).
+func (s *Store) Setting(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	values := map[string]string{}
+	if s.load("settings.json", &values) != nil {
+		return ""
+	}
+	return values[key]
+}
+
+func (s *Store) SetSetting(key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	values := map[string]string{}
+	if err := s.load("settings.json", &values); err != nil {
+		return err
+	}
+	values[key] = value
+	data, err := json.MarshalIndent(values, "", "  ")
+	if err != nil {
+		return err
+	}
+	return s.write("settings.json", data)
+}
+
 func (s *Store) load(name string, target any) error {
 	data, err := os.ReadFile(filepath.Join(s.dir, name))
 	if errors.Is(err, os.ErrNotExist) {
@@ -261,7 +287,12 @@ func (s *Store) update(name string, change func(*[]json.RawMessage) error) error
 	if err != nil {
 		return err
 	}
-	// Write to a temporary file and rename so a crash never leaves a half-written file.
+	return s.write(name, data)
+}
+
+// write replaces a file atomically: write a temporary file, then rename, so a crash never
+// leaves a half-written file. Caller holds s.mu.
+func (s *Store) write(name string, data []byte) error {
 	tmp, err := os.CreateTemp(s.dir, name+".*.tmp")
 	if err != nil {
 		return err

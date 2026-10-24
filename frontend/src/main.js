@@ -85,7 +85,7 @@ function App() {
     mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
     logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
-    settings: html`<${SettingsPage} overview=${overview} />`,
+    settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify} />`,
   }[page];
 
   return html`

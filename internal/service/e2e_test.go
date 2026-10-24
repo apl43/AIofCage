@@ -106,6 +106,19 @@ func TestEndToEnd(t *testing.T) {
 	if summary.Providers[p.ID].Requests == 0 {
 		t.Fatalf("provider usage not counted: %+v", summary.Providers)
 	}
+	results, err := app.SimulateAttacks(view.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		t.Logf("attack %-13s blocked=%v skipped=%v\n%s", r.ID, r.Blocked, r.Skipped, r.Evidence)
+		if !r.Blocked && !r.Skipped {
+			t.Errorf("attack %s not blocked: %s", r.ID, r.Evidence)
+		}
+		if bytes.Contains([]byte(r.Evidence), key) {
+			t.Errorf("attack %s evidence contains the real key", r.ID)
+		}
+	}
 	if err := app.BindProvider(view.ID, session.Codex, ""); err != nil {
 		t.Fatal(err)
 	}
