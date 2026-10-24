@@ -7,6 +7,10 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 - 支持在沙箱内跑主流 agent 应用，如 claude code、codex、dsh 等
 - 所有主流 MCP 配置时均无需在沙箱内填写任何敏感信息（api key、password 等）
 
+## 产品形态（团队 2026-10-23 确定）
+
+“CC Switch + Docker Desktop”：桌面应用按 agent 分类管理**供应商**（接口地址、协议、模型，key 只存钥匙串），并像 Docker Desktop 一样管理**沙箱**（创建时选项目、勾选要装的 agent、给每个 agent 绑定供应商；启停、删除、打开终端、查看用量）。多个沙箱可以共用一个供应商，也可以各用各的。每个沙箱有自己的门卫，只持有该沙箱绑定的供应商 key。概念、已确认的行为、开发步骤与分工见 `docs/development-plan.md`；下文的安全机制是这个产品背后的引擎，实现时以服务该产品形态为重点。
+
 ## 设计目标与编码前置条件
 
 需求与验收以 `docs/requirements-and-acceptance.md` 为准，架构候选见 `docs/architecture.md`（v3 草案），比赛要求见 `docs/competition-rules.md`。按最新开发安排先搭可构建工程骨架，当前实现范围和模块接口见 `docs/modules.md`；这不表示 G0—G5 已通过或设计已冻结。真实隔离、凭据与 MCP 接入仍须完成对应验证，不得用模拟成功替代。旧 ADR 标记为被取代时不得照旧实现。
@@ -47,18 +51,21 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 - 在 AIofCage 专用 Colima 实例上，直连、IPv6/DNS、管理面和跨会话访问是否全部受控。
 - 议题所指 dsh 的产品身份与 Linux/arm64 产物，OAuth 注册条件、MCP SDK 能力、数据库连接器及秘密交付通道，见目标文档 G2—G4。
 
-## 设计冻结后的实现顺序
+## 开发顺序
 
-1. 最小闭环：专用隔离 + 门卫 + 一个 Agent 真实任务 + 一个 HTTP MCP，只作为阶段结果。
-2. 议题基线：三款 Agent、四类 MCP、工具/资源权限、撤销与故障关闭；不以自定义命令入口算兼容。
-3. 普通用户流程：环境准备、导入、宿主认证、启动、拒绝与重试、停止清理；无需手改 Docker、CA 或 JSON。
-4. 安全及交付验收：反向测试、审计、运行说明、模块规格和真实分工、录屏。用量保护随后补齐；AI 解说、丰富模拟攻击和视觉细节有余量再做。
+按 `docs/development-plan.md` 的 S0—S10 逐步推进：每一步自带验证，验证不过不进入依赖它的下一步；10-24 13:00 最小闭环（Codex 在沙箱中经门卫完成真实任务）是硬检查点。验证包中的实验门卫与运行器（`experiments/validation/`）是产品化的参照实现。
 
-OAuth、密码连接器和 MCP 工具/资源授权是覆盖目标的一部分，缺失时明确阻塞，不能只改成路线图后宣称满足议题。Hash 链、逐命令审批、写操作的交互式审批和高级策略编辑器可延后；未经授权的写工具保持拒绝。AI 解说不参与授权和拦截。
+OAuth、密码连接器和 MCP 工具/资源授权是覆盖目标的一部分，缺失时明确写为缺口，不能只改成路线图后宣称满足议题。Hash 链、逐命令审批、写操作的交互式审批和高级策略编辑器可延后；未经授权的写工具保持拒绝。AI 解说不参与授权和拦截。
+
+## 本机环境
+
+- Docker Hub 在部分网络不可用：镜像使用 `public.ecr.aws/docker/library/...` 的官方镜像并固定摘要。
+- `proxy.golang.org` 不可用时，构建使用 `GOPROXY=https://goproxy.cn,direct`。
 
 ## 约定
 
 - 文档、README 和界面文案都用中文。
 - 永远不要提交密钥；提交前扫描 `sk-`、`ghp_` 这类字符串。
 - README 里的功能清单，完成一项勾一项。
-- Git：一个功能一个分支一个 PR，不直接往 `main` 推。分支名用 `feat/xxx`、`fix/xxx`、`docs/xxx`，合并用 squash。队友不 fork，直接在本仓库开分支。
+- Git：一个功能一个分支一个 PR，不直接往 `main` 推。分支名用 `feat/xxx`、`fix/xxx`、`docs/xxx`、`test/xxx`。**合并用 merge commit**（比赛要求保留开发过程痕迹，squash 会丢掉 PR 内的分步提交）。队友不 fork，直接在本仓库开分支。
+- PR 自测通过后由团队成员合并，作者不自己合并改动 CLAUDE.md 或范围的 PR；依赖上一个未合并 PR 的分支从那个分支切出，并在 PR 描述里写明依赖。

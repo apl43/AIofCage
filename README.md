@@ -4,6 +4,8 @@
 
 Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开发中
 
+**产品形态：CC Switch + Docker Desktop。** 按 agent 管理模型供应商，key 只存钥匙串；像 Docker Desktop 一样创建、启停沙箱，每个沙箱自选要装的 agent 并绑定供应商，多个沙箱可共用或各用各的供应商，并能看到每个沙箱的用量。详见[产品形态与开发计划](docs/development-plan.md)。
+
 当前仓库已有可构建的桌面与门卫骨架：可登记内存会话草稿、查看环境依赖和模块页面；隔离运行、真实认证、代理转发与 MCP 尚未实现。[产品目标与验收](docs/requirements-and-acceptance.md)和[架构设计](docs/architecture.md)仍是待验证的目标，[比赛规则](docs/competition-rules.md)区分组织方要求与团队选择。当前骨架不能作为已完成的安全沙箱使用。
 
 ## 开发启动
@@ -62,9 +64,11 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 - [x] 独立门卫入口、管理鉴权及未配置时始终拒绝的数据入口
 - [x] 容器隔离 + 强制所有出网走门卫代理
 - [x] 钥匙串存储密钥，门卫按域名注入
-- [ ] 桌面应用：密钥管理、沙箱启停、一键打开 Agent 终端
+- [x] 供应商管理（参考 CC Switch）：按 agent 分组，预设一键添加，key 存钥匙串，连通性测试
+- [x] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
+- [x] 每个沙箱的用量与资源占用，按供应商汇总
 - [x] 实时请求面板：放行 / 拦截 / 已注入密钥
-- [ ] 支持 Codex、Claude Code、dsh（三者已接入，请求经门卫换成真 key 后到达上游已验证；真实模型应答待用真 key 验证）
+- [ ] 支持 Codex、Claude Code、dsh（Claude Code 与 dsh 已用 DeepSeek 在沙箱里完成真实任务；Codex 已接入，真实模型应答待网络可达 xapi 后验证）
 - [x] MCP 免填上游秘密：HTTP Token、OAuth（浏览器登录，自动续期）、无密钥 stdio、数据库密码（PostgreSQL，可信连接器代持）四类基线（OAuth 已用 Notion、Linear 的真实服务验证到发现、注册客户端和授权页；完整登录需用真实账号点一次）
 - [ ] MCP 服务、工具与资源权限；连接、撤销、过期处理及跨会话隔离
 - [x] 用量上限与异常告警，防止被下套的 Agent 刷光额度
@@ -83,7 +87,7 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 
 - Go
 - [Wails](https://github.com/wailsapp/wails)：桌面界面
-- [goproxy](https://github.com/elazarl/goproxy)：计划用于 MITM 门卫，尚未接入
+- [goproxy](https://github.com/elazarl/goproxy)：门卫的 HTTPS 中间人代理（固定 v1.9.2）
 - Docker：容器隔离
 - Colima：专用 profile `aiofcage`，Docker context `colima-aiofcage`，仅共享 `~/CageWorkspace:w`
 - macOS 钥匙串：密钥存储
