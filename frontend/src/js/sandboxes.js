@@ -152,7 +152,7 @@ export function UsageStats({ sandbox, usage, onLogs }) {
       ${quotaPercent(usage?.requests, maxRequests)}</span>
     <span><strong>${formatTokens(usage?.tokens ?? sandbox.usage.tokens)}</strong> token${maxTokens ? ` / ${formatTokens(maxTokens)}` : ""}
       ${quotaPercent(usage?.tokens, maxTokens)}</span>
-    ${usage?.stats && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
+    ${usage?.stats?.valid && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
     ${onLogs && html`<button class="link" onClick=${onLogs}>${usage?.denied ? html`<span class="count bad">拦截 ${usage.denied}</span> ` : ""}查看日志</button>`}
   </div>`;
 }

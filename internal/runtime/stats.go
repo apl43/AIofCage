@@ -1,72 +1,44 @@
 package runtime
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// ContainerStats is the combined resource use of a sandbox's agent and gatekeeper containers.
+// ContainerStats 汇总沙箱所有实际组件的资源使用，Valid=false 表示没有完整样本。
 type ContainerStats struct {
-	CPUPercent  float64 `json:"cpu_percent"`
-	MemoryBytes uint64  `json:"memory_bytes"`
-	MemoryLimit uint64  `json:"memory_limit"`
-	PIDs        int     `json:"pids"`
+	Valid       bool      `json:"valid"`
+	Error       string    `json:"error,omitempty"`
+	CollectedAt time.Time `json:"collected_at"`
+	NetworkIn   uint64    `json:"network_in"`
+	NetworkOut  uint64    `json:"network_out"`
+	BlockRead   uint64    `json:"block_read"`
+	BlockWrite  uint64    `json:"block_write"`
+	CPUPercent  float64   `json:"cpu_percent"`
+	MemoryBytes uint64    `json:"memory_bytes"`
+	MemoryLimit uint64    `json:"memory_limit"`
+	PIDs        int       `json:"pids"`
 }
 
 // Stats samples resource use for the given running sandboxes with a single docker call.
 func (m *Manager) Stats(ctx context.Context, ids []string) map[string]ContainerStats {
 	result := map[string]ContainerStats{}
-	if len(ids) == 0 {
-		return result
-	}
-	args := []string{"stats", "--no-stream", "--format", "{{json .}}"}
-	owner := map[string]string{}
-	for _, id := range ids {
-		n := names(id)
-		args = append(args, n.agent, n.gate)
-		owner[n.agent], owner[n.gate] = id, id
-	}
-	out, err := m.docker.run(ctx, 20*time.Second, nil, args...)
-	if err != nil && len(out) == 0 {
-		return result
-	}
-	scanner := bufio.NewScanner(bytes.NewReader(out))
-	for scanner.Scan() {
-		var row struct {
-			Name     string `json:"Name"`
-			CPUPerc  string `json:"CPUPerc"`
-			MemUsage string `json:"MemUsage"`
-			PIDs     string `json:"PIDs"`
-		}
-		if json.Unmarshal(scanner.Bytes(), &row) != nil {
-			continue
-		}
-		id, ok := owner[row.Name]
-		if !ok {
-			continue
-		}
-		stats := result[id]
-		cpu, _ := strconv.ParseFloat(strings.TrimSuffix(row.CPUPerc, "%"), 64)
-		stats.CPUPercent += cpu
-		used, limit, _ := strings.Cut(row.MemUsage, "/")
-		stats.MemoryBytes += parseSize(used)
-		if strings.HasSuffix(row.Name, "-agent") {
-			stats.MemoryLimit = parseSize(limit)
-		}
-		pids, _ := strconv.Atoi(row.PIDs)
-		stats.PIDs += pids
-		result[id] = stats
+	for id, health := range m.SampleHealth(ctx, ids) {
+		result[id] = health.Stats
 	}
 	return result
 }
 
 // parseSize understands docker's human-readable sizes such as "12.5MiB" or "1.2GB".
 func parseSize(value string) uint64 {
+	size, _ := parseSizeChecked(value)
+	return size
+}
+
+func parseSizeChecked(value string) (uint64, bool) {
 	value = strings.TrimSpace(value)
 	units := []struct {
 		suffix string
@@ -75,11 +47,11 @@ func parseSize(value string) uint64 {
 	for _, unit := range units {
 		if strings.HasSuffix(value, unit.suffix) {
 			number, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, unit.suffix)), 64)
-			if err != nil {
-				return 0
+			if err != nil || math.IsNaN(number) || math.IsInf(number, 0) || number < 0 || number*unit.factor >= math.Exp2(64) {
+				return 0, false
 			}
-			return uint64(number * unit.factor)
+			return uint64(number * unit.factor), true
 		}
 	}
-	return 0
+	return 0, false
 }
