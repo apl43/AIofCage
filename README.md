@@ -68,7 +68,7 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 - [x] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
 - [x] 每个沙箱的用量与资源占用，按供应商汇总
 - [x] 实时请求面板：放行 / 拦截 / 已注入密钥
-- [ ] 支持 Codex、Claude Code、dsh（Claude Code 与 dsh 已用 DeepSeek 在沙箱里完成真实任务；Codex 已接入，真实模型应答待网络可达 xapi 后验证）
+- [x] 支持 Codex、Claude Code、dsh：三款 Agent 都已在沙箱里完成真实任务（Codex 用七牛 xapi 的 gpt-6.1-sol，Claude Code 和 dsh 用 DeepSeek），并都能通过门卫使用数据库 MCP 查询
 - [x] MCP 免填上游秘密：HTTP Token、OAuth（浏览器登录，自动续期）、无密钥 stdio、数据库密码（PostgreSQL，可信连接器代持）四类基线（OAuth 已用 Notion、Linear 的真实服务验证到发现、注册客户端和授权页；完整登录需用真实账号点一次）
 - [ ] MCP 服务、工具与资源权限；连接、撤销、过期处理及跨会话隔离
 - [x] 用量上限与异常告警，防止被下套的 Agent 刷光额度
