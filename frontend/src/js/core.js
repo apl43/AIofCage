@@ -7,7 +7,7 @@ export const html = htm.bind(h);
 // 调用 Wails 绑定的 Go 方法；错误统一转成可直接展示的中文字符串。
 export async function call(method, ...args) {
   const app = window.go?.service?.App;
-  if (!app) throw new Error("桌面后端尚未连接，请用 make desktop 构建后启动应用。");
+  if (!app) throw new Error("应用连接中断，请重新打开 AIofCage。");
   try {
     return await app[method](...args);
   } catch (error) {
@@ -18,7 +18,7 @@ export async function call(method, ...args) {
 export const AGENTS = [
   { id: "codex", name: "Codex" },
   { id: "claude-code", name: "Claude Code" },
-  { id: "dsh", name: "dsh" },
+  { id: "dsh", name: "DeepSeek Harness" },
 ];
 
 export const agentName = (id) => AGENTS.find((agent) => agent.id === id)?.name ?? id;
@@ -33,7 +33,7 @@ export const PROTOCOLS = {
 export const COMPATIBLE = {
   codex: ["openai-responses"],
   "claude-code": ["anthropic"],
-  dsh: ["openai-chat", "anthropic"],
+  dsh: ["anthropic"],
 };
 
 export const AUTHS = { bearer: "Authorization: Bearer", "x-api-key": "x-api-key 请求头" };

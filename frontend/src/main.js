@@ -9,11 +9,11 @@ import { LogsPage } from "./js/logs.js";
 import { MCPPage } from "./js/mcp.js";
 
 const PAGES = [
-  { id: "sandboxes", title: "沙箱" },
-  { id: "providers", title: "供应商" },
-  { id: "mcp", title: "MCP" },
-  { id: "logs", title: "日志" },
-  { id: "settings", title: "设置" },
+  { id: "sandboxes", title: "沙箱", icon: "▦" },
+  { id: "providers", title: "模型供应商", icon: "◇" },
+  { id: "mcp", title: "工具连接", icon: "⌘" },
+  { id: "logs", title: "请求日志", icon: "≡" },
+  { id: "settings", title: "设置", icon: "⚙" },
 ];
 
 function App() {
@@ -33,7 +33,7 @@ function App() {
 
   const notify = useCallback((message, isError = false) => {
     setToast({ message, isError });
-    setTimeout(() => setToast((current) => (current?.message === message ? null : current)), 4000);
+    if (!isError) setTimeout(() => setToast((current) => (current?.message === message ? null : current)), 5000);
   }, []);
 
   const reload = useCallback(async () => {
@@ -73,14 +73,49 @@ function App() {
     const offAlert = window.runtime?.EventsOn?.("sandbox:alert", (alert) => notify(alert.message, true));
     // 启动进度由后端记住；收到进度就刷新列表，切换页面回来也能看到正在进行的操作。
     const offProgress = window.runtime?.EventsOn?.("sandbox:progress", () => reload());
-    // Esc 关闭最上层的对话框（等同点“关闭”或“取消”；操作进行中按钮禁用时不响应）。
+    // 弹窗焦点与键盘导航统一处理，兼容现有原生表单。
+    let topDialog = null;
+    let returnFocus = null;
+    const focusable = (root) => [...root.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')].filter((el) => el.getClientRects().length);
+    const syncDialog = () => {
+      const dialogs = document.querySelectorAll('[aria-modal="true"]');
+      const next = dialogs[dialogs.length - 1] ?? null;
+      if (next === topDialog) return;
+      if (next) {
+        if (!topDialog) returnFocus = document.activeElement;
+        topDialog = next;
+        topDialog.tabIndex = -1;
+        (focusable(next)[0] ?? next).focus();
+      } else {
+        topDialog = null;
+        if (returnFocus?.isConnected) returnFocus.focus();
+        returnFocus = null;
+      }
+    };
+    const observer = new MutationObserver(syncDialog);
+    observer.observe(document.body, { childList: true, subtree: true });
     const onKey = (e) => {
-      if (e.key !== "Escape") return;
-      const overlays = document.querySelectorAll(".overlay");
-      overlays[overlays.length - 1]?.querySelector("[data-dismiss], [aria-label='关闭']")?.click();
+      if (e.key === "Escape" && topDialog) {
+        topDialog.querySelector("[data-dismiss], [aria-label='关闭']")?.click();
+        e.preventDefault();
+      }
+      if (e.key === "Tab" && topDialog) {
+        const items = focusable(topDialog);
+        if (!items.length) { e.preventDefault(); topDialog.focus(); return; }
+        const first = items[0], last = items[items.length - 1];
+        if (e.shiftKey && (document.activeElement === first || !topDialog.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (document.activeElement === last || !topDialog.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+      }
+      if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) && e.target.getAttribute("role") === "tab") {
+        const items = [...e.target.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+        const index = items.indexOf(e.target);
+        const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (index + (e.key === "ArrowRight" ? 1 : -1) + items.length) % items.length;
+        e.preventDefault(); items[next].focus(); items[next].click();
+      }
     };
     document.addEventListener("keydown", onKey);
-    return () => { offEvent?.(); offStats?.(); offAlert?.(); offProgress?.(); document.removeEventListener("keydown", onKey); };
+    return () => { offEvent?.(); offStats?.(); offAlert?.(); offProgress?.(); observer.disconnect(); document.removeEventListener("keydown", onKey); };
+
   }, []);
 
   useEffect(() => { reload(); }, [page]);
@@ -104,18 +139,18 @@ function App() {
 
   return html`
     <aside class="sidebar">
-      <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>Agent 的安全工作区</small></span></div>
+      <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>智能体工作区</small></span></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
-          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); }}>${item.title}</button>`)}
+          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}><span class="nav-icon" aria-hidden="true">${item.icon}</span>${item.title}</button>`)}
       </nav>
       <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
         ${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}
         <small>${overview ? `v${overview.version}` : ""}</small></div>
     </aside>
     <main>
-      ${!(page === "sandboxes" && detail) && html`<header><div><p class="eyebrow">YOUR AGENTS. YOUR BOUNDARIES.</p><h1>${PAGES.find((p) => p.id === page).title}</h1></div></header>`}
-      ${toast && html`<p class=${toast.isError ? "feedback error" : "feedback"} role="status" aria-live="polite">${toast.message}</p>`}
+      ${toast && html`<div class=${toast.isError ? "feedback error" : "feedback"} role=${toast.isError ? "alert" : "status"}>
+        <span>${toast.message}</span><button class="link" aria-label="关闭通知" onClick=${() => setToast(null)}>×</button></div>`}
       ${content}
     </main>`;
 }
