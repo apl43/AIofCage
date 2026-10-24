@@ -2,6 +2,8 @@
 
 日期：2026-10-24。功能分支：`feat/terminal-image-attachments`，基于最终工作区验收分支，依赖 [PR #33](https://github.com/shaoxier/AIofCage/pull/33)。
 
+功能 PR：[PR #34：智能体终端支持图片粘贴与附件发送](https://github.com/shaoxier/AIofCage/pull/34)。
+
 ## 结果与边界
 
 已实现智能体终端中的图片粘贴、文件选择、拖入处理、附件预览和发送。Claude Code 与 DeepSeek Harness 已完成真实图片识别；Codex 已将两张图片转换为原生附件并提交，但七牛上游返回 502，未完成模型识图验收。跨应用拖入因界面控制工具报错，未完成实测。
