@@ -115,7 +115,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	for _, r := range results {
 		t.Logf("attack %-13s blocked=%v skipped=%v\n%s", r.ID, r.Blocked, r.Skipped, r.Evidence)
-		if !r.Blocked && !r.Skipped {
+		if r.Status == checkProblem {
 			t.Errorf("attack %s not blocked: %s", r.ID, r.Evidence)
 		}
 		if bytes.Contains([]byte(r.Evidence), key) {

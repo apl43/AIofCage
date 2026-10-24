@@ -1,4 +1,4 @@
-// AI 安全解说与模拟攻击。AI 只负责解释，不参与放行决定。
+// AI 安全解说与隔离检查。AI 只负责解释，不参与放行决定。
 import { useEffect, useState } from "preact/hooks";
 import { html, call } from "./core.js";
 
@@ -35,31 +35,27 @@ export function AttackDialog({ sandbox, onClose, onLogs }) {
   const [results, setResults] = useState(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => { call("ListAttacks").then(setAttacks).catch((e) => setError(e.message)); }, []);
+  useEffect(() => { call("ListIsolationChecks").then(setAttacks).catch((e) => setError(e.message)); }, []);
   const start = async () => {
     setRunning(true);
     setError("");
-    try { setResults(await call("SimulateAttacks", sandbox.id)); } catch (e) { setError(e.message); } finally { setRunning(false); }
+    try { setResults(await call("RunIsolationChecks", sandbox.id)); } catch (e) { setError(e.message); } finally { setRunning(false); }
   };
   const list = results ?? attacks;
-  const blocked = results?.filter((r) => r.blocked).length ?? 0;
+  const statuses = { passed: { label: "通过", tone: "ok" }, problem: { label: "发现问题", tone: "bad" }, inconclusive: { label: "无法验证", tone: "warn" }, skipped: { label: "跳过", tone: "idle" } };
   return html`
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && !running && onClose()}>
-      <div class="dialog wide" role="dialog" aria-modal="true" aria-label="模拟攻击">
-        <div class="dialog-heading"><h2>模拟攻击：检验「${sandbox.name}」</h2>
+      <div class="dialog wide" role="dialog" aria-modal="true" aria-label="隔离检查">
+        <div class="dialog-heading"><h2>隔离检查 · 「${sandbox.name}」</h2>
           <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose} disabled=${running}>×</button></div>
-        <p class="caption">每一项都照着一起真实发生过的攻击，在沙箱里以 Agent 的身份执行。不会读取或修改你的任何真实文件。</p>
-        ${results && html`<p class=${blocked === results.filter((r) => !r.skipped).length ? "test-result ok" : "test-result bad"} role="status">
-          ${blocked} / ${results.filter((r) => !r.skipped).length} 项被拦截${results.some((r) => r.skipped) ? `，${results.filter((r) => r.skipped).length} 项跳过` : ""}</p>
-          <p class="caption">只有经过门卫的尝试（发往网站的请求）会出现在日志里；直连外网、DNS 外传这类根本没有网络可走的尝试不会产生日志。</p>`}
+        <p class="caption">使用固定测试数据，读取凭据与网络配置；宿主会创建临时测试文件并在检查后清理。结果只覆盖本次检查，不代表完整安全审计。</p>
+        ${results && html`<div class="diagnostic-summary" role="status">${Object.entries(statuses).map(([key,value]) => html`<span class=${`pill ${value.tone}`}>${value.label} ${results.filter((r) => r.status === key).length}</span>`)}</div>`}
         <div class="attack-list">
-          ${list.map((a) => html`<article class=${`attack ${a.blocked ? "ok" : a.skipped ? "" : results ? "bad" : ""}`} key=${a.id}>
+          ${list.map((a) => html`<article class=${`attack ${results ? (statuses[a.status]?.tone || "warn") : ""}`} key=${a.id}>
             <div class="card-top">
               <h3>${a.title}</h3>
-              ${results ? html`<span class=${`pill ${a.skipped ? "idle" : a.blocked ? "ok" : "bad"}`}>${a.skipped ? "跳过" : a.blocked ? `✓ 已拦截 · ${a.layer}` : "✕ 未拦截"}</span>`
-                : html`<span class="pill idle">${a.layer}</span>`}
+              ${results ? html`<span class=${`pill ${statuses[a.status]?.tone || "warn"}`}>${statuses[a.status]?.label || "无法验证"}</span>` : html`<span class="pill idle">${a.layer}</span>`}
             </div>
-            <p class="caption">参照：${a.incident}</p>
             ${a.evidence && html`<pre class="evidence">${a.evidence}</pre>`}
             ${a.note && html`<p class="note">${a.note}</p>`}
           </article>`)}
@@ -67,7 +63,7 @@ export function AttackDialog({ sandbox, onClose, onLogs }) {
         ${error && html`<p class="form-error" role="alert">${error}</p>`}
         <div class="dialog-actions">
           ${results && html`<button onClick=${onLogs}>查看日志里的拦截记录</button>`}
-          <button class="primary" onClick=${start} disabled=${running}>${running ? "正在模拟…" : results ? "再来一次" : "开始模拟"}</button>
+          <button class="primary" onClick=${start} disabled=${running}>${running ? "正在检查…" : results ? "重新检查" : "开始检查"}</button>
         </div>
       </div>
     </div>`;

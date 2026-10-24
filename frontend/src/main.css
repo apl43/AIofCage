@@ -329,3 +329,6 @@ input:disabled, select:disabled { background: #f1f3f5; color: var(--muted); }
 .health-vm { margin-top: 20px; font-size: 12px; }
 .health-vm > .panel { margin-top: 10px; padding: 16px; }
 @media (max-width: 850px) { .health-charts { grid-template-columns: 1fr; } }
+.diagnostic-summary { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.attack.warn { border-color: #d9bf8d; }

