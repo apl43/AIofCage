@@ -2,6 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, ConfirmDialog } from "./core.js";
 import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
+import { HealthPanel } from "./health.js";
 import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals } from "./terminal.js";
@@ -13,10 +14,11 @@ const TABS = [
   { id: "agents", label: "智能体" },
   { id: "terminal", label: "终端" },
   { id: "usage", label: "用量" },
+  { id: "health", label: "运行状态" },
   { id: "logs", label: "日志" },
 ];
 
-export function SandboxDetail({ sandbox, detail, setDetail, providers, services, events, usage, busy, progress, run, notify,
+export function SandboxDetail({ sandbox, detail, setDetail, providers, services, events, usage, vm, busy, progress, run, notify,
   onAddAgents, onEditMCP, onAttack, onDelete, onLogs, dialogs }) {
   const [restartConfirm, setRestartConfirm] = useState(false);
   const tab = detail.tab ?? "overview";
@@ -62,6 +64,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         <div><h3>MCP 服务</h3><${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} /></div>
         <div><h3>用量</h3><${UsageStats} sandbox=${sandbox} usage=${usage} /></div>
       </div>`}
+      ${tab === "health" && html`<${HealthPanel} sandbox=${sandbox} vm=${vm} events=${events} />`}
       ${tab === "usage" && html`<${UsagePage} sandboxId=${sandbox.id} providers=${providers} embedded=${true} />`}
       ${tab === "logs" && html`<${LogsPage} events=${events} sandboxes=${[sandbox]} providers=${providers} notify=${notify}
         sandboxFilter=${sandbox.id} setSandboxFilter=${() => {}} embedded=${true} />`}

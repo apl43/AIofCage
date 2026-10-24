@@ -71,7 +71,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
   const current = detail && sandboxes.find((s) => s.id === detail.id);
   if (current) {
     return html`<${SandboxDetail} sandbox=${current} detail=${detail} setDetail=${setDetail} providers=${providers}
-      services=${services} events=${events} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
+      services=${services} events=${events} vm=${overview?.environment?.vm} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
       busy=${busy[current.id] ?? current.operation} progress=${progress[current.id] || current.progress} run=${run} notify=${notify}
       onAddAgents=${() => setAddingAgents(current)} onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)} onDelete=${() => setDeleting(current)}
       onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
