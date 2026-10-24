@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "AiOf Cage",
+  "name": "Ai of Cage",
   "outputfilename": "AIofCage",
   "wailsjsdir": "./frontend"
 }

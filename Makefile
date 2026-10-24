@@ -5,19 +5,19 @@ WAILS_VERSION := v2.17.0
 
 GATEKEEPER_LINUX := internal/runtime/assets/gatekeeper/gatekeeper-linux-arm64
 CONNECTOR_LINUX := internal/runtime/assets/connector/connector-linux-arm64
-APP := bin/AIofCage.app
+APP := bin/Ai of Cage.app
 
 desktop: gatekeeper-linux connector-linux
 	$(GO) build -tags production -trimpath -o bin/AIofCage .
 
 # macOS 应用包：可以在访达里双击打开，程序坞和自动化工具都按应用标识 io.aiofcage.desktop 识别它。
 app: desktop
-	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	cp bin/AIofCage $(APP)/Contents/MacOS/AIofCage
-	cp packaging/macos/Info.plist $(APP)/Contents/Info.plist
-	cp packaging/macos/AppIcon.icns $(APP)/Contents/Resources/AppIcon.icns
-	codesign --force --sign - $(APP)
+	rm -rf "$(APP)"
+	mkdir -p "$(APP)/Contents/MacOS" "$(APP)/Contents/Resources"
+	cp bin/AIofCage "$(APP)/Contents/MacOS/AIofCage"
+	cp packaging/macos/Info.plist "$(APP)/Contents/Info.plist"
+	cp packaging/macos/AppIcon.icns "$(APP)/Contents/Resources/AppIcon.icns"
+	codesign --force --sign - "$(APP)"
 
 # 修改 Logo SVG 后重新生成 PNG 和包含 16—1024 像素图像的 ICNS；日常打包直接使用已生成的图标。
 icons:
@@ -50,4 +50,4 @@ test:
 
 clean:
 	rm -f bin/AIofCage bin/gatekeeper bin/cagectl $(GATEKEEPER_LINUX) $(CONNECTOR_LINUX)
-	rm -rf $(APP)
+	rm -rf "$(APP)"

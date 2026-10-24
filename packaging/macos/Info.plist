@@ -9,9 +9,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>io.aiofcage.desktop</string>
 	<key>CFBundleName</key>
-	<string>AiOf Cage</string>
+	<string>Ai of Cage</string>
 	<key>CFBundleDisplayName</key>
-	<string>AiOf Cage</string>
+	<string>Ai of Cage</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon.icns</string>
 	<key>CFBundlePackageType</key>
@@ -25,6 +25,6 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>AiOf Cage 需要控制“终端”，才能一键打开沙箱里的 Agent 终端。</string>
+	<string>Ai of Cage 需要控制“终端”，才能一键打开沙箱里的 Agent 终端。</string>
 </dict>
 </plist>

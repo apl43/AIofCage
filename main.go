@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -22,7 +23,7 @@ var assets embed.FS
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "AiOf Cage 启动失败:", err)
+		fmt.Fprintln(os.Stderr, "Ai of Cage 启动失败:", err)
 		os.Exit(1)
 	}
 }
@@ -54,7 +55,11 @@ func run() error {
 		})
 	})
 	return wails.Run(&options.App{
-		Title: "AiOf Cage", Width: 1180, Height: 800, MinWidth: 900, MinHeight: 640,
+		Title: "Ai of Cage", Width: 1180, Height: 800, MinWidth: 900, MinHeight: 640,
+		// 显式启用 macOS 窗口缩放；Wails 在 Mac 选项为 nil 时禁用绿色按钮。
+		Mac: &mac.Options{TitleBar: mac.TitleBarDefault(), DisableZoom: false,
+			DisableEscapeExitsFullscreen: true,
+			Preferences:                  &mac.Preferences{TabFocusesLinks: mac.Enabled}},
 		BackgroundColour: options.NewRGB(245, 246, 248),
 		AssetServer:      &assetserver.Options{Assets: frontend},
 		OnStartup: func(ctx context.Context) {
