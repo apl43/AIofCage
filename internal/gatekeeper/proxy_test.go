@@ -621,3 +621,33 @@ func TestUsageSniffer(t *testing.T) {
 		t.Fatal("no usage expected")
 	}
 }
+
+func TestSharedEndpointPicksSecretByPlaceholder(t *testing.T) {
+	f := newFixture(t, true)
+	config := testConfig(1)
+	// A second provider on the same host and path, sending its key in another header.
+	config.Policy.Rules = append(config.Policy.Rules, policy.Rule{ID: "model-a-second", Effect: policy.Allow,
+		Host: "model-a.example", Methods: []string{"POST"}, Path: "/v1/responses", SecretRef: "provider-c"})
+	config.Secrets = append(config.Secrets, Secret{ID: "provider-c", Placeholder: "cage-placeholder-provider-c-xyz",
+		Header: "X-Api-Key", Value: "synthetic-secret-provider-c-555"})
+	f.configure(t, config)
+	var seen []string
+	f.setHandler(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization")+"|"+r.Header.Get("X-Api-Key"))
+		io.WriteString(w, "ok")
+	})
+	if status, _, _ := f.do(t, "POST", "https://model-a.example/v1/responses", bearer(placeholderA), "{}"); status != 200 {
+		t.Fatalf("first provider %d", status)
+	}
+	if status, _, _ := f.do(t, "POST", "https://model-a.example/v1/responses",
+		map[string][]string{"X-Api-Key": {"cage-placeholder-provider-c-xyz"}}, "{}"); status != 200 {
+		t.Fatalf("second provider %d", status)
+	}
+	if len(seen) != 2 || seen[0] != "Bearer "+secretA+"|" || seen[1] != "|synthetic-secret-provider-c-555" {
+		t.Fatalf("wrong injection %q", seen)
+	}
+	if status, _, header := f.do(t, "POST", "https://model-a.example/v1/responses", bearer("attacker-own-key"), "{}"); status != 403 ||
+		header.Get("X-Aiofcage-Reason") != "credential_foreign" {
+		t.Fatalf("foreign key on shared endpoint: %d %s", status, header.Get("X-Aiofcage-Reason"))
+	}
+}

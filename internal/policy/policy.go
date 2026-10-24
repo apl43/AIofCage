@@ -41,6 +41,15 @@ type Decision struct {
 	ReasonCode string
 	RuleID     string
 	SecretRef  string
+	// Matches lists every allow rule matching the request, in order. Several providers may share
+	// a host and path (e.g. two agents on the same endpoint); the gatekeeper then picks the one
+	// whose placeholder the request carries.
+	Matches []Match
+}
+
+type Match struct {
+	RuleID    string
+	SecretRef string
 }
 
 const (
@@ -156,10 +165,17 @@ func (s *Snapshot) Evaluate(request Request) Decision {
 			return Decision{Allowed: false, ReasonCode: "rule_denied", RuleID: rule.ID}
 		}
 	}
+	var decision Decision
 	for _, rule := range s.Rules {
 		if rule.Effect == Allow && rule.matches(request) {
-			return Decision{Allowed: true, ReasonCode: "allowed", RuleID: rule.ID, SecretRef: rule.SecretRef}
+			if !decision.Allowed {
+				decision = Decision{Allowed: true, ReasonCode: "allowed", RuleID: rule.ID, SecretRef: rule.SecretRef}
+			}
+			decision.Matches = append(decision.Matches, Match{RuleID: rule.ID, SecretRef: rule.SecretRef})
 		}
+	}
+	if decision.Allowed {
+		return decision
 	}
 	return Decision{Allowed: false, ReasonCode: "default_deny"}
 }

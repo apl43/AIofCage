@@ -97,6 +97,16 @@ make cagectl
 
 启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 下发策略与密钥（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉两个容器，不留下“Agent 在跑、门卫没配置”的状态。
 
+## 各 Agent 的接入方式
+
+| Agent | 镜像中的包 | 沙箱里的配置（只有占位符） | 供应商要求 |
+|---|---|---|---|
+| Codex | `@openai/codex@0.164.0` | `~/.codex/config.toml`：自定义 provider，`env_key = AIOFCAGE_CODEX_API_KEY`，`wire_api = "responses"`，项目目录设为受信任 | OpenAI Responses 接口（0.164 不再支持 Chat） |
+| Claude Code | `@anthropic-ai/claude-code@2.1.309`（允许它的 postinstall：只是从平台可选依赖里复制原生二进制，不联网） | 环境变量 `ANTHROPIC_BASE_URL`、`ANTHROPIC_AUTH_TOKEN`（Bearer）或 `ANTHROPIC_API_KEY`（x-api-key）、模型、关闭遥测和自动更新；`~/.claude.json` 只合并“已完成引导、信任项目目录、已批准该占位符”三项 | Anthropic Messages 接口 |
+| dsh | `@deepseek-ai/dsh@0.2.1-rc.2` | `DEEPSEEK_API_KEY`、`DSH_TELEMETRY_DISABLED=1` | 目前只支持 DeepSeek 官方接口 `https://api.deepseek.com/anthropic`（x-api-key）；改地址需要修改 dsh 的 profile YAML，暂未支持；模型在 dsh 里选择 |
+
+镜像基于 Node 24（dsh 依赖 `import.meta.main`，Node 22.16 下会静默不执行）。`/tmp` 允许执行（dsh 的原生模块、编译器和测试会从 `/tmp` 运行程序）。多个供应商可以共用同一个接口地址（例如 Claude Code 和 dsh 都用 DeepSeek），门卫按请求里携带的占位符决定注入哪一把 key。
+
 ## 门卫本机开发
 
 `make gatekeeper` 生成本机二进制；`make gatekeeper-linux` 生成沙箱里用的 Linux/arm64 二进制，并把 `docker/gatekeeper/Dockerfile` 一起放进 `build/gatekeeper/`：

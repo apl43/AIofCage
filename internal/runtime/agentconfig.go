@@ -17,6 +17,8 @@ type agentFile struct {
 	Path    string `json:"path"`
 	Mode    int    `json:"mode"`
 	Content string `json:"content"`
+	// MergeJSON merges Content into an existing JSON file instead of replacing it.
+	MergeJSON bool `json:"merge_json,omitempty"`
 }
 
 // tomlString renders a TOML basic string. JSON string escaping is a subset of TOML's.
@@ -57,10 +59,11 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider) []a
 			env["DISABLE_ERROR_REPORTING"] = "1"
 			env["DISABLE_AUTOUPDATER"] = "1"
 			env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+			files = append(files, agentFile{Path: ".claude.json", Mode: 0o600, MergeJSON: true, Content: claudeState(sbx, p, placeholder)})
 		case session.DSH:
-			env["AIOFCAGE_DSH_BASE_URL"] = p.BaseURL
-			env["AIOFCAGE_DSH_API_KEY"] = placeholder
-			env["AIOFCAGE_DSH_MODEL"] = p.Model
+			// dsh's deepseek-official route reads the key from DEEPSEEK_API_KEY and sends x-api-key.
+			env["DEEPSEEK_API_KEY"] = placeholder
+			env["DSH_TELEMETRY_DISABLED"] = "1"
 		}
 	}
 	keys := make([]string, 0, len(env))
@@ -92,4 +95,21 @@ func codexConfig(sbx sandbox.Sandbox, p provider.Provider) string {
 	fmt.Fprintf(&b, "[projects.%s]\n", tomlString(sbx.ProjectPath))
 	b.WriteString("trust_level = \"trusted\"\n")
 	return b.String()
+}
+
+// claudeState pre-answers Claude Code's first-run questions: onboarding, trusting the project
+// folder, and (for x-api-key providers) approving the API key, which it remembers by its last
+// 20 characters. Only these keys are merged; the rest of ~/.claude.json is left alone.
+func claudeState(sbx sandbox.Sandbox, p provider.Provider, placeholder string) string {
+	state := map[string]any{
+		"hasCompletedOnboarding": true,
+		"projects": map[string]any{
+			sbx.ProjectPath: map[string]any{"hasTrustDialogAccepted": true, "hasCompletedProjectOnboarding": true},
+		},
+	}
+	if p.Auth == provider.AuthXAPIKey && len(placeholder) >= 20 {
+		state["customApiKeyResponses"] = map[string]any{"approved": []string{placeholder[len(placeholder)-20:]}, "rejected": []string{}}
+	}
+	data, _ := json.Marshal(state)
+	return string(data)
 }

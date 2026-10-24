@@ -18,8 +18,7 @@
   {"id": "custom-claude", "agent": "claude-code", "name": "自定义（Anthropic 兼容）", "protocol": "anthropic",
    "base_url": "", "model": "", "auth": "bearer"},
 
-  {"id": "deepseek", "agent": "dsh", "name": "DeepSeek 官方", "protocol": "openai-chat",
-   "base_url": "https://api.deepseek.com", "model": "deepseek-chat", "auth": "bearer"},
-  {"id": "custom-dsh", "agent": "dsh", "name": "自定义（OpenAI Chat 兼容）", "protocol": "openai-chat",
-   "base_url": "", "model": "", "auth": "bearer"}
+  {"id": "deepseek", "agent": "dsh", "name": "DeepSeek 官方", "protocol": "anthropic",
+   "base_url": "https://api.deepseek.com/anthropic", "model": "deepseek-flash", "auth": "x-api-key",
+   "note": "dsh 使用 DeepSeek 官方接口；模型可在 dsh 里切换"}
 ]

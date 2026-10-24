@@ -32,12 +32,32 @@ def safe_target(relative: str) -> Path:
     return current
 
 
+def merge(base, update):
+    """把 update 合并进 base：字典递归合并，其他类型直接覆盖。"""
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
 files = [{"path": ".aiofcage/gatekeeper-ca.crt", "mode": 0o644, "content": ca}] + data.get("files", [])
 for item in files:
     target = safe_target(item["path"])
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    content = item["content"]
+    if item.get("merge_json"):
+        # Agent 自己也会写这个文件（例如 ~/.claude.json），只合并我们需要的键，保留其余状态。
+        try:
+            existing = json.loads(target.read_text()) if target.exists() else {}
+        except (OSError, ValueError):
+            existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+        content = json.dumps(merge(existing, json.loads(content)), ensure_ascii=False, indent=2)
     tmp = target.with_name(target.name + ".aiofcage-tmp")
-    tmp.write_text(item["content"])
+    tmp.write_text(content)
     os.chmod(tmp, item.get("mode", 0o600))
     os.replace(tmp, target)
 print("ok")
