@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,6 +43,8 @@ type terminal struct {
 	pty       *os.File
 	sandboxID string
 	id        string
+	agent     session.Agent
+	closed    atomic.Bool
 	writeMu   sync.Mutex
 	closeOnce sync.Once
 }
@@ -104,7 +107,7 @@ func (a *App) StartTerminal(id, sandboxID string, agent session.Agent, cols, row
 		a.terms.mu.Unlock()
 		return fmt.Errorf("最多同时打开 %d 个终端，请先关掉一些", maxTerminals)
 	}
-	t := &terminal{sandboxID: sbx.ID, id: id}
+	t := &terminal{sandboxID: sbx.ID, id: id, agent: agent}
 
 	// 唯一会话标记供关闭时定位容器内的进程及子进程，避免只结束宿主 Docker 客户端。
 	args := append([]string{"env", "AIOFCAGE_TERMINAL_ID=" + id}, terminalEnv...)
@@ -146,6 +149,7 @@ func (a *App) pumpTerminal(id string, t *terminal) {
 			code = exit.ExitCode()
 		}
 	}
+	t.closed.Store(true)
 	t.pty.Close()
 	a.dropTerminal(id)
 	a.emit("terminal:exit", map[string]any{"id": id, "code": code})
@@ -175,6 +179,9 @@ func (a *App) WriteTerminal(id, data string) error {
 	}
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
+	if t.closed.Load() {
+		return errors.New("终端已关闭")
+	}
 	_, err = t.pty.WriteString(data)
 	return err
 }
@@ -215,6 +222,7 @@ for sig in (signal.SIGHUP, signal.SIGKILL):
 
 func (a *App) closeTerminal(t *terminal) {
 	t.closeOnce.Do(func() {
+		t.closed.Store(true)
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
 		_ = a.manager.Exec(ctx, t.sandboxID, false, nil, io.Discard, io.Discard, "python3", "-c", endTerminalProcesses, t.id)

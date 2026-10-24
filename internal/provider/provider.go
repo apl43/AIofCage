@@ -33,17 +33,18 @@ const (
 )
 
 type Provider struct {
-	Pricing   *Pricing      `json:"pricing,omitempty"`
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Agent     session.Agent `json:"agent"`
-	Protocol  Protocol      `json:"protocol"`
-	BaseURL   string        `json:"base_url"`
-	Model     string        `json:"model"`
-	Auth      Auth          `json:"auth"`
-	KeyRef    string        `json:"key_ref"`
-	Preset    string        `json:"preset,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
+	Pricing    *Pricing      `json:"pricing,omitempty"`
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	Agent      session.Agent `json:"agent"`
+	Protocol   Protocol      `json:"protocol"`
+	BaseURL    string        `json:"base_url"`
+	Model      string        `json:"model"`
+	ImageInput bool          `json:"image_input,omitempty"`
+	Auth       Auth          `json:"auth"`
+	KeyRef     string        `json:"key_ref"`
+	Preset     string        `json:"preset,omitempty"`
+	CreatedAt  time.Time     `json:"created_at"`
 }
 
 var (

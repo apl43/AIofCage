@@ -1,11 +1,12 @@
 // 沙箱详情页（参考 Docker Desktop 点开容器）：终端、概览、日志三个标签。
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, STATES, ConfirmDialog } from "./core.js";
 import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
 import { HealthPanel } from "./health.js";
 import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
-import { TerminalView, openTerminal, closeTerminal, useTerminals } from "./terminal.js";
+import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminalDraft, addTerminalImages, pasteTerminalImage, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
+import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
 
 const activeTerminals = new Map();
 
@@ -79,6 +80,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
 function TerminalTab({ sandbox, request, running, busy, run, notify }) {
   const sessions = useTerminals(sandbox.id);
   const [active, updateActive] = useState(() => activeTerminals.get(sandbox.id));
+  const [dragging, setDragging] = useState(false);
   const setActive = (id) => { activeTerminals.set(sandbox.id, id); updateActive(id); };
   const open = async (agent) => setActive(await openTerminal(sandbox, agent));
 
@@ -101,7 +103,12 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
       <button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}>启动沙箱</button>
     </div>`;
   }
-  return html`<div class="terminal-panel">
+  return html`<div class=${`terminal-panel ${dragging ? "dragging-image" : ""}`}
+    onPasteCapture=${(e) => handleTerminalPaste(current, e)}
+    onKeyDownCapture=${(e) => handleTerminalImageKey(current, e)}
+    onDragOver=${(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragging(true); } }}
+    onDragLeave=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
+    onDrop=${(e) => { e.preventDefault(); setDragging(false); if (current && !current.exited) addTerminalImages(current, e.dataTransfer.files); }}>
     <div class="terminal-tabs" role="tablist">
       ${sessions.map((s) => html`<div class=${`terminal-tab ${s.id === current?.id ? "active" : ""} ${s.exited ? "exited" : ""}`} key=${s.id}>
         <button role="tab" aria-selected=${s.id === current?.id} onClick=${() => setActive(s.id)}>${s.title}${s.exited ? "（已结束）" : ""}</button>
@@ -122,24 +129,44 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
           <p>打开智能体，或使用 Shell 管理项目。</p>
           <div class="terminal-choices">${choices.map((c) => html`<button class="primary" onClick=${() => open(c.agent)}>${c.label}</button>`)}</div>
         </div>`}
-    ${current && !current.exited && running && html`<${TerminalComposer} session=${current} notify=${notify} />`}
+    ${current && !current.exited && running && html`<${TerminalComposer} key=${current.id} session=${current} />`}
+    ${dragging && html`<div class="terminal-drop-hint" aria-hidden="true">松开以添加图片</div>`}
   </div>`;
 }
 
-function TerminalComposer({ session, notify }) {
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const send = async () => {
-    if (!text.trim() || sending) return;
-    setSending(true);
-    try { await call("WriteTerminal", session.id, text + "\r"); setText(""); }
-    catch (e) { notify(e.message, true); }
-    finally { setSending(false); }
-  };
+function TerminalComposer({ session }) {
+  const picker = useRef(null);
+  const draft = session.draft;
+  const inputID = `terminal-message-${session.id}`;
+  const errorID = `terminal-message-error-${session.id}`;
+  const send = () => sendDraft(draft, (text, images) => call("SendTerminalMessage", session.id, text, images), updateTerminalDraft);
   return html`<form class="terminal-composer" onSubmit=${(e) => { e.preventDefault(); send(); }}>
-    <label class="sr-only" for="terminal-message">${session.agent ? "输入任务或回复" : "输入 Shell 命令"}</label>
-    <textarea id="terminal-message" rows="1" value=${text} placeholder=${session.agent ? "输入任务或回复…" : "输入 Shell 命令…"} onInput=${(e) => setText(e.target.value)}
-      onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
-    <button type="submit" disabled=${!text.trim() || sending}>发送 ↵</button>
+    ${draft.images.length > 0 && html`<ul class="terminal-attachments" aria-label="待发送的图片">
+      ${draft.images.map((item, index) => html`<li key=${item.id}>
+        <img src=${item.url} alt=${`图片 ${index + 1}：${item.file.name}`} />
+        <span title=${item.file.name}>${item.file.name}</span>
+        <button type="button" class="attachment-remove" aria-label=${`移除图片 ${index + 1}：${item.file.name}`} disabled=${draft.busy}
+          onClick=${() => { removeImage(draft, item.id); updateTerminalDraft(); }}>×</button>
+      </li>`)}
+    </ul>`}
+    <div class="terminal-input-row">
+      <label class="sr-only" for=${inputID}>${session.agent ? "输入任务或回复" : "输入 Shell 命令"}</label>
+      <textarea id=${inputID} rows="2" value=${draft.text} placeholder=${session.agent ? "输入任务，或粘贴图片…" : "输入 Shell 命令…"}
+        disabled=${draft.busy} aria-invalid=${Boolean(draft.error)} aria-describedby=${draft.error ? errorID : undefined}
+        onInput=${(e) => { draft.text = e.target.value; draft.error = ""; updateTerminalDraft(); }}
+        onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } }}></textarea>
+    </div>
+    <div class="terminal-composer-actions">
+      <div class="terminal-attachment-actions">
+        ${session.agent && html`<input ref=${picker} type="file" accept=${IMAGE_ACCEPT} multiple hidden aria-label="选择图片"
+          onChange=${(e) => { addTerminalImages(session, e.target.files); e.target.value = ""; }} />
+          <button type="button" disabled=${draft.busy || draft.reading} onClick=${() => picker.current?.click()}>添加图片</button>
+          <button type="button" title="粘贴图片（⌘V 或 Ctrl+V）" disabled=${draft.busy || draft.reading} onClick=${() => pasteTerminalImage(session)}>粘贴图片</button>`}
+        <span class="terminal-input-hint">${draft.images.length ? `${draft.images.length}/4 张 · 所选模型需支持图片` : "Shift + Enter 换行"}</span>
+      </div>
+      <button type="submit" class="terminal-send" disabled=${draft.busy || draft.reading}>${draft.busy ? "正在发送…" : "发送 ↵"}</button>
+    </div>
+    <span class="sr-only" role="status">${draft.status}</span>
+    <div class="terminal-input-error" id=${errorID} role="alert">${draft.error}</div>
   </form>`;
 }

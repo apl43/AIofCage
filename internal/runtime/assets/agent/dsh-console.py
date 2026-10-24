@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 # 通过固定版本的 headless profile 提供可连续对话的终端入口。
 import json
+import readline
 import subprocess
 
+readline.parse_and_bind("set enable-bracketed-paste on")
 print("DeepSeek Harness · 输入任务开始，输入 /new 新建会话，/exit 退出。", flush=True)
 session_id = None
 while True:
@@ -21,9 +23,12 @@ while True:
     args = ["dsh", "headless", "--json"]
     if session_id:
         args.extend(["--session-id", session_id])
-    args.append(prompt)
-    child = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
+    # 从标准输入交付整段任务，保留换行，也避免正文被解析成命令行选项。
+    args.append("-")
+    child = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     try:
+        child.stdin.write(prompt)
+        child.stdin.close()
         for line in child.stdout:
             try:
                 event = json.loads(line)
@@ -43,3 +48,7 @@ while True:
         child.terminate()
         child.wait()
         print("任务已中断。", flush=True)
+    except BrokenPipeError:
+        child.terminate()
+        child.wait()
+        print("任务未能提交，请重试或输入 /new。", flush=True)

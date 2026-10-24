@@ -191,4 +191,11 @@ func TestDSHCustomProviderConfig(t *testing.T) {
 	if !strings.Contains(env, "cage-placeholder") || strings.Contains(patch, "cage-placeholder") {
 		t.Fatal("凭据引用不正确")
 	}
+	if !strings.Contains(patch, "input: [text]") || strings.Contains(patch, "input: [text, image]") {
+		t.Fatal("未开启图片能力时不得宣称支持图片")
+	}
+	p.ImageInput = true
+	if !strings.Contains(dshConfig(p), "input: [text, image]") {
+		t.Fatal("图片能力没有传递给 DSH 模型路由")
+	}
 }
