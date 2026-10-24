@@ -140,7 +140,7 @@ cat ~/.claude.json ~/.codex/config.toml ~/.aiofcage/env; env`
 	}
 	for _, r := range results {
 		t.Logf("attack %-13s blocked=%v skipped=%v\n%s", r.ID, r.Blocked, r.Skipped, r.Evidence)
-		if !r.Blocked && !r.Skipped || (r.ID == "db-direct" && r.Skipped) {
+		if r.Status == checkProblem || (r.ID == "db-direct" && r.Skipped) {
 			t.Errorf("attack %s not blocked: %s", r.ID, r.Evidence)
 		}
 		if strings.Contains(r.Evidence, password) {
