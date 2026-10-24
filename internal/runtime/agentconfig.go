@@ -73,6 +73,8 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider, ser
 			env["DISABLE_AUTOUPDATER"] = "1"
 			env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
 		case session.DSH:
+			console, _ := assets.ReadFile("assets/agent/dsh-console.py")
+			files = append(files, agentFile{Path: ".aiofcage/dsh-console.py", Mode: 0o600, Content: string(console)})
 			env["AIOFCAGE_DSH_API_KEY"] = placeholder
 			env["DSH_HOME"] = "/home/agent/.dsh"
 			files = append(files, agentFile{Path: ".dsh/cordis.patch.yml", Mode: 0o600, Content: dshConfig(p)})

@@ -1,9 +1,11 @@
 // 沙箱详情页（参考 Docker Desktop 点开容器）：终端、概览、日志三个标签。
 import { useEffect, useState } from "preact/hooks";
-import { html, call, AGENTS, agentName, STATES } from "./core.js";
+import { html, call, AGENTS, agentName, STATES, ConfirmDialog } from "./core.js";
 import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
 import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals } from "./terminal.js";
+
+const activeTerminals = new Map();
 
 const TABS = [
   { id: "overview", label: "概览" },
@@ -14,6 +16,7 @@ const TABS = [
 
 export function SandboxDetail({ sandbox, detail, setDetail, providers, services, events, usage, busy, progress, run, notify,
   onAddAgents, onEditMCP, onAttack, onDelete, onLogs, dialogs }) {
+  const [restartConfirm, setRestartConfirm] = useState(false);
   const tab = detail.tab ?? "overview";
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
@@ -30,8 +33,11 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
           ${running
             ? html`<button onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)} disabled=${Boolean(busy)}>停止</button>`
             : html`<button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}>启动</button>`}
-          <button onClick=${onAttack} disabled=${!running || Boolean(busy)} title=${running ? "" : "先启动沙箱"}>模拟攻击</button>
-          <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除</button>
+          ${sandbox.config_pending && html`<button class="primary" disabled=${Boolean(busy)} onClick=${() => setRestartConfirm(true)}>重启以应用</button>`}
+          <details class="action-menu"><summary aria-label="更多沙箱操作">•••</summary><div class="menu-items">
+            <button onClick=${onAttack} disabled=${!running || Boolean(busy)}>隔离检查</button>
+            <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除沙箱…</button>
+          </div></details>
         </div>
       </div>
       <button class="link mono" onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}
@@ -56,13 +62,18 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
       </div>`}
       ${tab === "logs" && html`<${LogsPage} events=${events} sandboxes=${[sandbox]} providers=${providers} notify=${notify}
         sandboxFilter=${sandbox.id} setSandboxFilter=${() => {}} embedded=${true} />`}
+      ${restartConfirm && html`<${ConfirmDialog} title="重启并应用配置？" message="当前终端会话将结束，项目文件和智能体历史会保留。" confirmLabel="重启并应用" onClose=${() => setRestartConfirm(false)} onConfirm=${async () => {
+        setRestartConfirm(false);
+        if (await run(sandbox, "停止", "StopSandbox", sandbox.id)) await run(sandbox, "启动", "StartSandbox", sandbox.id);
+      }} />`}
       ${dialogs}
     </section>`;
 }
 
 function TerminalTab({ sandbox, request, running, busy, run, notify }) {
   const sessions = useTerminals(sandbox.id);
-  const [active, setActive] = useState(null);
+  const [active, updateActive] = useState(() => activeTerminals.get(sandbox.id));
+  const setActive = (id) => { activeTerminals.set(sandbox.id, id); updateActive(id); };
   const open = async (agent) => setActive(await openTerminal(sandbox, agent));
 
   // 从沙箱列表点“打开终端”过来时，按选中的 Agent 新开一个标签。
@@ -80,7 +91,7 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
   if (!running && sessions.length === 0) {
     return html`<div class="panel empty">
       <span class="empty-icon">›_</span><h3>沙箱还没有启动</h3>
-      <p>启动后可以在这里直接和沙箱里的 Agent 对话。</p>
+      <p>启动沙箱后，打开智能体或 Shell 开始工作。</p>
       <button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}>启动沙箱</button>
     </div>`;
   }
@@ -101,9 +112,28 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
       ? html`<${TerminalView} key=${current.id} id=${current.id} />
           ${current.exited && running && html`<div class="terminal-exited">
             <button onClick=${() => { const agent = current.agent; close(current.id); open(agent); }}>重新打开 ${current.title}</button></div>`}`
-      : html`<div class="panel empty terminal-empty"><h3>选择要打开的 Agent</h3>
-          <p>终端运行在沙箱里：只能看到项目目录，网络请求都经过门卫，拿到的只是占位符。</p>
+      : html`<div class="panel empty terminal-empty"><h3>开始工作</h3>
+          <p>打开智能体，或使用 Shell 管理项目。</p>
           <div class="terminal-choices">${choices.map((c) => html`<button class="primary" onClick=${() => open(c.agent)}>${c.label}</button>`)}</div>
         </div>`}
+    ${current && !current.exited && running && html`<${TerminalComposer} session=${current} notify=${notify} />`}
   </div>`;
+}
+
+function TerminalComposer({ session, notify }) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const send = async () => {
+    if (!text.trim() || sending) return;
+    setSending(true);
+    try { await call("WriteTerminal", session.id, text + "\r"); setText(""); }
+    catch (e) { notify(e.message, true); }
+    finally { setSending(false); }
+  };
+  return html`<form class="terminal-composer" onSubmit=${(e) => { e.preventDefault(); send(); }}>
+    <label class="sr-only" for="terminal-message">${session.agent ? "输入任务或回复" : "输入 Shell 命令"}</label>
+    <textarea id="terminal-message" rows="1" value=${text} placeholder=${session.agent ? "输入任务或回复…" : "输入 Shell 命令…"} onInput=${(e) => setText(e.target.value)}
+      onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
+    <button type="submit" disabled=${!text.trim() || sending}>发送 ↵</button>
+  </form>`;
 }

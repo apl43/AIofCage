@@ -32,7 +32,10 @@ function decode(base64) {
 function wire() {
   if (wired) return;
   wired = true;
-  window.runtime?.EventsOn?.("terminal:data", ({ id, data }) => sessions.get(id)?.term.write(decode(data)));
+  window.runtime?.EventsOn?.("terminal:data", ({ id, data }) => {
+    const s = sessions.get(id);
+    if (s) s.term.write(decode(data), () => { s.term.refresh(0, s.term.rows - 1); });
+  });
   window.runtime?.EventsOn?.("terminal:exit", ({ id, code }) => {
     const s = sessions.get(id);
     if (!s) return;
@@ -55,7 +58,7 @@ export async function openTerminal(sandbox, agent) {
   const id = newID();
   const term = new Terminal({
     fontFamily: '"SF Mono", Menlo, ui-monospace, monospace', fontSize: 13, lineHeight: 1.15,
-    cursorBlink: true, scrollback: 5000, theme: THEME, allowProposedApi: false,
+    screenReaderMode: true, cursorBlink: true, scrollback: 5000, theme: THEME, allowProposedApi: false,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
