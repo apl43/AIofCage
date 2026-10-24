@@ -16,8 +16,10 @@ RUN npm install --global --no-fund --no-audit --ignore-scripts "@modelcontextpro
     && npm cache clean --force
 {{end}}COPY aiofcage-init.py aiofcage-run /opt/aiofcage/
 COPY bashrc /home/agent/.bashrc
+# Agent 常直接调用 python（Codex 实测会先试 python 再退回 python3），所以补一个 python 链接。
 RUN chmod 0755 /opt/aiofcage/aiofcage-init.py /opt/aiofcage/aiofcage-run \
     && ln -s /opt/aiofcage/aiofcage-run /usr/local/bin/aiofcage-run \
+    && ln -s /usr/bin/python3 /usr/local/bin/python \
     && chown -R 1000:1000 /home/agent
 ENV HOME=/home/agent CODEX_HOME=/home/agent/.codex \
     HTTP_PROXY=http://gatekeeper:8888 HTTPS_PROXY=http://gatekeeper:8888 \
