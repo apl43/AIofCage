@@ -45,7 +45,8 @@ function App() {
   }, []);
 
   const content = {
-    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} environment=${overview?.environment} />`,
+    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} overview=${overview}
+      reload=${reload} notify=${notify} onAddProvider=${() => setPage("providers")} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} reload=${reload} notify=${notify} />`,
     mcp: html`<${ComingSoon} title="MCP 服务" text="GitHub、filesystem 等 MCP 的免密钥接入即将上线。" />`,
     logs: html`<${ComingSoon} title="请求日志" text="各沙箱门卫的实时请求、拦截与用量即将在这里汇总。" />`,

@@ -111,3 +111,48 @@ input, select { width: 100%; padding: 9px 12px; border: 1px solid #dbe3dd; borde
   main { margin-left: 180px; padding: 26px; }
   .table .row { grid-template-columns: 1fr 1fr; }
 }
+
+/* 沙箱列表（参考 Docker Desktop） */
+.sandbox-list { display: grid; gap: 12px; }
+.sandbox-row { display: grid; grid-template-columns: minmax(220px, 1.3fr) minmax(220px, 1.2fr) 150px auto; gap: 18px; align-items: center; padding: 16px 20px; }
+.sandbox-main { min-width: 0; }
+.sandbox-title { display: flex; align-items: center; gap: 9px; }
+.sandbox-title h3 { font-size: 15px; }
+.status-dot { width: 9px; height: 9px; border-radius: 50%; background: #c2cbc5; flex-shrink: 0; }
+.status-dot.ok { background: #4cae73; box-shadow: 0 0 0 3px #4cae7322; }
+.status-dot.warn { background: #d29a42; }
+.link { border: 0; background: transparent; padding: 2px 0; color: var(--faint); text-align: left; cursor: pointer; }
+.link:hover:enabled { background: transparent; color: var(--brand); text-decoration: underline; }
+.progress { font-size: 12px; color: var(--warn); margin-top: 4px; }
+.bindings { display: grid; gap: 6px; }
+.binding-select { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 8px; margin: 0; font-size: 12px; color: var(--muted); }
+.binding-select select { padding: 5px 8px; font-size: 12px; }
+.usage { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
+.usage strong { color: var(--ink); font-weight: 600; }
+.row-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.row-actions button { padding: 6px 12px; font-size: 13px; }
+.terminal-picker { display: flex; }
+.terminal-picker select { width: auto; padding: 6px 8px; font-size: 13px; border-radius: 8px 0 0 8px; border-right: 0; }
+.terminal-picker button { border-radius: 0 8px 8px 0; }
+.danger-solid { background: var(--bad); color: #fff; border-color: var(--bad); }
+.danger-solid:hover:enabled { background: #8e4234; }
+
+.dialog.wide { width: min(640px, 100%); }
+.dialog p { font-size: 13px; }
+.choice-group { display: flex; gap: 22px; }
+.choice-group label.check { margin: 0; }
+.input-row { display: flex; gap: 8px; margin-top: 10px; }
+.input-row input { min-width: 0; }
+.input-row button { flex-shrink: 0; }
+.agent-pick { display: grid; gap: 8px; }
+.agent-line { display: grid; grid-template-columns: 150px 1fr; gap: 10px; align-items: center; }
+.agent-line label.check { margin: 0; }
+details { margin-top: 18px; }
+summary { cursor: pointer; font-size: 13px; color: #637369; }
+input[type="radio"], input[type="checkbox"] { width: auto; }
+
+@media (max-width: 1100px) {
+  .sandbox-row { grid-template-columns: 1fr 1fr; }
+  .row-actions { justify-content: flex-start; }
+}
+.sandbox-main .link { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

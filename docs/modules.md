@@ -22,7 +22,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 
 | 模块 | 已有内容 | 下一步及限制 |
 |---|---|---|
-| `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱列表（只读）；目录选择 | 沙箱创建与启停（S5）；`existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
+| `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱创建（含项目导入）、启停、终端、切换供应商、删除；进度事件 | 实时请求面板与用量汇总（S6）；`existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
 | `session` | Agent 枚举（codex / claude-code / dsh） | 原“会话草稿”已由 `sandbox` 取代 |
 | `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量 | 桌面应用尚未接入（S5）；永不回退宿主执行 |
 | `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
@@ -50,7 +50,17 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `DeleteProvider(id)` | 仍有沙箱在用时拒绝；同时删除 AIofCage 保存的钥匙串条目 |
 | `TestProvider(id)` | 由桌面进程直连供应商的模型列表接口，返回是否可达、密钥是否有效与耗时 |
 | `ListSandboxes()` | 沙箱、实际容器状态、Agent→供应商、累计用量 |
+| `CreateSandbox(request)` | 名称、项目（`use` 工作区内已有文件夹 / `copy` 复制进工作区 / `new` 新建空文件夹）、Agent→供应商、可选的请求数与 token 上限 |
+| `StartSandbox(id)` / `StopSandbox(id)` | 启动过程通过 `sandbox:progress` 事件推送进度；首次启动会构建镜像 |
+| `BindProvider(id, agent, providerID)` | 切换某个 Agent 的供应商；运行中立即下发，Agent 下次启动生效 |
+| `OpenTerminal(id, agent)` | 在“终端”里以 Agent 用户进入项目目录，运行该 Agent（`agent` 为空时开 Shell）；第一次会请求“自动化”权限 |
+| `OpenProjectFolder(id)` | 在访达中打开项目文件夹 |
+| `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
 | `SelectProject()` | 系统目录选择框 |
+
+复制项目时只复制普通文件、目录和符号链接本身（不跟随链接），超过 2 GB 或 20 万个文件会拒绝；拒绝复制家目录、根目录和工作区本身。
+
+真实环境的端到端测试：`AIOFCAGE_E2E=1 go test -run TestEndToEnd ./internal/service/`（需要专用虚拟机和钥匙串中的 `sbx-builderday-key`），会创建、启动、进入、切换供应商、停止并删除一个临时沙箱。
 
 界面自测：`frontend/src` 是静态文件，可以用任意静态服务器打开，并在加载 `main.js` 前定义假的 `window.go.service.App`，用无头浏览器截图检查各页面；地址里的 `#providers` 等锚点会直接打开对应页面。
 
