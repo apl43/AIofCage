@@ -1,6 +1,7 @@
 // 供应商页：参考 CC Switch，按 Agent 分组管理模型供应商；密钥只写入钥匙串，界面从不读取。
 import { useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, PROTOCOLS, COMPATIBLE, AUTHS, formatTokens, ConfirmDialog, Icon, agentIcon, PageTitle } from "./core.js";
+import { PricingLookup } from "./pricing.js";
 
 export function ProvidersPage({ providers, presets, summary, reload, notify }) {
   const [agent, setAgent] = useState("codex");
@@ -110,7 +111,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
   const [preset, setPreset] = useState(editing ? presets.find((p) => p.id === initial.preset) ?? null : null);
   const [form, setForm] = useState(() =>
     editing
-      ? { ...initial, api_key: "", use_existing: false, price_enabled: Boolean(initial.pricing), price_currency: initial.pricing?.currency || "CNY", price_input: initial.pricing?.input ?? "", price_output: initial.pricing?.output ?? "", price_cache_read: initial.pricing?.cache_read ?? "", price_cache_write: initial.pricing?.cache_write ?? "" }
+      ? { ...initial, api_key: "", use_existing: false, price_enabled: Boolean(initial.pricing), price_currency: initial.pricing?.currency || "CNY", price_input: initial.pricing?.input ?? "", price_output: initial.pricing?.output ?? "", price_cache_read: initial.pricing?.cache_read ?? "", price_cache_write: initial.pricing?.cache_write ?? "", price_source: initial.pricing?.source || "", price_as_of: initial.pricing?.as_of || "" }
       : null
   );
   const [error, setError] = useState("");
@@ -122,7 +123,10 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
       auth: p.auth, preset: p.id, api_key: "", use_existing: Boolean(p.existing_key_ref),
     });
   };
-  const set = (key) => (event) => setForm({ ...form, [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value });
+  const set = (key) => (event) => setForm({ ...form,
+    ...(key.startsWith("price_") ? { price_source: "", price_as_of: "" } : {}),
+    ...(key === "model" ? { price_enabled: false, price_source: "", price_as_of: "" } : {}),
+    [key]: event.target.type === "checkbox" ? event.target.checked : event.target.value });
   const submit = async (event) => {
     event.preventDefault();
     setSaving(true);
@@ -133,7 +137,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
         model: form.model, auth: form.agent === "dsh" ? (form.protocol === "anthropic" ? "x-api-key" : "bearer") : form.auth, preset: form.preset ?? "",
         api_key: form.use_existing ? "" : form.api_key,
         image_input: form.agent === "dsh" && Boolean(form.image_input),
-        pricing: form.price_enabled ? { currency: form.price_currency || "CNY", input: Number(form.price_input), output: Number(form.price_output), cache_read: Number(form.price_cache_read), cache_write: Number(form.price_cache_write) } : null,
+        pricing: form.price_enabled ? { currency: form.price_currency || "CNY", input: Number(form.price_input), output: Number(form.price_output), cache_read: Number(form.price_cache_read), cache_write: Number(form.price_cache_write), source: form.price_source || "", as_of: form.price_as_of || "" } : null,
         existing_key_ref: form.use_existing && preset?.existing_key_ref ? preset.existing_key_ref : "",
       };
       const saved = await call("SaveProvider", request);
@@ -194,10 +198,12 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
                   value=${form.api_key} onInput=${set("api_key")} />
                 <p class="caption">密钥保存在 macOS 钥匙串。更新已使用的密钥前，请先停止使用它的沙箱。</p>`}
               <details class="advanced" open=${Boolean(form.price_enabled)}><summary>费用估算</summary>
+                <${PricingLookup} model=${form.model} onApply=${(price) => setForm({ ...form, price_enabled: true, price_currency: price.currency, price_input: price.input, price_output: price.output, price_cache_read: price.cache_read, price_cache_write: price.cache_write, price_source: price.source, price_as_of: price.as_of })} />
                 <label class="check"><input type="checkbox" checked=${Boolean(form.price_enabled)} onChange=${set("price_enabled")} />填写模型单价</label>
                 ${form.price_enabled && html`<label for="p-currency">币种</label><select id="p-currency" value=${form.price_currency || "CNY"} onChange=${set("price_currency")}><option value="CNY">CNY · 人民币</option><option value="USD">USD · 美元</option></select>
                   <div class="form-row">${[{id:"input",label:"普通输入"},{id:"output",label:"输出"},{id:"cache_read",label:"缓存读取"},{id:"cache_write",label:"缓存写入"}].map((f) => html`<div><label for=${`price-${f.id}`}>${f.label} / 百万 token</label><input id=${`price-${f.id}`} type="number" required min="0" max="1000000" step="any" value=${form[`price_${f.id}`] ?? ""} onInput=${set(`price_${f.id}`)} /></div>`)}</div>
                   <p class="caption">按照当前模型的供应商报价填写。零表示免费；历史请求保留当时单价，运行中沙箱需重启应用新价格。</p>`}
+                ${form.price_source && html`<p class="caption mono">${form.price_source} · ${form.price_as_of}</p>`}
               </details>
               ${error && html`<p class="form-error" role="alert">${error}</p>`}
               <div class="dialog-actions">

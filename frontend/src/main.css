@@ -190,6 +190,12 @@ main:focus { outline: none; }
 .preset { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: start; padding: 16px; border-radius: 12px; }
 .preset strong { font-size: var(--text-body); }
 .preset span, .preset small { color: var(--muted); font-size: var(--text-sm); }
+.pricing-lookup { margin-top: 16px; }
+.pricing-lookup > p { margin-top: 10px; }
+.pricing-candidates { max-height: 240px; overflow-y: auto; }
+.pricing-candidate { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pricing-candidate span, .pricing-candidate small { display: block; color: var(--muted); font-size: var(--text-sm); }
+.pricing-candidate button { flex-shrink: 0; }
 label { display: block; font-size: var(--text-sm); margin: 18px 0 7px; color: var(--muted); }
 label.check { display: flex; align-items: center; gap: 9px; min-height: 28px; font-size: var(--text-body); color: var(--ink); }
 input, select { width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; border: 1px solid #ced9d6; border-radius: 9px; background: #fff; color: var(--ink); }
