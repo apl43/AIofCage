@@ -84,6 +84,7 @@ function ProviderCard({ provider, usage, onEdit, reload, notify }) {
       <p class="mono">${provider.base_url}</p>
       <dl class="facts">
         <div><dt>模型</dt><dd class="mono">${provider.model}</dd></div>
+        ${provider.agent === "dsh" && html`<div><dt>输入</dt><dd>${provider.image_input ? "文本、图片" : "文本"}</dd></div>`}
         <div><dt>协议</dt><dd>${PROTOCOLS[provider.protocol] ?? provider.protocol}</dd></div>
         <div><dt>使用中</dt><dd>${provider.used_by.length ? provider.used_by.join("、") : "暂无沙箱"}</dd></div>
         <div><dt>累计用量</dt><dd title="包括已删除沙箱的用量；只统计经过门卫的模型请求">${usage
@@ -134,6 +135,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
         id: form.id ?? "", name: form.name, agent: form.agent, protocol: form.protocol, base_url: form.base_url,
         model: form.model, auth: form.agent === "dsh" ? (form.protocol === "anthropic" ? "x-api-key" : "bearer") : form.auth, preset: form.preset ?? "",
         api_key: form.use_existing ? "" : form.api_key,
+        image_input: form.agent === "dsh" && Boolean(form.image_input),
         pricing: form.price_enabled ? { currency: form.price_currency || "CNY", input: Number(form.price_input), output: Number(form.price_output), cache_read: Number(form.price_cache_read), cache_write: Number(form.price_cache_write) } : null,
         existing_key_ref: form.use_existing && preset?.existing_key_ref ? preset.existing_key_ref : "",
       };
@@ -171,6 +173,8 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
               <input id="p-url" required class="mono" placeholder="https://" value=${form.base_url} onInput=${set("base_url")} />
               <label for="p-model">模型</label>
               <input id="p-model" required class="mono" value=${form.model} onInput=${set("model")} />
+              ${form.agent === "dsh" && html`<label class="check"><input type="checkbox" checked=${Boolean(form.image_input)} onChange=${set("image_input")} />模型支持图片输入</label>
+                <p class="caption">请按模型的实际能力选择。运行中的沙箱重启后生效。</p>`}
               <details class="advanced" open=${editing || !preset || preset.id?.startsWith("custom")}>
                 <summary>高级设置（协议、密钥请求头）</summary>
                 <p class="caption">选了预设一般不用改。</p>

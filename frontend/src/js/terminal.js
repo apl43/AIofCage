@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-fit";
 import { html, call, agentName } from "./core.js";
+import { addImages, createDraft, disposeDraft } from "./terminal-draft.js";
 
 const sessions = new Map(); // id → { id, sandboxId, agent, title, term, fit, element, exited, code }
 const listeners = new Set();
@@ -11,6 +12,57 @@ let wired = false;
 let holder = null;
 
 const notifyChange = () => listeners.forEach((fn) => fn());
+export const updateTerminalDraft = notifyChange;
+
+export function addTerminalImages(session, files) {
+  if (session.draft.busy || session.draft.reading || session.exited) return;
+  try {
+    if (!session.agent) throw new Error("请切换到智能体终端后添加图片");
+    addImages(session.draft, files);
+    document.getElementById(`terminal-message-${session.id}`)?.focus();
+  } catch (error) { session.draft.error = error.message; }
+  notifyChange();
+}
+
+export async function pasteTerminalImage(session) {
+  const draft = session.draft;
+  if (draft.busy || draft.reading || session.exited) return;
+  if (!session.agent) { draft.error = "请切换到智能体终端后添加图片"; notifyChange(); return; }
+  draft.reading = true;
+  draft.error = "";
+  notifyChange();
+  try {
+    const image = await call("ReadClipboardImage");
+    if (draft.disposed) return;
+    if (!image) throw new Error("剪贴板中没有图片，请先复制图片后再粘贴");
+    addImages(draft, [new File([decode(image.data)], image.name, { type: image.type })]);
+    document.getElementById(`terminal-message-${session.id}`)?.focus();
+  } catch (error) { draft.error = error.message; }
+  finally { draft.reading = false; if (!draft.disposed) notifyChange(); }
+}
+
+export function handleTerminalPaste(session, event) {
+  if (!session) return;
+  const data = event.clipboardData;
+  if (!data) return;
+  const files = Array.from(data.files ?? []);
+  // 纯文字保留原生粘贴行为；图片在捕获阶段拦截，避免漏入 xterm 或命令行。
+  if (!files.length && data.getData("text/plain")) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (files.length && files.every((file) => /^(image\/(png|jpeg|gif|webp))$/.test(file.type))) addTerminalImages(session, files);
+  else if (files.length && files.some((file) => !file.type.startsWith("image/"))) addTerminalImages(session, files);
+  else pasteTerminalImage(session);
+}
+
+export function handleTerminalImageKey(session, event) {
+  // macOS 上兼容 Claude Code 的 Ctrl+V 图片快捷键；普通文本仍使用 Command+V。
+  if (session?.agent && navigator.platform.includes("Mac") && event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "v") {
+    event.preventDefault();
+    event.stopPropagation();
+    pasteTerminalImage(session);
+  }
+}
 
 // 终端在不显示时停放在屏幕外的容器里（不能 display:none，否则 xterm 无法测量字号）。
 function parking() {
@@ -65,7 +117,7 @@ export async function openTerminal(sandbox, agent) {
   const element = document.createElement("div");
   element.className = "terminal-host";
   parking().appendChild(element);
-  const session = { id, sandboxId: sandbox.id, agent, title: agent ? agentName(agent) : "Shell", term, fit, element, opened: false, exited: false };
+  const session = { id, sandboxId: sandbox.id, agent, title: agent ? agentName(agent) : "Shell", term, fit, element, opened: false, exited: false, draft: createDraft() };
   sessions.set(id, session);
   term.onData((data) => { if (!session.exited) call("WriteTerminal", id, data).catch(() => {}); });
   term.onResize(({ cols, rows }) => { if (!session.exited) call("ResizeTerminal", id, cols, rows).catch(() => {}); });
@@ -88,6 +140,7 @@ export function closeTerminal(id) {
   const s = sessions.get(id);
   if (!s) return;
   if (!s.exited) call("CloseTerminal", id).catch(() => {});
+  disposeDraft(s.draft);
   s.term.dispose();
   s.element.remove();
   sessions.delete(id);

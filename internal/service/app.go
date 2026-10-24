@@ -155,15 +155,16 @@ func (a *App) view(p provider.Provider, sandboxes []sandbox.Sandbox) ProviderVie
 }
 
 type SaveProviderRequest struct {
-	Pricing  *provider.Pricing `json:"pricing"`
-	ID       string            `json:"id"`
-	Name     string            `json:"name"`
-	Agent    session.Agent     `json:"agent"`
-	Protocol provider.Protocol `json:"protocol"`
-	BaseURL  string            `json:"base_url"`
-	Model    string            `json:"model"`
-	Auth     provider.Auth     `json:"auth"`
-	Preset   string            `json:"preset"`
+	Pricing    *provider.Pricing `json:"pricing"`
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Agent      session.Agent     `json:"agent"`
+	Protocol   provider.Protocol `json:"protocol"`
+	BaseURL    string            `json:"base_url"`
+	Model      string            `json:"model"`
+	ImageInput bool              `json:"image_input"`
+	Auth       provider.Auth     `json:"auth"`
+	Preset     string            `json:"preset"`
 	// APIKey is write-only: it goes straight to the Keychain and is never returned.
 	APIKey string `json:"api_key"`
 	// ExistingKeyRef reuses a Keychain item. Only AIofCage's own items and items named by a
@@ -204,6 +205,7 @@ func (a *App) SaveProvider(request SaveProviderRequest) (ProviderView, error) {
 	}
 	p.Name, p.Agent, p.Protocol, p.BaseURL, p.Model, p.Auth, p.Preset =
 		request.Name, request.Agent, request.Protocol, request.BaseURL, request.Model, request.Auth, request.Preset
+	p.ImageInput = request.Agent == session.DSH && request.ImageInput
 	if request.Pricing != nil {
 		price := *request.Pricing
 		if p.Pricing != nil {
@@ -454,7 +456,7 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 				}
 				if p, ok := s.AppliedProviders[b.ProviderID]; ok {
 					for _, current := range providers {
-						if current.ID == p.ID && (current.BaseURL != p.BaseURL || current.Model != p.Model || current.Protocol != p.Protocol || current.Auth != p.Auth || current.KeyRef != p.KeyRef || !samePricing(current.Pricing, p.Pricing)) {
+						if current.ID == p.ID && (current.BaseURL != p.BaseURL || current.Model != p.Model || current.Protocol != p.Protocol || current.Auth != p.Auth || current.KeyRef != p.KeyRef || current.ImageInput != p.ImageInput || !samePricing(current.Pricing, p.Pricing)) {
 							view.ConfigPending = true
 						}
 					}

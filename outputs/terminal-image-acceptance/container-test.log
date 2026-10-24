@@ -1,0 +1,8 @@
+=== RUN   TestTerminalLifecycleEndToEnd
+    terminal_e2e_test.go:82: PTY 输入输出、中文、缩放、退出码、子进程清理及退出竞态通过；未调用模型
+--- PASS: TestTerminalLifecycleEndToEnd (5.44s)
+=== RUN   TestTerminalImagesEndToEnd
+    terminal_images_e2e_test.go:122: 真实容器图片字节、权限、项目隔离、失败清理及符号链接防护通过；未调用模型
+--- PASS: TestTerminalImagesEndToEnd (2.11s)
+PASS
+ok  	github.com/shaoxier/AIofCage/internal/service	10.446s
