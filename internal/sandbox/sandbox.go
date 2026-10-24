@@ -54,7 +54,11 @@ type Sandbox struct {
 	// are not secrets, but they are unique per sandbox and provider.
 	Placeholders map[string]string `json:"placeholders"`
 	Limits       Limits            `json:"limits"`
-	Usage        Usage             `json:"usage"`
+	// MCP lists enabled remote MCP services; FilesystemMCP enables the built-in, secret-free
+	// filesystem server scoped to the project folder.
+	MCP           []string `json:"mcp,omitempty"`
+	FilesystemMCP bool     `json:"filesystem_mcp,omitempty"`
+	Usage         Usage    `json:"usage"`
 	// ProviderUsage is cumulative per provider ID; UsageCursor tracks the live gatekeeper run.
 	ProviderUsage map[string]ProviderUsage `json:"provider_usage,omitempty"`
 	UsageCursor   *UsageCursor             `json:"usage_cursor,omitempty"`

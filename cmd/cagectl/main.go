@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/audit"
+	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
@@ -35,11 +36,17 @@ const usage = `用法：
   cagectl provider ls
   cagectl provider rm ID
 
+  cagectl mcp add --id ID --name 名称 --url URL --token-stdin   保存远程 MCP 服务（令牌进钥匙串）
+  cagectl mcp ls
+  cagectl mcp rm ID
+
   cagectl sandbox create --name 名称 --project 路径 --bind codex=供应商ID [--bind ...] [--max-requests N] [--max-tokens N]
+                         [--mcp 服务ID ...] [--filesystem-mcp]
   cagectl sandbox ls
   cagectl sandbox start|stop 名称
   cagectl sandbox rm 名称 [--keep-home]
   cagectl sandbox bind 名称 agent=供应商ID
+  cagectl sandbox mcp 名称 [--filesystem] [服务ID ...]
   cagectl sandbox exec 名称 [-t] -- 命令...
   cagectl sandbox usage 名称
   cagectl sandbox events 名称
@@ -106,6 +113,31 @@ func run(args []string) error {
 			return errors.New("用法：cagectl provider rm ID")
 		}
 		return st.DeleteProvider(args[2])
+	case "mcp add":
+		return mcpAdd(ctx, st, keychain, args[2:])
+	case "mcp ls":
+		items, err := st.MCPServices()
+		if err != nil {
+			return err
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		fmt.Fprintln(w, "ID\t名称\t地址\t钥匙串条目")
+		for _, s := range items {
+			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", s.ID, s.Name, s.URL, s.KeyRef)
+		}
+		return w.Flush()
+	case "mcp rm":
+		if len(args) != 3 {
+			return errors.New("用法：cagectl mcp rm ID")
+		}
+		service, err := st.MCPService(args[2])
+		if err != nil {
+			return err
+		}
+		if err := st.DeleteMCPService(service.ID); err != nil {
+			return err
+		}
+		return keychain.Delete(ctx, service.KeyRef)
 	}
 	if args[0] != "sandbox" {
 		fmt.Fprint(os.Stderr, usage)
@@ -171,6 +203,17 @@ func run(args []string) error {
 			rest = rest[1:]
 		}
 		return manager.Exec(ctx, sbx.ID, tty, os.Stdin, os.Stdout, os.Stderr, rest...)
+	case "mcp":
+		filesystem := false
+		var ids []string
+		for _, arg := range args[3:] {
+			if arg == "--filesystem" {
+				filesystem = true
+			} else {
+				ids = append(ids, arg)
+			}
+		}
+		return manager.SetMCP(ctx, sbx.ID, ids, filesystem)
 	case "usage":
 		usage, err := manager.Usage(ctx, sbx.ID)
 		if err != nil {
@@ -238,9 +281,13 @@ func sandboxCreate(ctx context.Context, manager *runtime.Manager, args []string)
 	flags.Var(&binds, "bind", "agent=供应商ID，可重复")
 	flags.Uint64Var(&request.Limits.MaxRequests, "max-requests", 0, "请求数上限（0 为不限）")
 	flags.Uint64Var(&request.Limits.MaxTokens, "max-tokens", 0, "token 上限（0 为不限）")
+	var mcpIDs multiFlag
+	flags.Var(&mcpIDs, "mcp", "启用的远程 MCP 服务 ID，可重复")
+	flags.BoolVar(&request.FilesystemMCP, "filesystem-mcp", false, "启用内置的 filesystem MCP（只开放项目目录）")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
+	request.MCP = mcpIDs
 	for _, value := range binds {
 		agent, providerID, _ := strings.Cut(value, "=")
 		request.Bindings = append(request.Bindings, sandbox.Binding{Agent: session.Agent(agent), ProviderID: providerID})
@@ -270,4 +317,34 @@ func tokens(event audit.Event) string {
 		return ""
 	}
 	return fmt.Sprintf("tokens=%d/%d", event.InputTokens, event.OutputTokens)
+}
+
+func mcpAdd(ctx context.Context, st *store.Store, keychain *vault.Keychain, args []string) error {
+	flags := flag.NewFlagSet("mcp add", flag.ContinueOnError)
+	var service mcp.Service
+	flags.StringVar(&service.ID, "id", "", "服务 ID（也是 Agent 配置里的服务名）")
+	flags.StringVar(&service.Name, "name", "", "显示名称")
+	flags.StringVar(&service.URL, "url", "", "streamable HTTP 地址")
+	tokenStdin := flags.Bool("token-stdin", false, "从标准输入读取令牌并保存到钥匙串")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	service.KeyRef, service.CreatedAt = mcp.KeyRefFor(service.ID), time.Now().UTC()
+	service.Normalize()
+	if err := service.Validate(); err != nil {
+		return err
+	}
+	if !*tokenStdin {
+		return errors.New("请用 --token-stdin 输入令牌")
+	}
+	fmt.Fprint(os.Stderr, "请输入访问令牌（不会显示，回车结束）：")
+	line, err := bufio.NewReader(io.LimitReader(os.Stdin, 8192)).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	fmt.Fprintln(os.Stderr)
+	if err := keychain.Put(ctx, service.KeyRef, []byte(strings.TrimSpace(line))); err != nil {
+		return err
+	}
+	return st.SaveMCPService(service)
 }

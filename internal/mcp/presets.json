@@ -1,0 +1,7 @@
+[
+  {"id": "github", "name": "GitHub（官方远程 MCP）", "url": "https://api.githubcopilot.com/mcp/",
+   "note": "使用 GitHub 个人访问令牌（PAT）；建议只授予只读权限",
+   "docs": "https://github.com/github/github-mcp-server"},
+  {"id": "custom", "name": "自定义 HTTP MCP（Bearer Token）", "url": "",
+   "note": "适用于用 Authorization: Bearer 认证的 streamable HTTP MCP 服务"}
+]

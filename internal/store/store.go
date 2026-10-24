@@ -11,6 +11,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
@@ -84,6 +85,61 @@ func (s *Store) SaveProvider(item provider.Provider) error {
 func (s *Store) DeleteProvider(id string) error {
 	return s.update("providers.json", func(raw *[]json.RawMessage) error {
 		var items []provider.Provider
+		if err := decodeAll(*raw, &items); err != nil {
+			return err
+		}
+		kept := items[:0]
+		for _, item := range items {
+			if item.ID != id {
+				kept = append(kept, item)
+			}
+		}
+		return encodeAll(kept, raw)
+	})
+}
+
+func (s *Store) MCPServices() ([]mcp.Service, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var items []mcp.Service
+	return items, s.load("mcp.json", &items)
+}
+
+func (s *Store) MCPService(id string) (mcp.Service, error) {
+	items, err := s.MCPServices()
+	if err != nil {
+		return mcp.Service{}, err
+	}
+	for _, item := range items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return mcp.Service{}, fmt.Errorf("MCP 服务 %s %w", id, ErrNotFound)
+}
+
+func (s *Store) SaveMCPService(item mcp.Service) error {
+	return s.update("mcp.json", func(raw *[]json.RawMessage) error {
+		var items []mcp.Service
+		if err := decodeAll(*raw, &items); err != nil {
+			return err
+		}
+		replaced := false
+		for i := range items {
+			if items[i].ID == item.ID {
+				items[i], replaced = item, true
+			}
+		}
+		if !replaced {
+			items = append(items, item)
+		}
+		return encodeAll(items, raw)
+	})
+}
+
+func (s *Store) DeleteMCPService(id string) error {
+	return s.update("mcp.json", func(raw *[]json.RawMessage) error {
+		var items []mcp.Service
 		if err := decodeAll(*raw, &items); err != nil {
 			return err
 		}

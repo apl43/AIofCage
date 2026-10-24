@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cp /etc/ssl/certs/ca-certificates.crt /opt/aiofcage/system-ca.crt \
     && usermod --home /home/agent --move-home --login agent node \
     && groupmod --new-name agent node
+# 内置的 filesystem MCP（无需任何密钥，只开放项目目录）。
+RUN npm install --global --no-fund --no-audit --ignore-scripts "@modelcontextprotocol/server-filesystem@2.0.0" \
+    && npm cache clean --force
 {{range .Agents}}RUN npm install --global --no-fund --no-audit{{if not .Scripts}} --ignore-scripts{{end}} "{{.Package}}@{{.Version}}" \
     && npm cache clean --force
 {{end}}COPY aiofcage-init.py aiofcage-run /opt/aiofcage/

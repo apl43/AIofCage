@@ -4,8 +4,9 @@ import { useEffect, useState, useCallback } from "preact/hooks";
 import { html, call } from "./js/core.js";
 import { ProvidersPage } from "./js/providers.js";
 import { SandboxesPage } from "./js/sandboxes.js";
-import { SettingsPage, ComingSoon } from "./js/settings.js";
+import { SettingsPage } from "./js/settings.js";
 import { LogsPage } from "./js/logs.js";
+import { MCPPage } from "./js/mcp.js";
 
 const PAGES = [
   { id: "sandboxes", title: "沙箱" },
@@ -25,6 +26,8 @@ function App() {
   const [events, setEvents] = useState([]);
   const [summary, setSummary] = useState({ sandboxes: [], providers: {} });
   const [logSandbox, setLogSandbox] = useState("");
+  const [services, setServices] = useState([]);
+  const [mcpPresets, setMcpPresets] = useState([]);
 
   const notify = useCallback((message, isError = false) => {
     setToast({ message, isError });
@@ -33,9 +36,10 @@ function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([call("ListProviders"), call("ListSandboxes")]);
+      const [p, s, m] = await Promise.all([call("ListProviders"), call("ListSandboxes"), call("ListMCPServices")]);
       setProviders(p);
       setSandboxes(s);
+      setServices(m);
     } catch (error) {
       notify(error.message, true);
     }
@@ -45,6 +49,7 @@ function App() {
 
   useEffect(() => {
     call("ListPresets").then(setPresets).catch((error) => notify(error.message, true));
+    call("ListMCPPresets").then(setMcpPresets).catch(() => {});
     reload();
     refreshSummary();
     call("RecentEvents", "").then(setEvents).catch(() => {});
@@ -73,11 +78,11 @@ function App() {
   }, []);
 
   const content = {
-    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} overview=${overview} summary=${summary}
+    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} overview=${overview} summary=${summary}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id) => { setLogSandbox(id); setPage("logs"); }} />`,
     providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
-    mcp: html`<${ComingSoon} title="MCP 服务" text="GitHub、filesystem 等 MCP 的免密钥接入即将上线。" />`,
+    mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
     logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
     settings: html`<${SettingsPage} overview=${overview} />`,

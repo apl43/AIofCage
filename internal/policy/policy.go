@@ -97,8 +97,16 @@ func ValidHost(host string, allowWildcard bool) bool {
 
 // ValidPath accepts the request paths the gatekeeper is willing to evaluate: absolute, already
 // clean, and without encoded or ambiguous characters.
+// A single trailing slash is allowed (e.g. MCP endpoints such as /mcp/).
 func ValidPath(value string) bool {
-	return strings.HasPrefix(value, "/") && path.Clean(value) == value && !strings.ContainsAny(value, "%?#\\")
+	trimmed := value
+	if len(value) > 1 {
+		trimmed = strings.TrimSuffix(value, "/")
+		if strings.HasSuffix(trimmed, "/") {
+			return false // "//" or a doubled trailing slash
+		}
+	}
+	return strings.HasPrefix(value, "/") && path.Clean(trimmed) == trimmed && !strings.ContainsAny(value, "%?#\\")
 }
 
 func (s *Snapshot) Validate() error {

@@ -1,12 +1,17 @@
 package runtime
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
+	"github.com/shaoxier/AIofCage/internal/store"
 )
 
 func TestAgentFilesContainOnlyPlaceholders(t *testing.T) {
@@ -17,7 +22,7 @@ func TestAgentFilesContainOnlyPlaceholders(t *testing.T) {
 	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "it's mine", ProjectPath: "/Users/u/CageWorkspace/p",
 		Bindings:     []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode, ProviderID: "ds"}, {Agent: session.DSH}},
 		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "ds": "cage-BBBBBBBBBBBBBBBBBBBB"}}
-	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex, "ds": claude})
+	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex, "ds": claude}, nil)
 	byPath := map[string]string{}
 	for _, f := range files {
 		byPath[f.Path] = f.Content
@@ -73,5 +78,69 @@ func TestParseSize(t *testing.T) {
 		if got := parseSize(value); got != want {
 			t.Errorf("%q: got %d want %d", value, got, want)
 		}
+	}
+}
+
+func TestMCPConfigUsesPlaceholdersOnly(t *testing.T) {
+	codex := provider.Provider{ID: "xapi", Name: "x", Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://xapi.qiniu.io/v1", Model: "m", Auth: provider.AuthBearer, KeyRef: "k"}
+	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
+	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "n", ProjectPath: "/Users/u/CageWorkspace/p", FilesystemMCP: true, MCP: []string{"github"},
+		Bindings:     []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode}},
+		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "mcp:github": "cage-GGGGGGGGGGGGGGGGGGGG"}}
+	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex}, map[string]mcp.Service{"github": github})
+	byPath := map[string]agentFile{}
+	for _, f := range files {
+		byPath[f.Path] = f
+	}
+	config := byPath[".codex/config.toml"].Content
+	for _, want := range []string{"[mcp_servers.github]", `url = "https://api.githubcopilot.com/mcp/"`,
+		`bearer_token_env_var = "AIOFCAGE_MCP_GITHUB_TOKEN"`, "[mcp_servers.filesystem]", `args = ["/Users/u/CageWorkspace/p"]`} {
+		if !strings.Contains(config, want) {
+			t.Errorf("codex config missing %q:\n%s", want, config)
+		}
+	}
+	if !strings.Contains(byPath[".aiofcage/env"].Content, "export AIOFCAGE_MCP_GITHUB_TOKEN='cage-GGGGGGGGGGGGGGGGGGGG'") {
+		t.Error("env missing MCP placeholder")
+	}
+	claude := byPath[".claude.json"]
+	if !claude.MergeJSON || len(claude.ReplaceKeys) != 1 || !strings.Contains(claude.Content, `"Authorization":"Bearer cage-GGGGGGGGGGGGGGGGGGGG"`) ||
+		!strings.Contains(claude.Content, `"command":"mcp-server-filesystem"`) {
+		t.Errorf("claude state: %+v", claude)
+	}
+}
+
+// SetMCP once deadlocked: it read the store inside the store's own update callback.
+func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{store: st, docker: runner{path: "/usr/bin/false"}, gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}}
+	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
+	if err := st.SaveMCPService(github); err != nil {
+		t.Fatal(err)
+	}
+	sbx := sandbox.Sandbox{ID: "sbx-test0001", Name: "t", ProjectPath: "/Users/u/CageWorkspace/p",
+		Bindings: []sandbox.Binding{{Agent: session.Codex}}, Placeholders: map[string]string{}}
+	if err := st.SaveSandbox(sbx); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.SetMCP(context.Background(), sbx.ID, []string{"github"}, true) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SetMCP deadlocked")
+	}
+	saved, _ := st.Sandbox(sbx.ID)
+	if len(saved.MCP) != 1 || !saved.FilesystemMCP || !strings.HasPrefix(saved.Placeholders["mcp:github"], "cage-") {
+		t.Fatalf("%+v", saved)
+	}
+	if err := m.SetMCP(context.Background(), sbx.ID, []string{"missing"}, false); err == nil {
+		t.Fatal("unknown services must be rejected")
 	}
 }

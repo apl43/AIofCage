@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
@@ -17,8 +18,10 @@ type agentFile struct {
 	Path    string `json:"path"`
 	Mode    int    `json:"mode"`
 	Content string `json:"content"`
-	// MergeJSON merges Content into an existing JSON file instead of replacing it.
-	MergeJSON bool `json:"merge_json,omitempty"`
+	// MergeJSON merges Content into an existing JSON file instead of replacing it; ReplaceKeys
+	// are top-level keys AIofCage owns entirely and replaces rather than merges.
+	MergeJSON   bool     `json:"merge_json,omitempty"`
+	ReplaceKeys []string `json:"replace_keys,omitempty"`
 }
 
 // tomlString renders a TOML basic string. JSON string escaping is a subset of TOML's.
@@ -33,19 +36,29 @@ func shellQuote(value string) string {
 
 // agentFiles renders configuration for every installed agent. An agent without a provider gets
 // no model configuration and will report that it is not configured.
-func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider) []agentFile {
+func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider, services map[string]mcp.Service) []agentFile {
 	env := map[string]string{"AIOFCAGE_SANDBOX": sbx.Name}
+	for _, id := range sbx.MCP {
+		if _, ok := services[id]; ok {
+			env[mcp.EnvVar(id)] = sbx.Placeholders[mcp.PlaceholderKey(id)]
+		}
+	}
 	var files []agentFile
 	for _, agent := range sbx.Agents() {
-		p, ok := providers[sbx.ProviderFor(agent)]
-		if !ok {
+		p, hasProvider := providers[sbx.ProviderFor(agent)]
+		if agent == session.ClaudeCode {
+			// Written even without a provider: onboarding, project trust and MCP servers.
+			files = append(files, agentFile{Path: ".claude.json", Mode: 0o600, MergeJSON: true,
+				ReplaceKeys: []string{"mcpServers"}, Content: claudeState(sbx, p, hasProvider, services)})
+		}
+		if !hasProvider {
 			continue
 		}
 		placeholder := sbx.Placeholders[p.ID]
 		switch agent {
 		case session.Codex:
 			env["AIOFCAGE_CODEX_API_KEY"] = placeholder
-			files = append(files, agentFile{Path: ".codex/config.toml", Mode: 0o600, Content: codexConfig(sbx, p)})
+			files = append(files, agentFile{Path: ".codex/config.toml", Mode: 0o600, Content: codexConfig(sbx, p, services)})
 		case session.ClaudeCode:
 			env["ANTHROPIC_BASE_URL"] = p.BaseURL
 			if p.Auth == provider.AuthXAPIKey {
@@ -59,7 +72,6 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider) []a
 			env["DISABLE_ERROR_REPORTING"] = "1"
 			env["DISABLE_AUTOUPDATER"] = "1"
 			env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
-			files = append(files, agentFile{Path: ".claude.json", Mode: 0o600, MergeJSON: true, Content: claudeState(sbx, p, placeholder)})
 		case session.DSH:
 			// dsh's deepseek-official route reads the key from DEEPSEEK_API_KEY and sends x-api-key.
 			env["DEEPSEEK_API_KEY"] = placeholder
@@ -79,7 +91,7 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider) []a
 	return append(files, agentFile{Path: ".aiofcage/env", Mode: 0o600, Content: script.String()})
 }
 
-func codexConfig(sbx sandbox.Sandbox, p provider.Provider) string {
+func codexConfig(sbx sandbox.Sandbox, p provider.Provider, services map[string]mcp.Service) string {
 	var b strings.Builder
 	b.WriteString("# 由 AIofCage 生成，切换供应商时会被覆盖。\n")
 	b.WriteString("# 沙箱本身就是隔离边界，所以 Codex 内部不再叠加自己的沙箱。\n")
@@ -94,20 +106,42 @@ func codexConfig(sbx sandbox.Sandbox, p provider.Provider) string {
 	b.WriteString("wire_api = \"responses\"\n\n")
 	fmt.Fprintf(&b, "[projects.%s]\n", tomlString(sbx.ProjectPath))
 	b.WriteString("trust_level = \"trusted\"\n")
+	for _, id := range sbx.MCP {
+		service, ok := services[id]
+		if !ok {
+			continue
+		}
+		// The token comes from the environment and is only a placeholder; the gatekeeper injects it.
+		fmt.Fprintf(&b, "\n[mcp_servers.%s]\nurl = %s\nbearer_token_env_var = %s\n", id, tomlString(service.URL), tomlString(mcp.EnvVar(id)))
+	}
+	if sbx.FilesystemMCP {
+		fmt.Fprintf(&b, "\n[mcp_servers.filesystem]\ncommand = \"mcp-server-filesystem\"\nargs = [%s]\n", tomlString(sbx.ProjectPath))
+	}
 	return b.String()
 }
 
 // claudeState pre-answers Claude Code's first-run questions: onboarding, trusting the project
 // folder, and (for x-api-key providers) approving the API key, which it remembers by its last
 // 20 characters. Only these keys are merged; the rest of ~/.claude.json is left alone.
-func claudeState(sbx sandbox.Sandbox, p provider.Provider, placeholder string) string {
+func claudeState(sbx sandbox.Sandbox, p provider.Provider, hasProvider bool, services map[string]mcp.Service) string {
+	servers := map[string]any{}
+	for _, id := range sbx.MCP {
+		if service, ok := services[id]; ok {
+			servers[id] = map[string]any{"type": "http", "url": service.URL,
+				"headers": map[string]string{"Authorization": "Bearer " + sbx.Placeholders[mcp.PlaceholderKey(id)]}}
+		}
+	}
+	if sbx.FilesystemMCP {
+		servers["filesystem"] = map[string]any{"type": "stdio", "command": "mcp-server-filesystem", "args": []string{sbx.ProjectPath}}
+	}
 	state := map[string]any{
 		"hasCompletedOnboarding": true,
 		"projects": map[string]any{
 			sbx.ProjectPath: map[string]any{"hasTrustDialogAccepted": true, "hasCompletedProjectOnboarding": true},
 		},
+		"mcpServers": servers,
 	}
-	if p.Auth == provider.AuthXAPIKey && len(placeholder) >= 20 {
+	if placeholder := sbx.Placeholders[p.ID]; hasProvider && p.Auth == provider.AuthXAPIKey && len(placeholder) >= 20 {
 		state["customApiKeyResponses"] = map[string]any{"approved": []string{placeholder[len(placeholder)-20:]}, "rejected": []string{}}
 	}
 	data, _ := json.Marshal(state)

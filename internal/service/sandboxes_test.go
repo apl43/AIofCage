@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
 
 func TestPrepareProject(t *testing.T) {
@@ -90,5 +92,37 @@ func TestTerminalCommandQuoting(t *testing.T) {
 	}
 	if strings.TrimSuffix(string(echoed), "\n") != command {
 		t.Fatalf("AppleScript changed the command:\n%s\n%s", echoed, command)
+	}
+}
+
+func TestMCPServiceLifecycle(t *testing.T) {
+	app, secrets, st := newApp(t)
+	view, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Preset: "github", Token: "ghtoken-123"})
+	if err != nil || view.ID != "github" || !view.KeySaved || string(secrets["aiofcage-mcp-github"]) != "ghtoken-123" {
+		t.Fatalf("save: %+v %v", view, err)
+	}
+	second, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "Another GitHub", URL: "https://api.githubcopilot.com/mcp/", Preset: "github", Token: "t2"})
+	if err != nil || second.ID == "github" || !strings.HasPrefix(second.ID, "mcp-") {
+		t.Fatalf("second id: %+v %v", second, err)
+	}
+	if _, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "x", URL: "https://example.com/mcp"}); err == nil {
+		t.Fatal("new service without token accepted")
+	}
+	st.SaveSandbox(sandbox.Sandbox{ID: "sbx-1", Name: "demo", MCP: []string{"github"}})
+	if err := app.DeleteMCPService("github"); err == nil || !strings.Contains(err.Error(), "demo") {
+		t.Fatalf("in-use service deleted: %v", err)
+	}
+	st.DeleteSandbox("sbx-1")
+	if err := app.DeleteMCPService("github"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := secrets["aiofcage-mcp-github"]; ok {
+		t.Fatal("token not removed")
+	}
+	items, _ := app.ListMCPServices()
+	for _, item := range items {
+		if strings.Contains(string(mustJSON(t, item)), "t2") {
+			t.Fatal("view leaked the token")
+		}
 	}
 }

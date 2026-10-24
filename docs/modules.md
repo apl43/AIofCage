@@ -32,7 +32,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `policy` | 规则校验、规范化、deny 优先、默认拒绝；精确路径或 `/*` 前缀；deny 规则可用 `*.` 通配 | 只覆盖 HTTP 方法与路径，不是 MCP 工具权限 |
 | `vault` | 接口 + `Keychain` 实现：经 `/usr/bin/security` 读写登录钥匙串，写入时密钥走标准输入（不出现在进程列表），写后回读校验 | 不绑定到前端；读方法只供运行时下发给门卫 |
 | `audit` / `events` | 脱敏事件结构（含主机、方法、路径、状态、字节、token）；门卫 SSE；应用侧订阅、续传、JSONL 落盘、缺口事件 | 审计日志不做防篡改（hash 链在路线图） |
-| `mcp` | 服务绑定草案与网关接口 | 协议 SDK、工具/参数/资源授权及会话映射；绑定草案不是可执行权限 |
+| `mcp` | 远程 streamable HTTP MCP（Bearer 令牌）服务模型、预设、放行规则（服务地址的 GET/POST/DELETE）；令牌存钥匙串，沙箱里只有占位符，门卫注入 | 工具/参数级授权网关、OAuth、密码型连接器在路线图；dsh 暂不配置 MCP |
 | `oauth` | 宿主授权/续期/撤销接口，只有秘密引用 | PKCE、发现、注册、回调、串行刷新及 Keychain |
 | `connector` | 固定服务定义与运行接口 | 镜像摘要审查、私有网络和秘密交付；不运行传入的命令或镜像 |
 | `buildinfo` | 桌面与门卫共用的版本与 `skeleton` 阶段 | 发布时注入真实版本 |
@@ -60,6 +60,9 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `RecentEvents(id)` | 最近的门卫事件（`id` 为空表示全部沙箱，最多 300 条），附沙箱名称 |
 | `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量 |
 | `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
+| `ListMCPPresets()` / `ListMCPServices()` | MCP 预设与已保存的服务（不含令牌） |
+| `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌只写入钥匙串；在用时不能删除；测试发送 MCP `initialize` |
+| `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
 
 后台监视（`StartMonitor`，每 5 秒）：为每个运行中的沙箱订阅门卫 SSE（同一门卫运行内按 `Last-Event-ID` 续传，门卫重启后从头订阅），把事件追加写入 `~/Library/Application Support/AIofCage/audit/<沙箱ID>.jsonl`（0600），推送 `sandbox:event`；轮询门卫 `/usage` 并按“门卫运行 + 供应商”计算增量写回累计用量（应用重启也不会重复计数），推送 `sandbox:usage`；用一次 `docker stats` 采样所有运行中沙箱，推送 `sandbox:stats`。额度到 80% 与超额由门卫产生事件，界面弹出提醒。
 
@@ -106,6 +109,15 @@ make cagectl
 | dsh | `@deepseek-ai/dsh@0.2.1-rc.2` | `DEEPSEEK_API_KEY`、`DSH_TELEMETRY_DISABLED=1` | 目前只支持 DeepSeek 官方接口 `https://api.deepseek.com/anthropic`（x-api-key）；改地址需要修改 dsh 的 profile YAML，暂未支持；模型在 dsh 里选择 |
 
 镜像基于 Node 24（dsh 依赖 `import.meta.main`，Node 22.16 下会静默不执行）。`/tmp` 允许执行（dsh 的原生模块、编译器和测试会从 `/tmp` 运行程序）。多个供应商可以共用同一个接口地址（例如 Claude Code 和 dsh 都用 DeepSeek），门卫按请求里携带的占位符决定注入哪一把 key。
+
+## MCP 接入
+
+| 类型 | 做法 | 沙箱里看到的 |
+|---|---|---|
+| 远程 HTTP MCP（Bearer 令牌，例如 GitHub 官方 `https://api.githubcopilot.com/mcp/`） | 令牌存钥匙串 `aiofcage-mcp-<ID>`；启用后门卫为该服务地址放行 GET/POST/DELETE 并注入令牌 | Codex：`[mcp_servers.<ID>] url + bearer_token_env_var`；Claude Code：`~/.claude.json` 的 `mcpServers`（整体由 AIofCage 管理），请求头里只有占位符 |
+| 内置 filesystem | 镜像内置 `@modelcontextprotocol/server-filesystem@2.0.0`，参数只有项目目录 | 两个 Agent 都配置为 stdio 服务，无需密钥 |
+
+服务的 ID 同时是 Agent 配置里的服务名（GitHub 预设默认用 `github`）。界面里“测试连接”由桌面进程直接发送 MCP `initialize` 请求。
 
 ## 门卫本机开发
 
