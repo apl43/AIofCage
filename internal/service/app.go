@@ -38,6 +38,7 @@ type App struct {
 	monitor    *monitor
 	explain    explainCache
 	ops        operations
+	terms      terminals
 	usageMu    sync.Mutex
 	demos      demoLog
 }

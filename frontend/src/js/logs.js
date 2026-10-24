@@ -11,7 +11,7 @@ const FILTERS = [
   { id: "system", label: "系统" },
 ];
 
-export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandboxFilter, notify, initialFilter = "all" }) {
+export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandboxFilter, notify, initialFilter = "all", embedded }) {
   const [filter, setFilter] = useState(initialFilter);
   const [explain, setExplain] = useState(null);
   const providerName = (id) => providers.find((p) => p.id === id)?.name ?? id;
@@ -34,10 +34,10 @@ export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandb
         </div>
       </div>
       <div class="toolbar">
-        <select aria-label="沙箱" value=${sandboxFilter} onChange=${(e) => setSandboxFilter(e.target.value)}>
+        ${!embedded && html`<select aria-label="沙箱" value=${sandboxFilter} onChange=${(e) => setSandboxFilter(e.target.value)}>
           <option value="">全部沙箱</option>
           ${sandboxes.map((s) => html`<option value=${s.id}>${s.name}</option>`)}
-        </select>
+        </select>`}
         <div class="segmented" role="tablist">
           ${FILTERS.map((f) => html`<button role="tab" aria-selected=${f.id === filter} class=${f.id === filter ? "active" : ""}
             onClick=${() => setFilter(f.id)}>${f.label}${f.id === "deny" && denied ? html` <span class="count bad">${denied}</span>` : ""}</button>`)}

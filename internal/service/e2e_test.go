@@ -3,10 +3,12 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -77,6 +79,7 @@ func TestEndToEnd(t *testing.T) {
 	if len(key) > 0 && bytes.Contains(out, key) {
 		t.Fatal("real key visible inside the sandbox")
 	}
+	checkBuiltInTerminal(t, app, view.ID)
 	// Monitor: traffic inside the sandbox must show up as recorded events and usage.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -148,4 +151,86 @@ func countHost(events []EventView, host string) int {
 		}
 	}
 	return n
+}
+
+// checkBuiltInTerminal drives the in-app terminal the way xterm.js does: keystrokes in, base64
+// output events out, resize, and exit.
+func checkBuiltInTerminal(t *testing.T, app *App, sandboxID string) {
+	t.Helper()
+	var mu sync.Mutex
+	var output strings.Builder
+	exited := make(chan int, 1)
+	app.SetEmitter(func(event string, data any) {
+		switch event {
+		case "terminal:data":
+			payload := data.(map[string]string)
+			if payload["id"] == "t-e2etest01" {
+				decoded, _ := base64.StdEncoding.DecodeString(payload["data"])
+				mu.Lock()
+				output.Write(decoded)
+				mu.Unlock()
+			}
+		case "terminal:exit":
+			if payload := data.(map[string]any); payload["id"] == "t-e2etest01" {
+				exited <- payload["code"].(int)
+			}
+		}
+	})
+	defer app.SetEmitter(func(string, any) {})
+	waitFor := func(want string) {
+		t.Helper()
+		for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+			mu.Lock()
+			got := output.String()
+			mu.Unlock()
+			if strings.Contains(got, want) {
+				return
+			}
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		t.Fatalf("terminal never showed %q; output:\n%s", want, output.String())
+	}
+	if err := app.StartTerminal("t-e2etest01", sandboxID, "", 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.StartTerminal("t-e2etest01", sandboxID, "", 100, 30); err == nil {
+		t.Fatal("duplicate terminal IDs must be refused")
+	}
+	app.WriteTerminal("t-e2etest01", "stty size; echo \"$TERM ok-$((6*7)) 你好\"; id -un\r")
+	waitFor("30 100")
+	waitFor("xterm-256color ok-42 你好")
+	waitFor("agent")
+	if err := app.ResizeTerminal("t-e2etest01", 120, 40); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	app.WriteTerminal("t-e2etest01", "stty size\r")
+	waitFor("40 120")
+	app.WriteTerminal("t-e2etest01", "exit 3\r")
+	select {
+	case code := <-exited:
+		if code != 3 {
+			t.Fatalf("exit code %d", code)
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("terminal did not exit")
+	}
+	if err := app.WriteTerminal("t-e2etest01", "x"); err == nil {
+		t.Fatal("writing to a closed terminal must fail")
+	}
+	// Closing from the window ends the session too.
+	if err := app.StartTerminal("t-e2etest02", sandboxID, "codex", 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	app.CloseTerminal("t-e2etest02")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		if _, err := app.lookupTerminal("t-e2etest02"); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("closed terminal still open")
+		}
+	}
 }

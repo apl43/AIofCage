@@ -55,6 +55,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `StartSandbox(id)` / `StopSandbox(id)` | 启动过程通过 `sandbox:progress` 事件推送进度；首次启动会构建镜像 |
 | `BindProvider(id, agent, providerID)` | 切换某个 Agent 的供应商；运行中立即下发，Agent 下次启动生效 |
 | `OpenTerminal(id, agent)` | 在“终端”里以 Agent 用户进入项目目录，运行该 Agent（`agent` 为空时开 Shell）；第一次会请求“自动化”权限 |
+| `StartTerminal(termID, id, agent, cols, rows)` / `WriteTerminal(termID, data)` / `ResizeTerminal(termID, cols, rows)` / `CloseTerminal(termID)` | 应用内置终端（沙箱详情页的“终端”标签）：后端用 PTY 运行 `docker exec -it`，与系统终端的权限相同（Agent 用户、项目目录）；输出以 `terminal:data` 事件（base64）推给 xterm.js，进程结束发 `terminal:exit`；终端 ID 由窗口生成，避免启动输出丢失；最多同时 12 个，退出应用时全部关闭。切换页面时终端继续运行，回来时原样显示 |
 | `OpenProjectFolder(id)` | 在访达中打开项目文件夹 |
 | `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
 | `SelectProject()` | 系统目录选择框 |

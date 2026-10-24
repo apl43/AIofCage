@@ -174,24 +174,17 @@ func (a *App) OpenTerminal(id string, agent session.Agent) error {
 	if a.manager.Status(context.Background(), sbx.ID).State != "running" {
 		return errors.New("请先启动沙箱")
 	}
-	var command []string
-	if agent != "" {
-		installed := false
-		for _, item := range sbx.Agents() {
-			installed = installed || item == agent
-		}
-		spec, ok := runtime.Spec(agent)
-		if !installed || !ok {
-			return fmt.Errorf("沙箱里没有安装 %s", agent)
-		}
-		command = []string{spec.Command}
+	command, err := terminalCommand(sbx, agent)
+	if err != nil {
+		return err
 	}
-	return a.terminal(terminalCommand(sbx.Name, a.manager.ExecArgs(sbx, true, command...)))
+	return a.terminal(systemTerminalScript(sbx.Name, a.manager.ExecArgs(sbx, true, command...)))
 }
 
 // terminalCommand builds the shell command typed into Terminal: a window title, then the
 // docker exec invocation with every argument single-quoted.
-func terminalCommand(name string, args []string) string {
+// systemTerminalScript is the command line typed into macOS Terminal.
+func systemTerminalScript(name string, args []string) string {
 	quoted := make([]string, len(args))
 	for i, arg := range args {
 		quoted[i] = shellQuote(arg)

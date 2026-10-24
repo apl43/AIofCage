@@ -62,6 +62,7 @@ func run() error {
 			app.SetEmitter(func(event string, data any) { wailsruntime.EventsEmit(ctx, event, data) })
 			app.StartMonitor(ctx)
 		},
-		Bind: []interface{}{app},
+		OnShutdown: func(context.Context) { app.CloseAllTerminals() },
+		Bind:       []interface{}{app},
 	})
 }
