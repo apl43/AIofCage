@@ -1,0 +1,25 @@
+[
+  {"id": "qiniu-xapi", "agent": "codex", "name": "七牛 xapi（比赛接口）", "protocol": "openai-responses",
+   "base_url": "https://xapi.qiniu.io/v1", "model": "gpt-6.1-sol", "auth": "bearer",
+   "existing_key_ref": "sbx-builderday-key", "note": "Builder Day 提供的 OpenAI 兼容接口；可选用钥匙串中已有的比赛 key"},
+  {"id": "openai", "agent": "codex", "name": "OpenAI 官方", "protocol": "openai-responses",
+   "base_url": "https://api.openai.com/v1", "model": "gpt-5.5", "auth": "bearer"},
+  {"id": "custom-codex", "agent": "codex", "name": "自定义（Responses API 兼容）", "protocol": "openai-responses",
+   "base_url": "", "model": "", "auth": "bearer", "note": "Codex 只支持 Responses API（/v1/responses）"},
+
+  {"id": "anthropic", "agent": "claude-code", "name": "Anthropic 官方", "protocol": "anthropic",
+   "base_url": "https://api.anthropic.com", "model": "claude-sonnet-5-5", "auth": "x-api-key"},
+  {"id": "deepseek-anthropic", "agent": "claude-code", "name": "DeepSeek（Anthropic 兼容接口）", "protocol": "anthropic",
+   "base_url": "https://api.deepseek.com/anthropic", "model": "deepseek-chat", "auth": "bearer"},
+  {"id": "moonshot-anthropic", "agent": "claude-code", "name": "Kimi（Anthropic 兼容接口）", "protocol": "anthropic",
+   "base_url": "https://api.moonshot.cn/anthropic", "model": "kimi-k2-turbo-preview", "auth": "bearer"},
+  {"id": "zhipu-anthropic", "agent": "claude-code", "name": "智谱 GLM（Anthropic 兼容接口）", "protocol": "anthropic",
+   "base_url": "https://open.bigmodel.cn/api/anthropic", "model": "glm-4.6", "auth": "bearer"},
+  {"id": "custom-claude", "agent": "claude-code", "name": "自定义（Anthropic 兼容）", "protocol": "anthropic",
+   "base_url": "", "model": "", "auth": "bearer"},
+
+  {"id": "deepseek", "agent": "dsh", "name": "DeepSeek 官方", "protocol": "openai-chat",
+   "base_url": "https://api.deepseek.com", "model": "deepseek-chat", "auth": "bearer"},
+  {"id": "custom-dsh", "agent": "dsh", "name": "自定义（OpenAI Chat 兼容）", "protocol": "openai-chat",
+   "base_url": "", "model": "", "auth": "bearer"}
+]

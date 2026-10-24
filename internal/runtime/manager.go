@@ -485,6 +485,21 @@ func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, prov
 	if err := m.store.SaveSandbox(sbx); err != nil {
 		return err
 	}
+	return m.refresh(ctx, sbx)
+}
+
+// Refresh re-delivers keys, policy and agent settings to a running sandbox, e.g. after one of its
+// providers was edited. Stopped sandboxes pick up changes on their next start.
+func (m *Manager) Refresh(ctx context.Context, id string) error {
+	defer m.lock(id)()
+	sbx, err := m.store.Sandbox(id)
+	if err != nil {
+		return err
+	}
+	return m.refresh(ctx, sbx)
+}
+
+func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
 	if m.Status(ctx, sbx.ID).State != stateRunning {
 		return nil
 	}

@@ -1,36 +1,176 @@
 package service
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"github.com/shaoxier/AIofCage/internal/runtime"
+	"github.com/shaoxier/AIofCage/internal/provider"
+	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
+	"github.com/shaoxier/AIofCage/internal/store"
+	"github.com/shaoxier/AIofCage/internal/vault"
 )
 
-func TestDraftCannotStartSandbox(t *testing.T) {
-	app := NewApp(session.NewMemoryStore(), runtime.NewUnavailable(), nil)
-	item, err := app.CreateSession(CreateSessionRequest{Name: "测试项目", ProjectPath: "/example/project", Agent: session.Codex})
+type memoryVault map[string][]byte
+
+func (m memoryVault) Put(_ context.Context, ref string, value []byte) error {
+	m[ref] = append([]byte(nil), value...)
+	return nil
+}
+func (m memoryVault) Read(_ context.Context, ref string) ([]byte, error) {
+	if value, ok := m[ref]; ok {
+		return value, nil
+	}
+	return nil, vault.ErrNotFound
+}
+func (m memoryVault) Delete(_ context.Context, ref string) error { delete(m, ref); return nil }
+
+func newApp(t *testing.T) (*App, memoryVault, *store.Store) {
+	t.Helper()
+	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := app.StartSession(item.ID); !errors.Is(err, runtime.ErrNotReady) {
-		t.Fatalf("start returned %v, want not ready", err)
+	secrets := memoryVault{}
+	return NewApp(st, secrets, nil, errors.New("测试环境没有 Docker"), nil), secrets, st
+}
+
+func codexRequest() SaveProviderRequest {
+	return SaveProviderRequest{Name: "七牛 xapi", Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://xapi.qiniu.io/v1", Model: "gpt-6.1-sol", Auth: provider.AuthBearer, APIKey: "secret-key-123"}
+}
+
+func TestSaveProviderStoresKeyOnlyInVault(t *testing.T) {
+	app, secrets, st := newApp(t)
+	view, err := app.SaveProvider(codexRequest())
+	if err != nil {
+		t.Fatal(err)
 	}
-	items := app.ListSessions()
-	if len(items) != 1 || items[0].State != session.Created {
-		t.Fatalf("failed start changed draft state: %+v", items)
+	if !view.KeySaved || !view.KeyManaged || view.KeyRef != provider.KeyRefFor(view.ID) || string(secrets[view.KeyRef]) != "secret-key-123" {
+		t.Fatalf("unexpected view %+v", view)
 	}
-	if err := app.StartSession("missing"); !errors.Is(err, session.ErrNotFound) {
-		t.Fatalf("missing session returned %v", err)
-	}
-	for _, request := range []CreateSessionRequest{
-		{Name: "", ProjectPath: "/example/project", Agent: session.Codex},
-		{Name: "test", ProjectPath: "relative/path", Agent: session.Codex},
-		{Name: "test", ProjectPath: "/example/project", Agent: "sh -c command"},
-	} {
-		if _, err := app.CreateSession(request); err == nil {
-			t.Fatalf("accepted invalid draft: %+v", request)
+	items, _ := app.ListProviders()
+	for _, item := range items {
+		if strings.Contains(string(mustJSON(t, item)), "secret-key-123") {
+			t.Fatal("provider view leaked the key")
 		}
 	}
+	saved, _ := st.Provider(view.ID)
+	if strings.Contains(string(mustJSON(t, saved)), "secret-key-123") {
+		t.Fatal("store contains the key")
+	}
+	// Editing without a new key keeps the existing one.
+	edit := codexRequest()
+	edit.ID, edit.APIKey, edit.Model = view.ID, "", "gpt-6-sol"
+	if view, err = app.SaveProvider(edit); err != nil || view.Model != "gpt-6-sol" || string(secrets[view.KeyRef]) != "secret-key-123" {
+		t.Fatalf("edit: %+v %v", view, err)
+	}
+}
+
+func TestSaveProviderValidation(t *testing.T) {
+	app, secrets, _ := newApp(t)
+	noKey := codexRequest()
+	noKey.APIKey = ""
+	if _, err := app.SaveProvider(noKey); err == nil {
+		t.Fatal("new provider without key accepted")
+	}
+	foreign := codexRequest()
+	foreign.APIKey, foreign.ExistingKeyRef = "", "github.com"
+	if _, err := app.SaveProvider(foreign); err == nil {
+		t.Fatal("arbitrary keychain item accepted")
+	}
+	secrets["sbx-builderday-key"] = []byte("competition")
+	preset := codexRequest()
+	preset.APIKey, preset.ExistingKeyRef = "", "sbx-builderday-key"
+	view, err := app.SaveProvider(preset)
+	if err != nil || view.KeyManaged || view.KeyRef != "sbx-builderday-key" {
+		t.Fatalf("preset keychain item: %+v %v", view, err)
+	}
+	chat := codexRequest()
+	chat.Protocol = provider.OpenAIChat
+	if _, err := app.SaveProvider(chat); err == nil {
+		t.Fatal("codex with chat protocol accepted")
+	}
+}
+
+func TestDeleteProviderInUse(t *testing.T) {
+	app, secrets, st := newApp(t)
+	view, err := app.SaveProvider(codexRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSandbox(sandbox.Sandbox{ID: "sbx-1", Name: "demo", Bindings: []sandbox.Binding{{Agent: session.Codex, ProviderID: view.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.DeleteProvider(view.ID); err == nil || !strings.Contains(err.Error(), "demo") {
+		t.Fatalf("in-use provider deleted: %v", err)
+	}
+	edit := codexRequest()
+	edit.ID, edit.APIKey, edit.Agent, edit.Protocol = view.ID, "", session.ClaudeCode, provider.Anthropic
+	if _, err := app.SaveProvider(edit); err == nil {
+		t.Fatal("changed agent of an in-use provider")
+	}
+	st.DeleteSandbox("sbx-1")
+	if err := app.DeleteProvider(view.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := secrets[view.KeyRef]; ok {
+		t.Fatal("managed key not removed from vault")
+	}
+}
+
+func TestTestProviderClassifiesResults(t *testing.T) {
+	app, _, _ := newApp(t)
+	var gotAuth string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if r.URL.Path != "/v1/models" {
+			http.NotFound(w, r)
+			return
+		}
+		if gotAuth != "Bearer good-key" {
+			w.WriteHeader(401)
+			return
+		}
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+	// Providers must use a DNS name; httptest's certificate covers example.com, so route that
+	// name to the test server. This override exists only in the test.
+	transport := server.Client().Transport.(*http.Transport).Clone()
+	address := server.Listener.Addr().String()
+	transport.DialContext = func(ctx context.Context, network, _ string) (netConn, error) {
+		return (&dialer{}).DialContext(ctx, network, address)
+	}
+	app.client = &http.Client{Transport: transport}
+	request := SaveProviderRequest{Name: "test", Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://example.com/v1", Model: "m", Auth: provider.AuthBearer, APIKey: "good-key"}
+	view, err := app.SaveProvider(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := app.TestProvider(view.ID)
+	if err != nil || !result.OK || result.Status != 200 || gotAuth != "Bearer good-key" {
+		t.Fatalf("good key: %+v %v", result, err)
+	}
+	request.ID, request.APIKey = view.ID, "wrong-key"
+	if _, err := app.SaveProvider(request); err != nil {
+		t.Fatal(err)
+	}
+	if result, _ = app.TestProvider(view.ID); result.OK || result.Status != 401 {
+		t.Fatalf("bad key: %+v", result)
+	}
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := jsonMarshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

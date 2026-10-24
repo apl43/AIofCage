@@ -9,7 +9,8 @@ import (
 
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/service"
-	"github.com/shaoxier/AIofCage/internal/session"
+	"github.com/shaoxier/AIofCage/internal/store"
+	"github.com/shaoxier/AIofCage/internal/vault"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -31,13 +32,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	dir, err := store.DefaultDir()
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		return err
+	}
+	keychain := vault.NewKeychain()
+	// Without Docker/Colima the app still opens: provider management works and the environment
+	// page explains what is missing.
+	manager, managerErr := runtime.NewManager(st, keychain)
 	var desktopContext context.Context
-	app := service.NewApp(session.NewMemoryStore(), runtime.NewUnavailable(), func() (string, error) {
+	app := service.NewApp(st, keychain, manager, managerErr, func() (string, error) {
 		if desktopContext == nil {
 			return "", fmt.Errorf("桌面窗口尚未就绪")
 		}
 		return wailsruntime.OpenDirectoryDialog(desktopContext, wailsruntime.OpenDialogOptions{
-			Title: "选择项目文件夹（仅登记，不挂载或复制）",
+			Title: "选择项目文件夹",
 		})
 	})
 	return wails.Run(&options.App{

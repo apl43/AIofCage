@@ -90,3 +90,22 @@ func TestInjection(t *testing.T) {
 		t.Fatal(h, prefix)
 	}
 }
+
+func TestPresetsAreValid(t *testing.T) {
+	seen := map[string]bool{}
+	for _, preset := range Presets() {
+		if seen[preset.ID] {
+			t.Errorf("duplicate preset %s", preset.ID)
+		}
+		seen[preset.ID] = true
+		if preset.BaseURL == "" { // custom presets are filled in by the user
+			continue
+		}
+		p := Provider{ID: "p", Name: preset.Name, Agent: preset.Agent, Protocol: preset.Protocol, BaseURL: preset.BaseURL,
+			Model: preset.Model, Auth: preset.Auth, KeyRef: KeyRefFor("p")}
+		p.Normalize()
+		if err := p.Validate(); err != nil {
+			t.Errorf("preset %s invalid: %v", preset.ID, err)
+		}
+	}
+}
