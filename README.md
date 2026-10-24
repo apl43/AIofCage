@@ -1,97 +1,82 @@
 # AIofCage
 
-> 桌面级 AI Agent 安全沙箱：让 Claude Code、Codex、dsh 放手干活，钥匙永远不进笼子。
+桌面上的智能体工作区：为 Codex、Claude Code 和 DeepSeek Harness 配置供应商，在独立沙箱中工作，并查看用量、费用估算和运行状态。
 
-Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开发中
+Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silicon。
 
-**产品形态：CC Switch + Docker Desktop。** 按 agent 管理模型供应商，key 只存钥匙串；像 Docker Desktop 一样创建、启停沙箱，每个沙箱自选要装的 agent 并绑定供应商，多个沙箱可共用或各用各的供应商，并能看到每个沙箱的用量。详见[产品形态与开发计划](docs/development-plan.md)。
+## 如何使用
 
-当前仓库已有可构建的桌面与门卫骨架：可登记内存会话草稿、查看环境依赖和模块页面；隔离运行、真实认证、代理转发与 MCP 尚未实现。[产品目标与验收](docs/requirements-and-acceptance.md)和[架构设计](docs/architecture.md)仍是待验证的目标，[比赛规则](docs/competition-rules.md)区分组织方要求与团队选择。当前骨架不能作为已完成的安全沙箱使用。
+1. 在“模型供应商”中为智能体添加配置。一个智能体可以保存多个供应商，密钥保存在 macOS 钥匙串。
+2. 点击“创建沙箱”，选择或新建项目。默认创建空白沙箱，也可以勾选需要的智能体。
+3. 启动沙箱，在详情中打开 Shell 或智能体。创建后仍可添加三款智能体。
+4. 在“智能体”页为每个智能体独立选择供应商。多个沙箱可以共用配置，也可以分别选择。运行中的更改在重启沙箱后生效。
+5. 在“用量”“运行状态”和“日志”中查看实际请求、资源和诊断结果。
 
-## 开发启动
+更新正在使用的 API Key 前，需要先停止引用它的沙箱；接口、模型和价格可保存为待生效配置。
 
-桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本、Xcode Command Line Tools，以及 Docker CLI 和 Colima（`brew install colima docker`）。前端用固定版本的 Preact + htm（放在 `frontend/src/vendor`），不依赖 Node、npm 或打包步骤。Wails 固定为 v2.17.0。
+最新范围与验收标准见[桌面工作区产品规格](docs/product-workspace.md)，本次改造的实测、限制和 PR 对应关系见[交付验收记录](outputs/workspace-acceptance/report.md)。
+
+## 功能清单
+
+- [x] 按三款智能体分类管理多个供应商，支持预设、自定义接口、复制和连接测试。
+- [x] 每个沙箱独立绑定供应商；保存的选择与当前生效配置分别记录，重启后应用。
+- [x] 默认空白沙箱、可选安装、创建后增装；保留项目和持久化主目录，增装失败尝试恢复原配置。
+- [x] 可视化创建、搜索、筛选、启停及重启；内置终端、任务输入和系统终端入口。
+- [x] 页面切换保留终端会话；沙箱停止、重建或应用退出时结束会话。
+- [x] 持久化请求明细、供应商/模型/时间筛选、输入/输出/缓存 token、未知用量与日志缺口提示。
+- [x] 人工填写模型单价，按请求保存历史价格快照；CNY/USD 分开汇总，缺价格或用量时显示未计价。
+- [x] Agent、门卫和 MCP 连接器的状态、CPU、内存、进程数、限制、OOM、退出与重启信息。
+- [x] 有界的 CPU/内存趋势、累计网络和磁盘 I/O、采样时间及失败提示；单独展示专用 VM 的配置。
+- [x] 隔离检查区分“通过、发现问题、无法验证、跳过”，保留具体证据。
+- [x] 请求额度、token 额度及接近上限提醒；脱敏日志写入本地 JSONL。
+- [x] HTTP Token、OAuth、filesystem 和 PostgreSQL MCP 接入路径；上游秘密由宿主、门卫或可信连接器持有。
+- [x] 基于脱敏请求元数据的 AI 解说，独立于授权和拦截。
+- [ ] 供应商自动故障切换，当前使用手动选择。
+- [ ] 供应商账单、余额和真实结算同步，当前费用为按所填单价计算的估算。
+- [ ] 完整 OAuth 账号授权与各种第三方 MCP 的兼容性矩阵；已有连接路径不代表所有服务已验证。
+
+## 构建与检查
+
+需要 Go 1.26.4 或更高版本、Xcode Command Line Tools、Docker CLI 与 Colima（可通过 `brew install colima docker` 安装）。Wails 固定为 v2.17.0。前端使用固定版本的 Preact、htm、xterm.js，直接嵌入应用，无 npm 构建步骤。
 
 ```bash
-make app                  # 生成 bin/AIofCage.app（会先编译门卫和连接器）
+make app                 # bin/AIofCage.app
 open bin/AIofCage.app     # 或在访达里双击
+make check               # Go 静态检查与编译
+make test                # 后端测试与竞态检查
+make cagectl             # 共用相同运行时的命令行工具
+make dev                 # Wails 热开发
 ```
 
-界面已有“供应商”页（从预设添加、API Key 存进钥匙串、测试连接、编辑与删除）、“沙箱”页（创建时选项目文件夹、勾选 Agent 并绑定供应商；启动、停止、在终端里打开 Agent、切换供应商、删除；实时用量与 CPU/内存）和“日志”页（每个经过门卫的请求实时显示，拦截标红，同时写入本地审计日志）。
+前端调度回归测试使用 Node 内置测试器：
 
 ```bash
-make gatekeeper   # 构建独立门卫二进制
-make check        # Go 静态检查与编译（桌面需要 macOS 工具链）
-make test         # 后端边界测试，包含竞态检查
-make dev          # 可选：使用固定版本 Wails CLI 热开发
+node --experimental-default-type=module --test frontend/tests/frames.test.js
 ```
 
-门卫与沙箱运行时的开发方式见[模块与开发说明](docs/modules.md)。门卫已能按下发的策略做 MITM 转发、占位符换 key、额度和事件流（MCP 入口仍拒绝）；沙箱运行时可以用 `make cagectl` 生成的命令行工具创建、启动沙箱并在里面运行 Codex。桌面应用尚未接上运行时。
+真实环境测试默认跳过，启用方法、测试供应商和清理情况见[验收记录](outputs/workspace-acceptance/report.md)。真实模型任务会调用已配置供应商并产生用量。
 
-独立的[第一批验证包](experiments/validation/README.md)提供环境检查、最小门卫测试、容器隔离探针和可选 Codex 真实任务；[验证记录](docs/validation/README.md)区分实测结果与阻塞项。实验通过不等于产品功能已完成或设计已冻结。
+## 运行与安全边界
 
-## 要解决的问题
+应用使用专用 Colima profile `aiofcage` 和 Docker context `colima-aiofcage`，默认 VM 配置为 4 核、6 GiB 内存、40 GiB 磁盘，仅共享 `~/CageWorkspace:w`。Docker 操作始终显式指定 context，不修改用户默认实例。
 
-Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令。它们会犯错，也可能被网页或 README 里藏的恶意指令"下套"（提示词注入），结果可能是删错文件，或者把 `~/.ssh`、环境变量里的 API Key 发到外面。
+Agent 容器仅连接内部网络，通过每个沙箱独立的门卫访问已授权服务。门卫校验域名、端口、方法、路径和占位凭据，再注入上游秘密；管理接口仅向宿主回环开放并单独鉴权。数据库等需要秘密的 MCP 运行在可信连接器中。
 
-现有的沙箱方案要么只隔离命令、不管密钥，要么全靠命令行和配置文件，普通用户用不起来。
+秘密持久化在钥匙串，宿主传输、门卫及连接器在运行期按需持有。Agent 获得模型占位符及受限 MCP 内部凭据。此设计限制密钥泄漏和未授权出网，已授权模型或工具仍可能被滥用。项目目录中的文件可被智能体修改或删除，应自行保留版本与备份。
 
-## 思路：隔离 + 门卫换钥匙
+运行状态与服务健康分别展示：容器运行不代表模型可用，未配置容器健康检查时明确显示。面板不会为探活定时发送计费模型请求。隔离探针只能说明所测路径，DNS 超时和执行失败均不视为隔离通过。
 
-```
-┌─── AIofCage 桌面应用 ─────────────────────────────────────┐
-│  钥匙串：API Key / MCP 密钥的唯一持久化位置               │
-│  会话管理：钥匙串、策略下发、事件订阅、JSONL 审计           │
-│  操作界面：选文件夹 → 选 Agent → 一键启动                   │
-└───────────────────────────┬───────────────────────────────┘
-                            │ 管理 API + SSE，随机 token 鉴权
-                            ▼
-        专用 Colima VM：门卫容器执行网络策略、模型注入与 MCP 网关
-                            │ 可信连接器按服务隔离，代持数据库等凭据
-                            ▲
-                            │ 内部网络代理
-        Agent：选定项目、模型占位符及受限 MCP 内部凭据，无直接外网
-```
+请求审计不记录正文、上游凭据、MCP 参数与结果；终端内容不作为完整操作审计。应用不提供逐命令审批，也不声称记录全部文件访问或防御容器逃逸。断线超出补发范围时显示日志缺口。
 
-1. **隔离**：Agent 跑在容器里；宿主目录仅暴露选定项目，项目内文件仍可能被修改或删除。
-2. **出网管控**：容器没有直接出网的路，所有请求必须经过门卫代理，不在白名单里的一律拦截。
-3. **Agent 不持有上游真实密钥**：秘密持久化在钥匙串，宿主传输时短暂持有，可信门卫与按服务隔离的连接器按需在运行期持有。模型走授权后注入；MCP 由网关代理工具调用，OAuth 登录在宿主完成，沙箱只有受限的内部调用能力。
-4. **对普通用户友好**：图形界面操作，添加密钥就像填表，不用写一行配置。
+## 相关文档
 
-## 功能规划
-
-- [x] 可构建的 Wails 桌面入口、模块页面和内存会话草稿
-- [x] 独立门卫入口、管理鉴权及未配置时始终拒绝的数据入口
-- [x] 容器隔离 + 强制所有出网走门卫代理
-- [x] 钥匙串存储密钥，门卫按域名注入
-- [x] 供应商管理（参考 CC Switch）：按 agent 分组，预设一键添加，key 存钥匙串，连通性测试
-- [x] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
-- [x] 每个沙箱的用量与资源占用，按供应商汇总
-- [x] 实时请求面板：放行 / 拦截 / 已注入密钥
-- [x] 支持 Codex、Claude Code、dsh：三款 Agent 都已在沙箱里完成真实任务（Codex 用七牛 xapi 的 gpt-6.1-sol，Claude Code 和 dsh 用 DeepSeek），并都能通过门卫使用数据库 MCP 查询
-- [x] MCP 免填上游秘密：HTTP Token、OAuth（浏览器登录，自动续期）、无密钥 stdio、数据库密码（PostgreSQL，可信连接器代持）四类基线（OAuth 已用 Notion、Linear 的真实服务验证到发现、注册客户端和授权页；完整登录需用真实账号点一次）
-- [ ] MCP 服务、工具与资源权限；连接、撤销、过期处理及跨会话隔离
-- [x] 用量上限与异常告警，防止被下套的 Agent 刷光额度
-- [x] 一键"模拟攻击"演示：7 个攻击各对应一起真实事件，结果和拦截记录同时可见
-- [x] AI 安全解说：一键让模型用中文解释某条拦截或总结沙箱活动（只发元数据，AI 不参与放行）
-
-权限边界：文件范围由 VM 共享和容器挂载执行；网络与模型 API 权限由门卫执行，MCP 工具/资源权限由协议网关执行。第一版不提供逐命令审批或完整文件访问审计。被拦请求结束后，用户只能授权后续访问，由客户端重新请求；代理不重放请求体。
-
-审计边界：门卫生成脱敏请求与用量事件，应用生成授权和会话事件并追加写 JSONL。断线补发超出缓冲区时显示日志缺口；终端文本和文件 diff 不当作完整操作审计。
-
-兼容性目标：分别验证 Codex、Claude Code、dsh 的真实任务及 MCP 调用；MCP 基线覆盖 GitHub HTTP、OAuth 服务、filesystem stdio 和密码型数据库连接器。候选组件、版本和证据见[验收文档](docs/requirements-and-acceptance.md)。一个 Agent 和一个 HTTP MCP 是首个里程碑；OAuth 或密码连接器缺失仍是议题覆盖缺口，不能自动降为可选项。有限样本不能证明“所有主流”均可用。
-
-目前先建立工程骨架，关键路线仍需通过需求、隔离、Agent 认证、MCP/OAuth、秘密与权限、接口与工作量六项关口。入口可编译不等于上述验证通过，也不能保证比赛前全部可达成。
-
-## 技术栈
-
-- Go
-- [Wails](https://github.com/wailsapp/wails)：桌面界面
-- [goproxy](https://github.com/elazarl/goproxy)：门卫的 HTTPS 中间人代理（固定 v1.9.2）
-- Docker：容器隔离
-- Colima：专用 profile `aiofcage`，Docker context `colima-aiofcage`，仅共享 `~/CageWorkspace:w`
-- macOS 钥匙串：密钥存储
+- [本次产品规格与 12 步验收矩阵](docs/product-workspace.md)
+- [交付验收记录](outputs/workspace-acceptance/report.md)
+- [原始产品目标与安全验收](docs/requirements-and-acceptance.md)
+- [架构设计](docs/architecture.md)、[模块与开发说明](docs/modules.md)
+- [早期验证记录](docs/validation/README.md)、[实验验证包](experiments/validation/README.md)
+- [比赛规则](docs/competition-rules.md)
 
 ## 致谢
 
-设计上参考了 [mattolson/agent-sandbox](https://github.com/mattolson/agent-sandbox)（MIT）和 [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) 的"代理注入凭证"思路。
+界面流程参考 [CC Switch](https://github.com/farion1231/cc-switch) 和 Docker Desktop；代理注入设计参考 [mattolson/agent-sandbox](https://github.com/mattolson/agent-sandbox) 与 [Docker Sandboxes](https://docs.docker.com/ai/sandboxes/)。第三方前端库来源和许可证见 [vendor 说明](frontend/src/vendor/README.md)。

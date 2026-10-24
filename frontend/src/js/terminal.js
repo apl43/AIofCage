@@ -34,7 +34,7 @@ function wire() {
   wired = true;
   window.runtime?.EventsOn?.("terminal:data", ({ id, data }) => {
     const s = sessions.get(id);
-    if (s) s.term.write(decode(data), () => { s.term.refresh(0, s.term.rows - 1); });
+    if (s) s.term.write(decode(data));
   });
   window.runtime?.EventsOn?.("terminal:exit", ({ id, code }) => {
     const s = sessions.get(id);
@@ -65,16 +65,18 @@ export async function openTerminal(sandbox, agent) {
   const element = document.createElement("div");
   element.className = "terminal-host";
   parking().appendChild(element);
-  term.open(element);
-  try { fit.fit(); } catch { /* 尺寸会在显示时重新计算 */ }
-  const session = { id, sandboxId: sandbox.id, agent, title: agent ? agentName(agent) : "Shell", term, fit, element, exited: false };
+  const session = { id, sandboxId: sandbox.id, agent, title: agent ? agentName(agent) : "Shell", term, fit, element, opened: false, exited: false };
   sessions.set(id, session);
   term.onData((data) => { if (!session.exited) call("WriteTerminal", id, data).catch(() => {}); });
   term.onResize(({ cols, rows }) => { if (!session.exited) call("ResizeTerminal", id, cols, rows).catch(() => {}); });
   notifyChange();
   try {
     await call("StartTerminal", id, sandbox.id, agent, term.cols, term.rows);
+    // 启动尚未返回时标签可能已关闭，补发关闭以清理刚创建的后台会话。
+    if (!sessions.has(id)) { await call("CloseTerminal", id); return id; }
+    if (session.opened) { fit.fit(); await call("ResizeTerminal", id, term.cols, term.rows); }
   } catch (error) {
+    if (!sessions.has(id)) return id;
     session.exited = true;
     term.write(`\x1b[31m无法打开终端：${error.message}\x1b[0m\r\n`);
     notifyChange();
@@ -118,7 +120,9 @@ export function TerminalView({ id }) {
     const s = sessions.get(id);
     if (!s || !container.current) return;
     container.current.appendChild(s.element);
-    const refit = () => { try { s.fit.fit(); } catch { /* 容器还没有尺寸 */ } };
+    // 在实际显示的容器里首次打开，确保字号和行列测量使用正确尺寸。
+    if (!s.opened) { s.term.open(s.element); s.opened = true; }
+    const refit = () => { try { s.fit.fit(); s.term.refresh(0, s.term.rows - 1); } catch { /* 容器还没有尺寸 */ } };
     refit();
     s.term.focus();
     const observer = new ResizeObserver(refit);

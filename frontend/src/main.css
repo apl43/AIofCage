@@ -260,7 +260,6 @@ main { margin-left: 184px; max-width: none; padding: 26px 28px 36px; }
 .section-heading h2 { font-size: 23px; }
 .section-heading { margin-bottom: 20px; }
 .panel { border-radius: 10px; box-shadow: 0 1px 2px #182b3a04; }
-button { transition: background-color .12s; }
 input, select { background: #fff; color: var(--ink); }
 input:disabled, select:disabled { background: #f1f3f5; color: var(--muted); }
 .feedback { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 0 16px; }

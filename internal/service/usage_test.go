@@ -30,3 +30,19 @@ func TestUsageQueryDeduplicatesAfterRestart(t *testing.T) {
 		t.Fatal("筛选错误")
 	}
 }
+
+func TestNewLedgerDoesNotClaimLegacy(t *testing.T) {
+	a, _, st := newApp(t)
+	s := sandbox.Sandbox{ID: "sbx-new", Name: "新沙箱", Usage: sandbox.Usage{Requests: 1}}
+	_ = st.SaveSandbox(s)
+	a.record(s, audit.Event{ID: "new:1", Time: time.Now(), Action: audit.ActionRequest, Agent: "codex", ModelRequest: true, SecretRef: "p", UsageKind: "reported"})
+	r, err := a.QueryUsage(UsageQuery{SandboxID: s.ID, Period: "all"})
+	if err != nil || r.Legacy {
+		t.Fatalf("新账本误报旧累计：%+v %v", r, err)
+	}
+	a.record(s, audit.Event{ID: "old:1", Time: time.Now(), Action: audit.ActionRequest, SecretRef: "p"})
+	r, _ = a.QueryUsage(UsageQuery{SandboxID: s.ID, Period: "all"})
+	if !r.Legacy {
+		t.Fatal("旧请求未提示无法细分")
+	}
+}

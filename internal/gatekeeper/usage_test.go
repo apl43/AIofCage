@@ -30,3 +30,14 @@ func TestUsageBreakdownAndZero(t *testing.T) {
 		t.Fatalf("流式分项错误: %+v", s)
 	}
 }
+
+func TestPartialUsageIsUnknown(t *testing.T) {
+	for _, body := range []string{`{"usage":{"input_tokens":50}}`, `{"usage":{"output_tokens":7}}`, `{"usage":{"input_tokens":-1,"output_tokens":7}}`} {
+		s := newUsageSniffer("application/json")
+		s.Write([]byte(body))
+		_, _, known := s.Result()
+		if known {
+			t.Fatalf("缺失计数被补成零：%s", body)
+		}
+	}
+}

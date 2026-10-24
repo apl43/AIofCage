@@ -272,13 +272,24 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 }
 
 func (m *Manager) start(ctx context.Context, id string) error {
+	return m.startSnapshot(ctx, id, nil)
+}
+
+// 增装恢复使用中断前已生效的配置，待重启的选择仍保留在存储中。
+func (m *Manager) startSnapshot(ctx context.Context, id string, original *sandbox.Sandbox) error {
 	sbx, err := m.store.Sandbox(id)
 	if err != nil {
 		return err
 	}
-	providers, err := m.providersFor(sbx)
-	if err != nil {
-		return err
+	var providers map[string]provider.Provider
+	if original != nil && original.AppliedProviders != nil {
+		sbx.Bindings = append([]sandbox.Binding{}, original.AppliedBindings...)
+		providers = original.AppliedProviders
+	} else {
+		providers, err = m.providersFor(sbx)
+		if err != nil {
+			return err
+		}
 	}
 	m.progress(sbx.ID, "检查专用虚拟机")
 	if err := m.env.Ensure(ctx); err != nil {
@@ -649,8 +660,7 @@ func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, prov
 	return err
 }
 
-// Refresh re-delivers keys, policy and agent settings to a running sandbox, e.g. after one of its
-// providers was edited. Stopped sandboxes pick up changes on their next start.
+// Refresh 刷新策略与 Agent 设置，但继续使用已生效的供应商快照；新选择在启动时应用。
 func (m *Manager) Refresh(ctx context.Context, id string) error {
 	defer m.lock(id)()
 	sbx, err := m.store.Sandbox(id)

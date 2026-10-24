@@ -191,7 +191,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
                 <input id="p-key" type="password" autocomplete="off" spellcheck="false" class="mono"
                   required=${!editing} placeholder=${editing ? "留空则保持原密钥不变" : "粘贴 API Key"}
                   value=${form.api_key} onInput=${set("api_key")} />
-                <p class="caption">密钥直接写入 macOS 钥匙串，不会保存在应用数据里，也不会再显示出来。</p>`}
+                <p class="caption">密钥保存在 macOS 钥匙串。更新已使用的密钥前，请先停止使用它的沙箱。</p>`}
               <details class="advanced" open=${Boolean(form.price_enabled)}><summary>费用估算</summary>
                 <label class="check"><input type="checkbox" checked=${Boolean(form.price_enabled)} onChange=${set("price_enabled")} />填写模型单价</label>
                 ${form.price_enabled && html`<label for="p-currency">币种</label><select id="p-currency" value=${form.price_currency || "CNY"} onChange=${set("price_currency")}><option value="CNY">CNY · 人民币</option><option value="USD">USD · 美元</option></select>

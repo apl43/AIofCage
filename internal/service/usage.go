@@ -68,13 +68,19 @@ func (a *App) QueryUsage(query UsageQuery) (UsageReport, error) {
 	names := map[string]string{}
 	for _, s := range sandboxes {
 		names[s.ID] = s.Name
-		if s.Usage.Requests > 0 {
-			report.Legacy = true
-		}
 	}
 	paths, err := filepath.Glob(filepath.Join(a.store.Dir(), "audit", "*.jsonl"))
 	if err != nil {
 		return report, err
+	}
+	files := map[string]bool{}
+	for _, path := range paths {
+		files[strings.TrimSuffix(filepath.Base(path), ".jsonl")] = true
+	}
+	for _, s := range sandboxes {
+		if (query.SandboxID == "" || query.SandboxID == s.ID) && s.Usage.Requests > 0 && !files[s.ID] {
+			report.Legacy = true
+		}
 	}
 	seen := map[string]bool{}
 	groups := map[string]*UsageGroup{}
@@ -108,6 +114,9 @@ func (a *App) QueryUsage(query UsageQuery) (UsageReport, error) {
 			if event.Action == audit.ActionGap {
 				report.Gaps++
 				continue
+			}
+			if event.Action == audit.ActionRequest && !event.ModelRequest && event.Agent == "" && event.SecretRef != "" {
+				report.Legacy = true
 			}
 			if event.Action != audit.ActionRequest || !event.ModelRequest {
 				continue

@@ -1,0 +1,14 @@
+=== RUN   TestDedicatedHealthSnapshot
+    health_test.go:91: sbx-j4mgqw3b state=stopped components=2 sample=1165ms valid=false memory=0
+    health_test.go:93:   agent exited memory_limit=4294967296 cpu_limit=2.0 health=未配置健康检查
+    health_test.go:93:   gate exited memory_limit=268435456 cpu_limit=1.0 health=未配置健康检查
+    health_test.go:91: sbx-vlbextkx state=running components=3 sample=1165ms valid=true memory=77238107
+    health_test.go:93:   agent running memory_limit=4294967296 cpu_limit=2.0 health=未配置健康检查
+    health_test.go:93:   gate running memory_limit=268435456 cpu_limit=1.0 health=未配置健康检查
+    health_test.go:93:   mcp running memory_limit=536870912 cpu_limit=1.0 health=未配置健康检查
+    health_test.go:91: sbx-aokm6c7d state=running components=2 sample=1165ms valid=true memory=3981672
+    health_test.go:93:   agent running memory_limit=4294967296 cpu_limit=2.0 health=未配置健康检查
+    health_test.go:93:   gate running memory_limit=268435456 cpu_limit=1.0 health=未配置健康检查
+--- PASS: TestDedicatedHealthSnapshot (1.17s)
+PASS
+ok  	github.com/shaoxier/AIofCage/internal/runtime	1.821s

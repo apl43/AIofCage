@@ -232,6 +232,19 @@ func (a *App) SaveProvider(request SaveProviderRequest) (ProviderView, error) {
 	}
 	switch {
 	case key != "":
+		// 已生效快照仍引用同一钥匙串条目时，覆盖会改变后续策略刷新使用的密钥。
+		// 先停止这些沙箱，再更新条目，确保“重启后生效”的行为不会被绕过。
+		currentSandboxes, err := a.store.Sandboxes()
+		if err != nil {
+			return ProviderView{}, err
+		}
+		for _, s := range currentSandboxes {
+			for _, applied := range s.AppliedProviders {
+				if applied.KeyRef == p.KeyRef {
+					return ProviderView{}, fmt.Errorf("请先停止沙箱「%s」，再更新它正在使用的 API Key", s.Name)
+				}
+			}
+		}
 		if err := a.vault.Put(ctx, p.KeyRef, []byte(key)); err != nil {
 			return ProviderView{}, err
 		}

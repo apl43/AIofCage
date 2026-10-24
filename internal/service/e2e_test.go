@@ -160,6 +160,7 @@ func checkBuiltInTerminal(t *testing.T, app *App, sandboxID string) {
 	var mu sync.Mutex
 	var output strings.Builder
 	exited := make(chan int, 1)
+	closed := make(chan struct{}, 1)
 	app.SetEmitter(func(event string, data any) {
 		switch event {
 		case "terminal:data":
@@ -173,6 +174,8 @@ func checkBuiltInTerminal(t *testing.T, app *App, sandboxID string) {
 		case "terminal:exit":
 			if payload := data.(map[string]any); payload["id"] == "t-e2etest01" {
 				exited <- payload["code"].(int)
+			} else if payload["id"] == "t-e2etest02" {
+				closed <- struct{}{}
 			}
 		}
 	})
@@ -220,10 +223,14 @@ func checkBuiltInTerminal(t *testing.T, app *App, sandboxID string) {
 		t.Fatal("writing to a closed terminal must fail")
 	}
 	// Closing from the window ends the session too.
-	if err := app.StartTerminal("t-e2etest02", sandboxID, "codex", 80, 24); err != nil {
+	if err := app.StartTerminal("t-e2etest02", sandboxID, "", 80, 24); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Second)
+	if err := app.WriteTerminal("t-e2etest02", "sleep 600 & wait\r"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
 	app.CloseTerminal("t-e2etest02")
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(100 * time.Millisecond) {
 		if _, err := app.lookupTerminal("t-e2etest02"); err != nil {
@@ -232,5 +239,25 @@ func checkBuiltInTerminal(t *testing.T, app *App, sandboxID string) {
 		if time.Now().After(deadline) {
 			t.Fatal("closed terminal still open")
 		}
+	}
+	// 等退出事件也发送完成再移除测试订阅，避免与终端读取线程竞争。
+	select {
+	case <-closed:
+	case <-time.After(10 * time.Second):
+		t.Fatal("关闭终端后没有收到退出事件")
+	}
+	var processes bytes.Buffer
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	probe := `import pathlib; marker=b'AIOFCAGE_TERMINAL_ID=t-e2etest02'
+count=0
+for path in pathlib.Path('/proc').glob('[0-9]*/environ'):
+    try:
+        count += marker in path.read_bytes().split(b'\0')
+    except OSError:
+        pass
+print(count)`
+	if err := app.manager.Exec(ctx, sandboxID, false, nil, &processes, &processes, "python3", "-c", probe); err != nil || strings.TrimSpace(processes.String()) != "0" {
+		t.Fatalf("关闭终端后仍有会话进程：%v %s", err, processes.String())
 	}
 }

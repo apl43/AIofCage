@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -31,14 +32,18 @@ const (
 var terminalIDPattern = regexp.MustCompile(`^t-[a-z0-9]{8,32}$`)
 
 type terminals struct {
-	mu    sync.Mutex
-	items map[string]*terminal
+	mu      sync.Mutex
+	items   map[string]*terminal
+	closing bool
 }
 
 type terminal struct {
-	cmd     *exec.Cmd
-	pty     *os.File
-	writeMu sync.Mutex
+	cmd       *exec.Cmd
+	pty       *os.File
+	sandboxID string
+	id        string
+	writeMu   sync.Mutex
+	closeOnce sync.Once
 }
 
 // terminalEnv makes full-screen agents (Codex, Claude Code, dsh) render colours and Chinese text.
@@ -84,6 +89,10 @@ func (a *App) StartTerminal(id, sandboxID string, agent session.Agent, cols, row
 		return err
 	}
 	a.terms.mu.Lock()
+	if a.terms.closing {
+		a.terms.mu.Unlock()
+		return errors.New("应用正在退出")
+	}
 	if a.terms.items == nil {
 		a.terms.items = map[string]*terminal{}
 	}
@@ -95,17 +104,20 @@ func (a *App) StartTerminal(id, sandboxID string, agent session.Agent, cols, row
 		a.terms.mu.Unlock()
 		return fmt.Errorf("最多同时打开 %d 个终端，请先关掉一些", maxTerminals)
 	}
-	t := &terminal{}
-	a.terms.items[id] = t
-	a.terms.mu.Unlock()
+	t := &terminal{sandboxID: sbx.ID, id: id}
 
-	cmd := a.manager.TerminalCommand(sbx, append(append([]string{}, terminalEnv...), command...)...)
+	// 唯一会话标记供关闭时定位容器内的进程及子进程，避免只结束宿主 Docker 客户端。
+	args := append([]string{"env", "AIOFCAGE_TERMINAL_ID=" + id}, terminalEnv...)
+	cmd := a.manager.TerminalCommand(sbx, append(args, command...)...)
 	file, err := pty.StartWithSize(cmd, terminalSize(cols, rows))
 	if err != nil {
-		a.dropTerminal(id)
+		a.terms.mu.Unlock()
 		return fmt.Errorf("无法打开终端：%w", err)
 	}
+	// 完成进程启动后再发布会话，关闭与退出不会漏过尚未赋值的 PTY。
 	t.cmd, t.pty = cmd, file
+	a.terms.items[id] = t
+	a.terms.mu.Unlock()
 	go a.pumpTerminal(id, t)
 	return nil
 }
@@ -176,32 +188,51 @@ func (a *App) ResizeTerminal(id string, cols, rows int) error {
 	return pty.Setsize(t.pty, terminalSize(cols, rows))
 }
 
-// CloseTerminal ends the session: the docker CLI gets SIGHUP like a closed terminal window, and
-// is killed if it does not exit.
+// CloseTerminal 同时结束容器内该会话的进程和宿主 Docker 客户端。
 func (a *App) CloseTerminal(id string) error {
 	t, err := a.lookupTerminal(id)
 	if err != nil {
 		return nil // already gone
 	}
-	closeTerminal(t)
+	a.closeTerminal(t)
 	return nil
 }
 
-func closeTerminal(t *terminal) {
-	if t.cmd.Process == nil {
-		return
-	}
-	_ = t.cmd.Process.Signal(syscall.SIGHUP)
-	process := t.cmd.Process
-	go func() {
-		time.Sleep(3 * time.Second)
-		_ = process.Kill() // no-op once it has exited
-	}()
+// 只匹配随机会话标记，不输出环境内容，也不向其他终端的进程发送信号。
+const endTerminalProcesses = `import os, pathlib, signal, sys, time
+marker = ('AIOFCAGE_TERMINAL_ID=' + sys.argv[1]).encode()
+for sig in (signal.SIGHUP, signal.SIGKILL):
+    for path in pathlib.Path('/proc').glob('[0-9]*/environ'):
+        try:
+            pid = int(path.parent.name)
+            if pid > 1 and marker in path.read_bytes().split(b'\0'):
+                os.kill(pid, sig)
+        except (OSError, ValueError):
+            pass
+    if sig == signal.SIGHUP:
+        time.sleep(0.2)
+`
+
+func (a *App) closeTerminal(t *terminal) {
+	t.closeOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		_ = a.manager.Exec(ctx, t.sandboxID, false, nil, io.Discard, io.Discard, "python3", "-c", endTerminalProcesses, t.id)
+		if t.cmd.Process != nil {
+			_ = t.cmd.Process.Signal(syscall.SIGHUP)
+			process := t.cmd.Process
+			go func() {
+				time.Sleep(time.Second)
+				_ = process.Kill()
+			}()
+		}
+	})
 }
 
 // CloseAllTerminals is called when the app quits.
 func (a *App) CloseAllTerminals() {
 	a.terms.mu.Lock()
+	a.terms.closing = true
 	open := make([]*terminal, 0, len(a.terms.items))
 	for _, t := range a.terms.items {
 		if t.pty != nil {
@@ -209,7 +240,10 @@ func (a *App) CloseAllTerminals() {
 		}
 	}
 	a.terms.mu.Unlock()
+	var closing sync.WaitGroup
 	for _, t := range open {
-		closeTerminal(t)
+		closing.Add(1)
+		go func(t *terminal) { defer closing.Done(); a.closeTerminal(t) }(t)
 	}
+	closing.Wait()
 }

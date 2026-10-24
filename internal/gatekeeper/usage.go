@@ -13,14 +13,14 @@ const maxUsageBuffer = 16 << 20
 // to the agent. It understands the usage objects of OpenAI Responses / Chat Completions and
 // Anthropic Messages, both as single JSON documents and as SSE streams.
 type usageSniffer struct {
-	sse                   bool
-	buffer                []byte
-	overflow              bool
-	input                 int64
-	output                int64
-	cacheRead, cacheWrite int64
-	model                 string
-	found                 bool
+	sse                     bool
+	buffer                  []byte
+	overflow                bool
+	input                   int64
+	output                  int64
+	cacheRead, cacheWrite   int64
+	model                   string
+	inputFound, outputFound bool
 }
 
 func newUsageSniffer(contentType string) *usageSniffer {
@@ -79,7 +79,7 @@ func (s *usageSniffer) Result() (int64, int64, bool) {
 		s.inspect(s.buffer)
 		s.buffer = nil
 	}
-	return s.input, s.output, s.found
+	return s.input, s.output, s.inputFound && s.outputFound
 }
 
 func (s *usageSniffer) inspect(document []byte) {
@@ -136,7 +136,11 @@ func (s *usageSniffer) record(usage map[string]any) {
 	}
 	for _, key := range []string{"input_tokens", "output_tokens", "prompt_tokens", "completion_tokens"} {
 		if value, ok := usage[key].(float64); ok && value >= 0 && value < 1e12 {
-			s.found = true
+			if key == "input_tokens" || key == "prompt_tokens" {
+				s.inputFound = true
+			} else {
+				s.outputFound = true
+			}
 		}
 	}
 	s.input, s.output = max(s.input, input), max(s.output, output)

@@ -1,0 +1,71 @@
+=== RUN   TestWorkspaceEndToEnd
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备智能体镜像，当前沙箱继续运行
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 保存用量并更新容器，终端会话将结束
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 智能体已添加
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备智能体镜像，当前沙箱继续运行
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 保存用量并更新容器，终端会话将结束
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备智能体镜像，当前沙箱继续运行
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 保存用量并更新容器，终端会话将结束
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 智能体已添加
+    workspace_e2e_test.go:58: sbx-x3s77bpj 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-x3s77bpj 准备网络与容器
+    workspace_e2e_test.go:58: sbx-x3s77bpj 启动门卫
+    workspace_e2e_test.go:58: sbx-x3s77bpj 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-x3s77bpj 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-x3s77bpj 已启动
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 检查专用虚拟机
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 准备网络与容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动门卫
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 向门卫下发策略与密钥
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 启动 Agent 容器
+    workspace_e2e_test.go:58: sbx-4rzl3vbe 已启动
+=== RUN   TestWorkspaceEndToEnd/Codex
+    workspace_e2e_test.go:154: 供应商连通性受限：无法连接到 xapi.qiniu.io（超时）
+=== RUN   TestWorkspaceEndToEnd/Claude_Code
+    workspace_e2e_test.go:176: 真实文件任务通过
+=== RUN   TestWorkspaceEndToEnd/DeepSeek_Harness
+    workspace_e2e_test.go:176: 真实文件任务通过
+=== NAME  TestWorkspaceEndToEnd
+    workspace_e2e_test.go:184: 模型请求=5 未知=0 估算=map[CNY:0.0310792] 未计价=0
+    workspace_e2e_test.go:186: 供应商=uat-claude 模型=deepseek-flash 输入=22022 输出=100 缓存=10880 费用=map[CNY:0.02546]
+    workspace_e2e_test.go:186: 供应商=uat-dsh 模型=deepseek-flash 输入=11792 输出=208 缓存=11136 费用=map[CNY:0.0056191999999999995]
+--- PASS: TestWorkspaceEndToEnd (39.20s)
+    --- SKIP: TestWorkspaceEndToEnd/Codex (12.02s)
+    --- PASS: TestWorkspaceEndToEnd/Claude_Code (3.32s)
+    --- PASS: TestWorkspaceEndToEnd/DeepSeek_Harness (3.77s)
+PASS
+ok  	github.com/shaoxier/AIofCage/internal/service	39.874s
