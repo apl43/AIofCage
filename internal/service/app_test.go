@@ -97,6 +97,34 @@ func TestSaveProviderValidation(t *testing.T) {
 	}
 }
 
+func TestUpdatingKeyCannotOverwriteAppliedCredential(t *testing.T) {
+	app, secrets, st := newApp(t)
+	view, err := app.SaveProvider(codexRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := st.Provider(view.ID)
+	s := sandbox.Sandbox{ID: "sbx-active", Name: "active", AppliedProviders: map[string]provider.Provider{p.ID: p}}
+	if err := st.SaveSandbox(s); err != nil {
+		t.Fatal(err)
+	}
+	edit := codexRequest()
+	edit.ID, edit.APIKey = p.ID, "replacement-key"
+	if _, err := app.SaveProvider(edit); err == nil || !strings.Contains(err.Error(), "先停止沙箱") {
+		t.Fatalf("覆盖了已生效密钥：%v", err)
+	}
+	if string(secrets[p.KeyRef]) != "secret-key-123" {
+		t.Fatal("拒绝更新后原密钥发生变化")
+	}
+	s.AppliedProviders = nil
+	if err := st.SaveSandbox(s); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.SaveProvider(edit); err != nil || string(secrets[p.KeyRef]) != "replacement-key" {
+		t.Fatalf("停止后未能更新密钥：%v", err)
+	}
+}
+
 func TestDeleteProviderInUse(t *testing.T) {
 	app, secrets, st := newApp(t)
 	view, err := app.SaveProvider(codexRequest())

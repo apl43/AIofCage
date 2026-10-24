@@ -72,6 +72,14 @@ func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Age
 		}
 	}
 	if err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error { s.Bindings = bindings; return nil }); err != nil {
+		if running {
+			recovery, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			if restoreErr := m.startSnapshot(recovery, id, &original); restoreErr != nil {
+				return fmt.Errorf("保存添加配置失败：%v；恢复原沙箱失败：%w。项目和主目录仍保留，可重试启动", err, restoreErr)
+			}
+			return fmt.Errorf("保存添加配置失败，已恢复原沙箱：%w", err)
+		}
 		return err
 	}
 	if running {
@@ -80,7 +88,7 @@ func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Age
 			defer cancel()
 			restoreErr := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error { s.Bindings = original.Bindings; return nil })
 			if restoreErr == nil {
-				restoreErr = m.start(recovery, id)
+				restoreErr = m.startSnapshot(recovery, id, &original)
 			}
 			if restoreErr != nil {
 				return fmt.Errorf("添加失败：%v；恢复原沙箱失败：%w。项目和主目录仍保留，可重试启动", err, restoreErr)

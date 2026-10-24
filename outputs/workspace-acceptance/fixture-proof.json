@@ -1,0 +1,12 @@
+{
+  "uat-retained.txt": "retained\n",
+  "uat-second.txt": "second\n",
+  "uat-gui-dsh.txt": "gui-dsh-ok",
+  "uat-gui-priced.txt": "priced-ok",
+  "terminal_marker_processes_after_close": 0,
+  "gui_model_requests": 11,
+  "gui_unknown_requests": 5,
+  "gui_unpriced_requests": 8,
+  "gui_estimated_CNY_display": "0.0063",
+  "pricing_note": "验收合成单价，不是供应商报价；每百万 token 输入2、输出10、缓存读0.2、缓存写2 CNY"
+}

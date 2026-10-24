@@ -1,0 +1,28 @@
+{
+  "sandboxes": [
+    {
+      "id": "sbx-j4mgqw3b",
+      "name": "s3-demo"
+    },
+    {
+      "id": "sbx-vlbextkx",
+      "name": "s9-db"
+    }
+  ],
+  "provider_ids": [
+    "xapi",
+    "deepseek-cc",
+    "deepseek-dsh"
+  ],
+  "container_states": {
+    "aiofcage-sbx-j4mgqw3b-agent": "exited",
+    "aiofcage-sbx-vlbextkx-agent": "running",
+    "aiofcage-sbx-vlbextkx-gate": "running",
+    "aiofcage-sbx-vlbextkx-mcp-shopdb": "running"
+  },
+  "remaining_uat_projects": [],
+  "unexpected_sandbox_resources": [],
+  "fixture_audit_exists": false,
+  "deletion_method": "GUI 停止；cagectl 删除；精确路径移除本轮测试项目和 audit",
+  "keychain": "删除的配置副本引用原条目，原条目保留且未改动"
+}

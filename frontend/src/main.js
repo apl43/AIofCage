@@ -1,4 +1,5 @@
 // AIofCage 桌面界面：左侧导航 + 各页面。样式见 main.css。
+import "./js/frames.js";
 import { render } from "preact";
 import { useEffect, useState, useCallback } from "preact/hooks";
 import { html, call } from "./js/core.js";
