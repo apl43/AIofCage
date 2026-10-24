@@ -58,3 +58,20 @@ func TestSandboxHelpers(t *testing.T) {
 		t.Fatal("duplicate agent accepted")
 	}
 }
+
+func TestAddLiveCountsDeltasPerRun(t *testing.T) {
+	var s Sandbox
+	s.AddLive("run-a", map[string]ProviderUsage{"p": {Requests: 2, InputTokens: 10, OutputTokens: 5}}, 2, 15)
+	s.AddLive("run-a", map[string]ProviderUsage{"p": {Requests: 3, InputTokens: 30, OutputTokens: 6}}, 3, 36)
+	s.AddLive("run-a", map[string]ProviderUsage{"p": {Requests: 3, InputTokens: 30, OutputTokens: 6}}, 3, 36) // repeated poll
+	if got := s.ProviderUsage["p"]; got != (ProviderUsage{3, 30, 6}) {
+		t.Fatalf("run-a total %+v", got)
+	}
+	s.AddLive("run-b", map[string]ProviderUsage{"p": {Requests: 1, InputTokens: 4, OutputTokens: 1}, "q": {Requests: 1}}, 4, 41)
+	if got := s.ProviderUsage["p"]; got != (ProviderUsage{4, 34, 7}) {
+		t.Fatalf("after restart %+v", got)
+	}
+	if s.ProviderUsage["q"].Requests != 1 || s.Usage.Requests != 4 || s.Usage.Tokens != 41 {
+		t.Fatalf("totals %+v %+v", s.ProviderUsage, s.Usage)
+	}
+}

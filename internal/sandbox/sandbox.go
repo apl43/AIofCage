@@ -31,6 +31,20 @@ type Usage struct {
 	Tokens   uint64 `json:"tokens"`
 }
 
+// ProviderUsage is the cumulative usage of one provider within one sandbox.
+type ProviderUsage struct {
+	Requests     uint64 `json:"requests"`
+	InputTokens  uint64 `json:"input_tokens"`
+	OutputTokens uint64 `json:"output_tokens"`
+}
+
+// UsageCursor remembers the per-provider counters last seen from the current gatekeeper run, so
+// that polling adds only the difference and an app restart does not count a run twice.
+type UsageCursor struct {
+	RunID     string                   `json:"run_id"`
+	Providers map[string]ProviderUsage `json:"providers"`
+}
+
 type Sandbox struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -41,7 +55,38 @@ type Sandbox struct {
 	Placeholders map[string]string `json:"placeholders"`
 	Limits       Limits            `json:"limits"`
 	Usage        Usage             `json:"usage"`
-	CreatedAt    time.Time         `json:"created_at"`
+	// ProviderUsage is cumulative per provider ID; UsageCursor tracks the live gatekeeper run.
+	ProviderUsage map[string]ProviderUsage `json:"provider_usage,omitempty"`
+	UsageCursor   *UsageCursor             `json:"usage_cursor,omitempty"`
+	CreatedAt     time.Time                `json:"created_at"`
+}
+
+// AddLive folds a live per-provider snapshot from gatekeeper run runID into the cumulative counters.
+func (s *Sandbox) AddLive(runID string, live map[string]ProviderUsage, quotaRequests, quotaTokens uint64) {
+	if s.UsageCursor == nil || s.UsageCursor.RunID != runID {
+		s.UsageCursor = &UsageCursor{RunID: runID, Providers: map[string]ProviderUsage{}}
+	}
+	if s.ProviderUsage == nil {
+		s.ProviderUsage = map[string]ProviderUsage{}
+	}
+	for id, current := range live {
+		previous := s.UsageCursor.Providers[id]
+		total := s.ProviderUsage[id]
+		total.Requests += delta(current.Requests, previous.Requests)
+		total.InputTokens += delta(current.InputTokens, previous.InputTokens)
+		total.OutputTokens += delta(current.OutputTokens, previous.OutputTokens)
+		s.ProviderUsage[id] = total
+		s.UsageCursor.Providers[id] = current
+	}
+	s.Usage.Requests = max(s.Usage.Requests, quotaRequests)
+	s.Usage.Tokens = max(s.Usage.Tokens, quotaTokens)
+}
+
+func delta(current, previous uint64) uint64 {
+	if current < previous {
+		return current // counter reset without a new run ID: count what we see
+	}
+	return current - previous
 }
 
 // NewID returns an identifier usable in Docker object names.

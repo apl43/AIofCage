@@ -1,8 +1,8 @@
 // 沙箱页：参考 Docker Desktop 的容器列表——创建、启停、打开终端、切换供应商、删除。
 import { useEffect, useState } from "preact/hooks";
-import { html, call, AGENTS, agentName, STATES } from "./core.js";
+import { html, call, AGENTS, agentName, STATES, formatTokens, formatBytes } from "./core.js";
 
-export function SandboxesPage({ sandboxes, providers, overview, reload, notify, onAddProvider }) {
+export function SandboxesPage({ sandboxes, providers, overview, summary, reload, notify, onAddProvider, onLogs }) {
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState({}); // id → 正在进行的操作
   const [progress, setProgress] = useState({}); // id → 最近一条进度
@@ -47,6 +47,7 @@ export function SandboxesPage({ sandboxes, providers, overview, reload, notify, 
           </div>`
         : html`<div class="sandbox-list">
             ${sandboxes.map((s) => html`<${SandboxRow} key=${s.id} sandbox=${s} providers=${providers}
+              usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               busy=${busy[s.id]} progress=${progress[s.id]} run=${run} notify=${notify}
               onDelete=${() => setDeleting(s)} />`)}
           </div>`}
@@ -66,9 +67,11 @@ export function SandboxesPage({ sandboxes, providers, overview, reload, notify, 
     </section>`;
 }
 
-function SandboxRow({ sandbox, providers, busy, progress, run, notify, onDelete }) {
+function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, onDelete, onLogs }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
+  const maxRequests = usage?.max_requests || sandbox.limits.max_requests;
+  const maxTokens = usage?.max_tokens || sandbox.limits.max_tokens;
   const [terminalAgent, setTerminalAgent] = useState(sandbox.bindings[0]?.agent ?? "");
   const openTerminal = async () => {
     try {
@@ -105,8 +108,12 @@ function SandboxRow({ sandbox, providers, busy, progress, run, notify, onDelete 
         </label>`)}
       </div>
       <div class="usage">
-        <span><strong>${sandbox.usage.requests}</strong> 次请求${sandbox.limits.max_requests ? ` / ${sandbox.limits.max_requests}` : ""}</span>
-        <span><strong>${sandbox.usage.tokens}</strong> token${sandbox.limits.max_tokens ? ` / ${sandbox.limits.max_tokens}` : ""}</span>
+        <span><strong>${usage?.requests ?? sandbox.usage.requests}</strong> 次请求${maxRequests ? ` / ${maxRequests}` : ""}
+          ${quotaPercent(usage?.requests, maxRequests)}</span>
+        <span><strong>${formatTokens(usage?.tokens ?? sandbox.usage.tokens)}</strong> token${maxTokens ? ` / ${formatTokens(maxTokens)}` : ""}
+          ${quotaPercent(usage?.tokens, maxTokens)}</span>
+        ${usage?.stats && html`<span class="mono">CPU ${usage.stats.cpu_percent.toFixed(1)}% · 内存 ${formatBytes(usage.stats.memory_bytes)}</span>`}
+        <button class="link" onClick=${onLogs}>${usage?.denied ? html`<span class="count bad">拦截 ${usage.denied}</span> ` : ""}查看日志</button>
       </div>
       <div class="row-actions">
         ${running
@@ -265,4 +272,10 @@ export function EnvironmentPanel({ environment }) {
         </div>`
       )}
     </div>`;
+}
+
+function quotaPercent(used, limit) {
+  if (!limit || !used) return "";
+  const percent = Math.min(100, Math.round((used / limit) * 100));
+  return html`<span class=${percent >= 100 ? "quota bad" : percent >= 80 ? "quota warn" : "quota"}>${percent}%</span>`;
 }

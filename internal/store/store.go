@@ -138,6 +138,26 @@ func (s *Store) SaveSandbox(item sandbox.Sandbox) error {
 	})
 }
 
+// UpdateSandbox applies change to the stored sandbox atomically, so concurrent writers (the usage
+// monitor and lifecycle operations) never overwrite each other's fields.
+func (s *Store) UpdateSandbox(id string, change func(*sandbox.Sandbox) error) error {
+	return s.update("sandboxes.json", func(raw *[]json.RawMessage) error {
+		var items []sandbox.Sandbox
+		if err := decodeAll(*raw, &items); err != nil {
+			return err
+		}
+		for i := range items {
+			if items[i].ID == id {
+				if err := change(&items[i]); err != nil {
+					return err
+				}
+				return encodeAll(items, raw)
+			}
+		}
+		return fmt.Errorf("沙箱 %s %w", id, ErrNotFound)
+	})
+}
+
 func (s *Store) DeleteSandbox(id string) error {
 	return s.update("sandboxes.json", func(raw *[]json.RawMessage) error {
 		var items []sandbox.Sandbox

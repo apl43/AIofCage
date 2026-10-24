@@ -461,28 +461,34 @@ func (m *Manager) writeAgentFiles(ctx context.Context, client *gateClient, sbx s
 // and new agent settings immediately; the agent picks them up on its next launch.
 func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, providerID string) error {
 	defer m.lock(id)()
-	sbx, err := m.store.Sandbox(id)
-	if err != nil {
-		return err
-	}
-	found := false
-	for i := range sbx.Bindings {
-		if sbx.Bindings[i].Agent == agent {
-			sbx.Bindings[i].ProviderID, found = providerID, true
-		}
-	}
-	if !found {
-		return fmt.Errorf("沙箱里没有安装 %s", agent)
-	}
 	if providerID != "" {
 		if err := m.checkBinding(sandbox.Binding{Agent: agent, ProviderID: providerID}); err != nil {
 			return err
 		}
-		if sbx.Placeholders[providerID] == "" {
-			sbx.Placeholders[providerID] = sandbox.NewPlaceholder()
-		}
 	}
-	if err := m.store.SaveSandbox(sbx); err != nil {
+	err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		found := false
+		for i := range s.Bindings {
+			if s.Bindings[i].Agent == agent {
+				s.Bindings[i].ProviderID, found = providerID, true
+			}
+		}
+		if !found {
+			return fmt.Errorf("沙箱里没有安装 %s", agent)
+		}
+		if s.Placeholders == nil {
+			s.Placeholders = map[string]string{}
+		}
+		if providerID != "" && s.Placeholders[providerID] == "" {
+			s.Placeholders[providerID] = sandbox.NewPlaceholder()
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	sbx, err := m.store.Sandbox(id)
+	if err != nil {
 		return err
 	}
 	return m.refresh(ctx, sbx)
@@ -540,9 +546,15 @@ func (m *Manager) saveUsage(ctx context.Context, sbx sandbox.Sandbox) {
 	if err != nil {
 		return
 	}
-	sbx.Usage.Requests = max(sbx.Usage.Requests, usage.QuotaRequests)
-	sbx.Usage.Tokens = max(sbx.Usage.Tokens, usage.QuotaTokens)
-	_ = m.store.SaveSandbox(sbx)
+	_ = m.RecordUsage(sbx.ID, usage)
+}
+
+// RecordUsage folds a live gatekeeper usage snapshot into the stored cumulative counters.
+func (m *Manager) RecordUsage(id string, usage GateUsage) error {
+	return m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		s.AddLive(usage.RunID, usage.Providers(), usage.QuotaRequests, usage.QuotaTokens)
+		return nil
+	})
 }
 
 func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
@@ -638,4 +650,14 @@ func sortedKeys[V any](values map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// RunID returns the current gatekeeper run of a running sandbox (it changes on every restart).
+func (m *Manager) RunID(ctx context.Context, id string) (string, error) {
+	client, err := m.client(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	health, err := client.health(ctx)
+	return health.RunID, err
 }

@@ -45,3 +45,25 @@ export const STATES = {
   partial: { label: "状态异常", tone: "warn" },
   unknown: { label: "未知", tone: "idle" },
 };
+
+// 门卫事件的中文说明（reason_code → 文案）。
+export const REASONS = {
+  allowed: "已放行", completed: "完成", config_applied: "策略与密钥已下发",
+  default_deny: "不在允许列表，已拦截", rule_denied: "命中拒绝规则", credential_foreign: "携带了外来密钥（可能是外传）",
+  credential_missing: "缺少占位符密钥", credential_mismatch: "密钥请求头格式不符", connection_header_denied: "可疑的 Connection 请求头",
+  target_mismatch: "请求目标与隧道不一致", plain_http_denied: "禁止明文 HTTP", port_denied: "只允许 443 端口",
+  ip_literal_denied: "禁止直接访问 IP 地址", body_too_large: "请求体过大", redirect_denied: "拦截了跳转",
+  request_quota_exceeded: "已达到请求次数上限", token_quota_exceeded: "已达到 token 上限",
+  request_quota_80: "请求次数已用到 80%", token_quota_80: "token 已用到 80%",
+  upstream_failed: "连不上上游服务", destination_denied: "目标不是公网地址", upstream_status: "上游返回了错误",
+  closed_early: "连接提前结束", stream_interrupted: "数据流中断", not_configured: "门卫尚未配置",
+  cursor_from_other_run: "日志有缺口（门卫已重启）", buffer_overflow: "日志有缺口（应用离线太久）",
+};
+
+export const DECISIONS = {
+  inject: { label: "已注入密钥", tone: "ok" }, allow: { label: "放行", tone: "ok" }, deny: { label: "拦截", tone: "bad" },
+  error: { label: "出错", tone: "warn" }, "not-applicable": { label: "系统", tone: "idle" },
+};
+
+export const formatTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e4 ? `${(n / 1e3).toFixed(1)}k` : String(n ?? 0));
+export const formatBytes = (n) => (n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(1)} GB` : n >= 1 << 20 ? `${Math.round(n / (1 << 20))} MB` : `${Math.round((n ?? 0) / 1024)} KB`);

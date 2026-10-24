@@ -60,6 +60,7 @@ func run() error {
 		OnStartup: func(ctx context.Context) {
 			desktopContext = ctx
 			app.SetEmitter(func(event string, data any) { wailsruntime.EventsEmit(ctx, event, data) })
+			app.StartMonitor(ctx)
 		},
 		Bind: []interface{}{app},
 	})

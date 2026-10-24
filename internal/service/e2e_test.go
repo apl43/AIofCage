@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -76,6 +77,35 @@ func TestEndToEnd(t *testing.T) {
 	if len(key) > 0 && bytes.Contains(out, key) {
 		t.Fatal("real key visible inside the sandbox")
 	}
+	// Monitor: traffic inside the sandbox must show up as recorded events and usage.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	app.tick(ctx)
+	traffic := `curl -s -o /dev/null https://example.com; curl -s -o /dev/null -H "Authorization: Bearer $AIOFCAGE_CODEX_API_KEY" https://xapi.qiniu.io/v1/models -m 15; true`
+	if err := manager.Exec(ctx, view.ID, false, nil, io.Discard, io.Discard, "bash", "-c", traffic); err != nil {
+		t.Fatal(err)
+	}
+	var events []EventView
+	for deadline := time.Now().Add(20 * time.Second); time.Now().Before(deadline); time.Sleep(500 * time.Millisecond) {
+		events, _ = app.RecentEvents(view.ID)
+		if countReason(events, "default_deny") > 0 && countHost(events, "xapi.qiniu.io") > 0 {
+			break
+		}
+	}
+	if countReason(events, "default_deny") == 0 || countHost(events, "xapi.qiniu.io") == 0 {
+		t.Fatalf("events not recorded: %+v", events)
+	}
+	if data, err := os.ReadFile(app.auditPath(view.ID)); err != nil || bytes.Contains(data, key) || !bytes.Contains(data, []byte("example.com")) {
+		t.Fatalf("audit log missing or leaking: %v", err)
+	}
+	app.tick(ctx)
+	summary, _ := app.UsageSummary()
+	if len(summary.Sandboxes) != 1 || !summary.Sandboxes[0].Live || summary.Sandboxes[0].Denied == 0 || summary.Sandboxes[0].Stats == nil {
+		t.Fatalf("usage summary %+v", summary.Sandboxes)
+	}
+	if summary.Providers[p.ID].Requests == 0 {
+		t.Fatalf("provider usage not counted: %+v", summary.Providers)
+	}
 	if err := app.BindProvider(view.ID, session.Codex, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -85,4 +115,24 @@ func TestEndToEnd(t *testing.T) {
 	if views, _ = app.ListSandboxes(); views[0].State != "stopped" {
 		t.Fatalf("not stopped: %+v", views[0])
 	}
+}
+
+func countReason(events []EventView, reason string) int {
+	n := 0
+	for _, e := range events {
+		if e.ReasonCode == reason {
+			n++
+		}
+	}
+	return n
+}
+
+func countHost(events []EventView, host string) int {
+	n := 0
+	for _, e := range events {
+		if e.Host == host && e.SecretRef != "" {
+			n++
+		}
+	}
+	return n
 }

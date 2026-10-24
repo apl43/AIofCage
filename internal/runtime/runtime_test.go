@@ -67,3 +67,11 @@ func TestAgentImageContext(t *testing.T) {
 		t.Fatal("empty agent set accepted")
 	}
 }
+
+func TestParseSize(t *testing.T) {
+	for value, want := range map[string]uint64{"512B": 512, "1.5KiB": 1536, "12MiB": 12 << 20, "2kB": 2000, " 1.2GB ": 1_200_000_000, "bogus": 0} {
+		if got := parseSize(value); got != want {
+			t.Errorf("%q: got %d want %d", value, got, want)
+		}
+	}
+}
