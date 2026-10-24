@@ -21,6 +21,9 @@ func TestValidateProject(t *testing.T) {
 	os.MkdirAll(outside, 0o755)
 	link := filepath.Join(home, "CageWorkspace", "link")
 	os.Symlink(outside, link)
+	if err := (Sandbox{ID: NewID(), Name: "空白", ProjectPath: project}).Validate(); err != nil {
+		t.Fatalf("空白沙箱被拒绝: %v", err)
+	}
 	if err := ValidateProject(project); err != nil {
 		t.Fatalf("valid project rejected: %v", err)
 	}

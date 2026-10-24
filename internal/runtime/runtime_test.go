@@ -80,8 +80,17 @@ func TestAgentImageContext(t *testing.T) {
 	if !strings.Contains(dockerfile, "public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:") {
 		t.Fatal("base image must be pinned from public.ecr.aws")
 	}
-	if _, err := agentContext(nil); err == nil {
-		t.Fatal("empty agent set accepted")
+	empty, err := agentContext(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, spec := range Catalog() {
+		if strings.Contains(string(empty.files["Dockerfile"]), spec.Package+"@") {
+			t.Fatalf("空白镜像包含 %s", spec.Name)
+		}
+	}
+	if !strings.Contains(string(empty.files["Dockerfile"]), "USER 1000:1000") {
+		t.Fatal("空白镜像缺少非特权用户")
 	}
 }
 

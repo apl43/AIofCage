@@ -107,6 +107,7 @@ export function BindingSelects({ sandbox, providers, busy, run, notify }) {
     }
   };
   return html`<div class="bindings">
+    ${!sandbox.bindings.length && html`<span class="caption">空白沙箱 · 可使用 Shell</span>`}
     ${sandbox.bindings.map((b) => html`<label class="binding-select">
       <span>${agentName(b.agent)}</span>
       <select value=${b.provider_id} onChange=${bind(b.agent)} disabled=${Boolean(busy)}>
@@ -183,13 +184,13 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [mode, setMode] = useState("new");
-  const [agents, setAgents] = useState({ codex: true });
+  const [agents, setAgents] = useState({});
   const [bindings, setBindings] = useState(() => {
     const first = (agent) => providers.find((p) => p.agent === agent)?.id ?? "";
     return Object.fromEntries(AGENTS.map((a) => [a.id, first(a.id)]));
   });
   const [mcp, setMcp] = useState([]);
-  const [filesystem, setFilesystem] = useState(true);
+  const [filesystem, setFilesystem] = useState(false);
   const [maxRequests, setMaxRequests] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
   const [error, setError] = useState("");
@@ -213,7 +214,6 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
     setError("");
     try {
       const selected = AGENTS.filter((a) => agents[a.id]);
-      if (selected.length === 0) throw new Error("至少选择一个 Agent");
       const created = await call("CreateSandbox", {
         name, project_path: mode === "new" ? "" : path, project_mode: mode,
         bindings: selected.map((a) => ({ agent: a.id, provider_id: bindings[a.id] })),
@@ -250,7 +250,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
               所以会先<strong>复制一份</strong>进去，原文件夹不受影响。</p>`}
             ${path && inside && html`<p class="caption">直接使用这个文件夹，Agent 可以修改其中的文件。</p>`}`}
 
-          <label>要安装的 Agent 和供应商</label>
+          <label>智能体（可选，之后也能添加）</label>
           <div class="agent-pick">
             ${AGENTS.map((a) => {
               const options = providers.filter((p) => p.agent === a.id);
@@ -267,7 +267,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
             })}
           </div>
 
-          <label>MCP 服务</label>
+          <label>工具连接（可选）</label>
           <${MCPChoices} services=${services} selected=${mcp} filesystem=${filesystem} onChange=${(ids, fs) => { setMcp(ids); setFilesystem(fs); }} />
 
           <details>

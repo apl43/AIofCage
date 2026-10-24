@@ -112,9 +112,6 @@ func agentContext(agents []session.Agent) (buildContext, error) {
 			}
 		}
 	}
-	if len(specs) == 0 {
-		return buildContext{}, errors.New("至少选择一个 Agent")
-	}
 	text, err := assets.ReadFile("assets/agent/Dockerfile.tmpl")
 	if err != nil {
 		return buildContext{}, err
