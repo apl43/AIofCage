@@ -49,7 +49,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} />
       </div>`}
       ${tab === "overview" && html`<div class="panel detail-overview">
-        <div><h3>智能体与供应商</h3><button class="link" onClick=${() => setDetail({ ...detail, tab: "agents" })}>管理智能体</button><p class="caption">切换后，Agent 下次启动时使用新的供应商。</p>
+        <div><h3>智能体与供应商</h3><button class="link" onClick=${() => setDetail({ ...detail, tab: "agents" })}>管理智能体</button><p class="caption">选择在下次重启沙箱后应用。</p>
           <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} /></div>
         <div><h3>MCP 服务</h3><${MCPLine} sandbox=${sandbox} services=${services} busy=${busy} onEditMCP=${onEditMCP} /></div>
         <div><h3>用量</h3><${UsageStats} sandbox=${sandbox} usage=${usage} /></div>

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/session"
 )
 
@@ -50,6 +51,9 @@ type Sandbox struct {
 	Name        string    `json:"name"`
 	ProjectPath string    `json:"project_path"`
 	Bindings    []Binding `json:"bindings"`
+	// AppliedProviders 保存当前容器使用的非敏感配置；选择变更在重启后应用。
+	AppliedBindings  []Binding                    `json:"applied_bindings,omitempty"`
+	AppliedProviders map[string]provider.Provider `json:"applied_providers,omitempty"`
 	// Placeholders maps provider ID to the placeholder visible inside this sandbox. Placeholders
 	// are not secrets, but they are unique per sandbox and provider.
 	Placeholders map[string]string `json:"placeholders"`

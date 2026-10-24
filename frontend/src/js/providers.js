@@ -97,6 +97,7 @@ function ProviderCard({ provider, usage, onEdit, reload, notify }) {
       <div class="card-actions">
         <button onClick=${test} disabled=${testing}>${testing ? "测试中…" : "测试连接"}</button>
         <button onClick=${onEdit}>编辑</button>
+        <button onClick=${async () => { try { await call("DuplicateProvider", provider.id); await reload(); notify("已复制供应商，请编辑名称和模型"); } catch (e) { notify(e.message, true); } }}>复制</button>
         <button class="danger" onClick=${() => setConfirming(true)} disabled=${provider.used_by.length > 0}
           title=${provider.used_by.length ? "仍有沙箱在用，先给它们换一个供应商" : ""}>删除</button>
       </div>
@@ -131,7 +132,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
     try {
       const request = {
         id: form.id ?? "", name: form.name, agent: form.agent, protocol: form.protocol, base_url: form.base_url,
-        model: form.model, auth: form.auth, preset: form.preset ?? "",
+        model: form.model, auth: form.agent === "dsh" ? (form.protocol === "anthropic" ? "x-api-key" : "bearer") : form.auth, preset: form.preset ?? "",
         api_key: form.use_existing ? "" : form.api_key,
         existing_key_ref: form.use_existing && preset?.existing_key_ref ? preset.existing_key_ref : "",
       };
@@ -177,7 +178,7 @@ function ProviderDialog({ agent, presets, initial, onClose, onSaved }) {
                   ${COMPATIBLE[form.agent].map((id) => html`<option value=${id}>${PROTOCOLS[id]}</option>`)}
                 </select>
                 <label for="p-auth">密钥放在哪个请求头</label>
-                <select id="p-auth" value=${form.auth} onChange=${set("auth")}>
+                <select id="p-auth" disabled=${form.agent === "dsh"} value=${form.agent === "dsh" ? (form.protocol === "anthropic" ? "x-api-key" : "bearer") : form.auth} onChange=${set("auth")}>
                   ${Object.entries(AUTHS).map(([id, label]) => html`<option value=${id}>${label}</option>`)}
                 </select>
               </details>

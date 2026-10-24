@@ -33,7 +33,7 @@ export const PROTOCOLS = {
 export const COMPATIBLE = {
   codex: ["openai-responses"],
   "claude-code": ["anthropic"],
-  dsh: ["anthropic"],
+  dsh: ["openai-chat", "openai-responses", "anthropic"],
 };
 
 export const AUTHS = { bearer: "Authorization: Bearer", "x-api-key": "x-api-key 请求头" };

@@ -108,18 +108,19 @@ export function BindingSelects({ sandbox, providers, busy, run, notify }) {
   const bind = (agent) => async (event) => {
     const providerID = event.target.value;
     if (await run(sandbox, "切换供应商", "BindProvider", sandbox.id, agent, providerID)) {
-      notify(running ? `已切换：${agentName(agent)} 下次启动时使用新的供应商` : `已切换 ${agentName(agent)} 的供应商`);
+      notify(running ? `已切换：${agentName(agent)} 下次重启沙箱后使用新的供应商` : `已切换 ${agentName(agent)} 的供应商`);
     }
   };
   return html`<div class="bindings">
     ${!sandbox.bindings.length && html`<span class="caption">空白沙箱 · 可使用 Shell</span>`}
     ${sandbox.bindings.map((b) => html`<label class="binding-select">
-      <span>${agentName(b.agent)}</span>
+      <span>${agentName(b.agent)}${b.version && html`<small class="version">${b.version}</small>`}</span>
       <select value=${b.provider_id} onChange=${bind(b.agent)} disabled=${Boolean(busy)}>
         <option value="">未配置供应商</option>
         ${providers.filter((p) => p.agent === b.agent).map((p) => html`<option value=${p.id}>${p.name}</option>`)}
       </select>
     </label>`)}
+    ${sandbox.config_pending && html`<p class="caption pending">供应商选择已保存，重启沙箱后生效。当前任务继续使用原配置。</p>`}
   </div>`;
 }
 

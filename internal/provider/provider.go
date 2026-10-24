@@ -62,8 +62,8 @@ func Compatible(agent session.Agent, protocol Protocol) bool {
 	case session.ClaudeCode:
 		return protocol == Anthropic
 	case session.DSH:
-		// dsh's deepseek-official route speaks Anthropic Messages with an x-api-key header.
-		return protocol == Anthropic
+		// 固定版本的 llm-pi-ai 支持三种自定义协议。
+		return protocol == Anthropic || protocol == OpenAIChat || protocol == OpenAIResponses
 	}
 	return false
 }
@@ -105,8 +105,8 @@ func (p Provider) Validate() error {
 	if !keyRefPattern.MatchString(p.KeyRef) {
 		return errors.New("钥匙串条目名称格式无效")
 	}
-	if p.Agent == session.DSH && (p.BaseURL != DSHBaseURL || p.Auth != AuthXAPIKey) {
-		return errors.New("dsh 目前只支持 DeepSeek 官方接口（" + DSHBaseURL + "，x-api-key）")
+	if p.Agent == session.DSH && ((p.Protocol == Anthropic && p.Auth != AuthXAPIKey) || (p.Protocol != Anthropic && p.Auth != AuthBearer)) {
+		return errors.New("DeepSeek Harness 的 Anthropic 协议使用 x-api-key，OpenAI 协议使用 bearer")
 	}
 	return nil
 }

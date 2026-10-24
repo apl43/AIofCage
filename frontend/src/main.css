@@ -275,3 +275,5 @@ input:disabled, select:disabled { background: #f1f3f5; color: var(--muted); }
 .terminal-panel { height: calc(100vh - 228px); min-height: 300px; }
 @media (max-width: 1000px) { .sidebar { width: 164px; padding: 22px 10px; } main { margin-left: 164px; padding: 22px; } .brand { font-size: 16px; gap: 7px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+.version { display: block; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.pending { color: var(--warn); background: var(--warn-bg); border-radius: 6px; padding: 8px 10px; }

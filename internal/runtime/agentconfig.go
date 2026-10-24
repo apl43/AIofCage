@@ -73,8 +73,9 @@ func agentFiles(sbx sandbox.Sandbox, providers map[string]provider.Provider, ser
 			env["DISABLE_AUTOUPDATER"] = "1"
 			env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
 		case session.DSH:
-			// dsh's deepseek-official route reads the key from DEEPSEEK_API_KEY and sends x-api-key.
-			env["DEEPSEEK_API_KEY"] = placeholder
+			env["AIOFCAGE_DSH_API_KEY"] = placeholder
+			env["DSH_HOME"] = "/home/agent/.dsh"
+			files = append(files, agentFile{Path: ".dsh/cordis.patch.yml", Mode: 0o600, Content: dshConfig(p)})
 			env["DSH_TELEMETRY_DISABLED"] = "1"
 		}
 	}
@@ -147,4 +148,10 @@ func claudeState(sbx sandbox.Sandbox, p provider.Provider, hasProvider bool, ser
 	}
 	data, _ := json.Marshal(state)
 	return string(data)
+}
+
+// dshConfig 对应 npm 0.2.1-rc.2 的 llm-pi-ai 与 agent-default-model 配置。
+func dshConfig(p provider.Provider) string {
+	api := map[provider.Protocol]string{provider.OpenAIChat: "openai-completions", provider.OpenAIResponses: "openai-responses", provider.Anthropic: "anthropic-messages"}[p.Protocol]
+	return fmt.Sprintf("- id: llm-pi-ai\n  config:\n    providers:\n      aiofcage:\n        apiKeyEnv: AIOFCAGE_DSH_API_KEY\n        api: %s\n        baseURL: %s\n        models:\n          - id: %s\n- id: agent-default-model\n  config:\n    provider: aiofcage\n    model: %s\n", api, tomlString(p.BaseURL), tomlString(p.Model), tomlString(p.Model))
 }

@@ -140,10 +140,15 @@ func (a *App) view(p provider.Provider, sandboxes []sandbox.Sandbox) ProviderVie
 		view.KeySaved = true
 	}
 	for _, s := range sandboxes {
-		for _, binding := range s.Bindings {
+		bindings := append(append([]sandbox.Binding{}, s.Bindings...), s.AppliedBindings...)
+		used := false
+		for _, binding := range bindings {
 			if binding.ProviderID == p.ID {
-				view.UsedBy = append(view.UsedBy, s.Name)
+				used = true
 			}
+		}
+		if used {
+			view.UsedBy = append(view.UsedBy, s.Name)
 		}
 	}
 	return view
@@ -187,6 +192,15 @@ func (a *App) SaveProvider(request SaveProviderRequest) (ProviderView, error) {
 	if existing && request.Agent != p.Agent && len(used) > 0 {
 		return ProviderView{}, fmt.Errorf("还有沙箱在用这个供应商（%s），不能改成别的 Agent", strings.Join(used, "、"))
 	}
+	if existing && a.manager != nil {
+		for _, s := range sandboxes {
+			if s.ProviderFor(p.Agent) == p.ID {
+				if err := a.manager.CaptureApplied(ctx, s.ID); err != nil {
+					return ProviderView{}, err
+				}
+			}
+		}
+	}
 	p.Name, p.Agent, p.Protocol, p.BaseURL, p.Model, p.Auth, p.Preset =
 		request.Name, request.Agent, request.Protocol, request.BaseURL, request.Model, request.Auth, request.Preset
 	key := strings.TrimSpace(request.APIKey)
@@ -218,16 +232,7 @@ func (a *App) SaveProvider(request SaveProviderRequest) (ProviderView, error) {
 	if err := a.store.SaveProvider(p); err != nil {
 		return ProviderView{}, err
 	}
-	// Running sandboxes using this provider get the new key/endpoint right away.
-	if existing && a.manager != nil {
-		for _, s := range sandboxes {
-			if s.ProviderFor(p.Agent) == p.ID {
-				if err := a.manager.Refresh(ctx, s.ID); err != nil {
-					return a.view(p, sandboxes), fmt.Errorf("已保存，但更新运行中的沙箱「%s」失败：%w", s.Name, err)
-				}
-			}
-		}
-	}
+
 	return a.view(p, sandboxes), nil
 }
 
@@ -367,14 +372,18 @@ type SandboxView struct {
 	Filesystem  bool           `json:"filesystem_mcp"`
 	CreatedAt   time.Time      `json:"created_at"`
 	// Operation is the lifecycle operation in progress (启动、停止、删除) and Progress its latest step.
-	Operation string `json:"operation,omitempty"`
-	Progress  string `json:"progress,omitempty"`
+	Operation     string `json:"operation,omitempty"`
+	Progress      string `json:"progress,omitempty"`
+	ConfigPending bool   `json:"config_pending"`
 }
 
 type BindingView struct {
-	Agent        session.Agent `json:"agent"`
-	ProviderID   string        `json:"provider_id"`
-	ProviderName string        `json:"provider_name"`
+	Agent              session.Agent `json:"agent"`
+	ProviderID         string        `json:"provider_id"`
+	ProviderName       string        `json:"provider_name"`
+	Version            string        `json:"version"`
+	ActiveProviderID   string        `json:"active_provider_id"`
+	ActiveProviderName string        `json:"active_provider_name"`
 }
 
 func (a *App) ListSandboxes() ([]SandboxView, error) {
@@ -402,9 +411,61 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 		}
 		view.Operation, view.Progress = a.ops.get(s.ID)
 		for _, b := range s.Bindings {
-			view.Bindings = append(view.Bindings, BindingView{Agent: b.Agent, ProviderID: b.ProviderID, ProviderName: names[b.ProviderID]})
+			activeID := b.ProviderID
+			if s.AppliedProviders != nil {
+				activeID = ""
+				for _, ab := range s.AppliedBindings {
+					if ab.Agent == b.Agent {
+						activeID = ab.ProviderID
+					}
+				}
+			}
+			spec, _ := runtime.Spec(b.Agent)
+			view.Bindings = append(view.Bindings, BindingView{Agent: b.Agent, ProviderID: b.ProviderID, ProviderName: names[b.ProviderID], Version: spec.Version, ActiveProviderID: activeID, ActiveProviderName: names[activeID]})
+			if view.State == "running" && s.AppliedProviders != nil {
+				if activeID != b.ProviderID {
+					view.ConfigPending = true
+				}
+				if p, ok := s.AppliedProviders[b.ProviderID]; ok {
+					for _, current := range providers {
+						if current.ID == p.ID && (current.BaseURL != p.BaseURL || current.Model != p.Model || current.Protocol != p.Protocol || current.Auth != p.Auth || current.KeyRef != p.KeyRef) {
+							view.ConfigPending = true
+						}
+					}
+				}
+			}
 		}
 		views = append(views, view)
 	}
 	return views, nil
+}
+
+// DuplicateProvider 在可信宿主复制配置和凭据，前端不接触已保存密钥。
+func (a *App) DuplicateProvider(id string) (ProviderView, error) {
+	p, err := a.store.Provider(id)
+	if err != nil {
+		return ProviderView{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	key, err := a.vault.Read(ctx, p.KeyRef)
+	if err != nil {
+		return ProviderView{}, errors.New("原供应商的密钥不可用，无法复制")
+	}
+	defer func() {
+		for i := range key {
+			key[i] = 0
+		}
+	}()
+	p.ID, p.CreatedAt = newProviderID(), a.now().UTC()
+	p.Name = string([]rune(p.Name)[:min(len([]rune(p.Name)), 55)]) + " 副本"
+	p.KeyRef = provider.KeyRefFor(p.ID)
+	if err := a.vault.Put(ctx, p.KeyRef, key); err != nil {
+		return ProviderView{}, err
+	}
+	if err := a.store.SaveProvider(p); err != nil {
+		_ = a.vault.Delete(ctx, p.KeyRef)
+		return ProviderView{}, err
+	}
+	return a.view(p, nil), nil
 }

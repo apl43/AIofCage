@@ -334,6 +334,14 @@ func (m *Manager) start(ctx context.Context, id string) error {
 		m.stopContainers(context.Background(), n)
 		return err
 	}
+	if err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		s.AppliedBindings = append([]sandbox.Binding{}, sbx.Bindings...)
+		s.AppliedProviders = providers
+		return nil
+	}); err != nil {
+		m.stopContainers(context.Background(), n)
+		return err
+	}
 	m.progress(sbx.ID, "已启动")
 	return nil
 }
@@ -609,10 +617,12 @@ func (m *Manager) writeAgentFiles(ctx context.Context, client *gateClient, sbx s
 	return nil
 }
 
-// Bind switches the provider of one agent. A running sandbox gets the new key in its gatekeeper
-// and new agent settings immediately; the agent picks them up on its next launch.
+// Bind 只保存选择；当前容器的配置保留到下次重启。
 func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, providerID string) error {
 	defer m.lock(id)()
+	if err := m.captureApplied(ctx, id); err != nil {
+		return err
+	}
 	if providerID != "" {
 		if err := m.checkBinding(sandbox.Binding{Agent: agent, ProviderID: providerID}); err != nil {
 			return err
@@ -636,14 +646,7 @@ func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, prov
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	sbx, err := m.store.Sandbox(id)
-	if err != nil {
-		return err
-	}
-	return m.refresh(ctx, sbx)
+	return err
 }
 
 // Refresh re-delivers keys, policy and agent settings to a running sandbox, e.g. after one of its
@@ -657,13 +660,45 @@ func (m *Manager) Refresh(ctx context.Context, id string) error {
 	return m.refresh(ctx, sbx)
 }
 
-func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
-	if m.Status(ctx, sbx.ID).State != stateRunning {
+// captureApplied 为升级前的运行容器补记配置，避免修改时误称已经生效。
+func (m *Manager) captureApplied(ctx context.Context, id string) error {
+	sbx, err := m.store.Sandbox(id)
+	if err != nil {
+		return err
+	}
+	if sbx.AppliedProviders != nil || m.Status(ctx, id).State != stateRunning {
 		return nil
 	}
 	providers, err := m.providersFor(sbx)
 	if err != nil {
 		return err
+	}
+	return m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		s.AppliedBindings = append([]sandbox.Binding{}, sbx.Bindings...)
+		s.AppliedProviders = providers
+		return nil
+	})
+}
+
+// CaptureApplied 供供应商编辑在保存新配置前记录现有配置。
+func (m *Manager) CaptureApplied(ctx context.Context, id string) error {
+	defer m.lock(id)()
+	return m.captureApplied(ctx, id)
+}
+
+func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
+	if m.Status(ctx, sbx.ID).State != stateRunning {
+		return nil
+	}
+	if sbx.AppliedProviders != nil {
+		sbx.Bindings = sbx.AppliedBindings
+	}
+	providers, err := m.providersFor(sbx)
+	if err != nil {
+		return err
+	}
+	if sbx.AppliedProviders != nil {
+		providers = sbx.AppliedProviders
 	}
 	client, err := m.client(ctx, sbx.ID)
 	if err != nil {
@@ -694,7 +729,10 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	m.mu.Lock()
 	delete(m.gates, sbx.ID)
 	m.mu.Unlock()
-	return m.stopContainers(ctx, names(sbx.ID))
+	if err := m.stopContainers(ctx, names(sbx.ID)); err != nil {
+		return err
+	}
+	return m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error { s.AppliedBindings = nil; s.AppliedProviders = nil; return nil })
 }
 
 func (m *Manager) saveUsage(ctx context.Context, sbx sandbox.Sandbox) {
