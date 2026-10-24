@@ -3,6 +3,7 @@ package gatekeeper
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"strings"
 )
 
@@ -12,12 +13,14 @@ const maxUsageBuffer = 16 << 20
 // to the agent. It understands the usage objects of OpenAI Responses / Chat Completions and
 // Anthropic Messages, both as single JSON documents and as SSE streams.
 type usageSniffer struct {
-	sse      bool
-	buffer   []byte
-	overflow bool
-	input    int64
-	output   int64
-	found    bool
+	sse                   bool
+	buffer                []byte
+	overflow              bool
+	input                 int64
+	output                int64
+	cacheRead, cacheWrite int64
+	model                 string
+	found                 bool
 }
 
 func newUsageSniffer(contentType string) *usageSniffer {
@@ -80,7 +83,7 @@ func (s *usageSniffer) Result() (int64, int64, bool) {
 }
 
 func (s *usageSniffer) inspect(document []byte) {
-	if !bytes.Contains(document, []byte(`"usage"`)) {
+	if !bytes.Contains(document, []byte(`"usage"`)) && !bytes.Contains(document, []byte(`"model"`)) {
 		return
 	}
 	var value any
@@ -96,6 +99,9 @@ func (s *usageSniffer) walk(value any, depth int) {
 	}
 	switch typed := value.(type) {
 	case map[string]any:
+		if model, ok := typed["model"].(string); ok && usageModelPattern.MatchString(model) {
+			s.model = model
+		}
 		if usage, ok := typed["usage"].(map[string]any); ok {
 			s.record(usage)
 		}
@@ -111,21 +117,30 @@ func (s *usageSniffer) walk(value any, depth int) {
 
 // record keeps the largest value seen per field: streams report cumulative counts (Anthropic
 // sends input in message_start and cumulative output in message_delta).
+var usageModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$`)
+
 func (s *usageSniffer) record(usage map[string]any) {
-	input := number(usage, "input_tokens") + number(usage, "cache_creation_input_tokens") + number(usage, "cache_read_input_tokens")
-	if input == 0 {
-		input = number(usage, "prompt_tokens")
+	read, write := number(usage, "cache_read_input_tokens"), number(usage, "cache_creation_input_tokens")
+	input, output := number(usage, "input_tokens"), number(usage, "output_tokens")
+	if _, ok := usage["prompt_tokens"]; ok {
+		input, output = number(usage, "prompt_tokens"), number(usage, "completion_tokens")
+		if details, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+			read = number(details, "cached_tokens")
+		}
+		read = max(read, number(usage, "prompt_cache_hit_tokens"))
+	} else if details, ok := usage["input_tokens_details"].(map[string]any); ok {
+		read = number(details, "cached_tokens")
+	} else {
+		// Anthropic 的 input_tokens 不包含缓存；统一为包含缓存的总输入量。
+		input += read + write
 	}
-	output := number(usage, "output_tokens")
-	if output == 0 {
-		output = number(usage, "completion_tokens")
+	for _, key := range []string{"input_tokens", "output_tokens", "prompt_tokens", "completion_tokens"} {
+		if value, ok := usage[key].(float64); ok && value >= 0 && value < 1e12 {
+			s.found = true
+		}
 	}
-	if input == 0 && output == 0 {
-		return
-	}
-	s.found = true
-	s.input = max(s.input, input)
-	s.output = max(s.output, output)
+	s.input, s.output = max(s.input, input), max(s.output, output)
+	s.cacheRead, s.cacheWrite = max(s.cacheRead, read), max(s.cacheWrite, write)
 }
 
 func number(values map[string]any, key string) int64 {

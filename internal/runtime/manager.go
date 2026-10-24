@@ -530,7 +530,7 @@ func (m *Manager) gateConfig(ctx context.Context, sbx sandbox.Sandbox, providers
 		if placeholder == "" {
 			return config, fmt.Errorf("供应商「%s」缺少占位符", p.Name)
 		}
-		config.Secrets = append(config.Secrets, gatekeeper.Secret{ID: p.ID, Placeholder: placeholder,
+		config.Secrets = append(config.Secrets, gatekeeper.Secret{ID: p.ID, Model: p.Model, Agent: string(p.Agent), Name: p.Name, Placeholder: placeholder,
 			Header: header, Prefix: prefix, Value: string(key)})
 		config.Policy.Rules = append(config.Policy.Rules, p.Rules()...)
 	}
