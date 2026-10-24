@@ -260,7 +260,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
             <button type="button" onClick=${() => submit(false)} disabled=${saving}>只创建</button>
             <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : "创建并启动"}</button>
           </div>
-          <p class="caption">首次启动需要在专用虚拟机里构建镜像，大约 1 分钟。</p>
+          <p class="caption">某种 Agent 组合第一次启动时，要在专用虚拟机里构建镜像，通常需要 5–10 分钟；之后启动只要几秒。构建期间可以切到其他页面。</p>
         </form>
       </div>
     </div>`;

@@ -31,15 +31,17 @@ type App struct {
 	managerErr error
 	picker     DirectoryPicker
 	client     *http.Client
-	oauth      *oauth.Client
-	now        func() time.Time
-	emit       Emitter
-	terminal   TerminalOpener
-	monitor    *monitor
-	explain    explainCache
-	ops        operations
-	usageMu    sync.Mutex
-	demos      demoLog
+	// explainClient has no overall timeout; each commentary request is bounded by explainTimeout.
+	explainClient *http.Client
+	oauth         *oauth.Client
+	now           func() time.Time
+	emit          Emitter
+	terminal      TerminalOpener
+	monitor       *monitor
+	explain       explainCache
+	ops           operations
+	usageMu       sync.Mutex
+	demos         demoLog
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then
@@ -49,7 +51,8 @@ func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, mana
 	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}
 	a := &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
 		emit: func(string, any) {}, terminal: openInTerminal, monitor: newMonitor(), explain: explainCache{items: map[string]Explanation{}},
-		client: client, oauth: oauth.NewClient(client, openURL)}
+		client: client, oauth: oauth.NewClient(client, openURL),
+		explainClient: &http.Client{Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second}}}
 	if manager != nil {
 		// Progress is remembered as well as emitted, so a page opened later still shows it.
 		manager.Progress = func(id, message string) {

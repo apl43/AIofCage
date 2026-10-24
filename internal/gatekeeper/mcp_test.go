@@ -189,3 +189,46 @@ func mustJSON(value any) []byte {
 	data, _ := json.Marshal(value)
 	return data
 }
+
+// An agent that sends the session close while exiting hangs up at once. The connector must still
+// end the session, and neither that nor a repeated close is a connector failure.
+func TestMCPClientHangUpIsNotAnUpstreamFailure(t *testing.T) {
+	f := newMCPFixture(t)
+	seq := f.gate.events.last()
+	send := func(method, body string, cancelled bool) int {
+		r := httptest.NewRequest(method, "/mcp/pg", strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+connectorPlaceholder)
+		r.Header.Set("Mcp-Session-Id", "session-from-connector")
+		if cancelled {
+			ctx, cancel := context.WithCancel(r.Context())
+			cancel()
+			r = r.WithContext(ctx)
+		}
+		w := httptest.NewRecorder()
+		f.handlers.MCP.ServeHTTP(w, r)
+		return w.Code
+	}
+	send(http.MethodDelete, "", true)
+	if f.upstreamCalls.Load() != 1 {
+		t.Fatalf("a close from a client that hung up must still reach the connector: %d", f.upstreamCalls.Load())
+	}
+	f.status.Store(404)
+	if status := send(http.MethodDelete, "", false); status != 404 {
+		t.Fatalf("repeated close: %d", status)
+	}
+	f.status.Store(200)
+	send(http.MethodPost, `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"query"}}`, true)
+	events, _, _ := f.gate.events.since(seq)
+	var calls []audit.Event
+	for _, e := range events {
+		if e.Decision == audit.DecisionError {
+			t.Errorf("hang-ups and repeated closes are not errors: %+v", e)
+		}
+		if e.Action == audit.ActionMCPCall {
+			calls = append(calls, e)
+		}
+	}
+	if len(calls) != 1 || calls[0].ReasonCode != "client_closed" || calls[0].ToolID != "query" {
+		t.Fatalf("a tool call abandoned by the agent is recorded as client_closed: %+v", calls)
+	}
+}
