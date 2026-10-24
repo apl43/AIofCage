@@ -169,3 +169,26 @@ func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
 		t.Fatal("unknown services must be rejected")
 	}
 }
+
+func TestDSHCustomProviderConfig(t *testing.T) {
+	p := provider.Provider{ID: "custom", Agent: session.DSH, Protocol: provider.OpenAIResponses, BaseURL: "https://gateway.example/v1", Model: "custom-model"}
+	sbx := sandbox.Sandbox{Bindings: []sandbox.Binding{{Agent: session.DSH, ProviderID: p.ID}}, Placeholders: map[string]string{p.ID: "cage-placeholder"}}
+	files := agentFiles(sbx, map[string]provider.Provider{p.ID: p}, nil)
+	var patch, env string
+	for _, f := range files {
+		if f.Path == ".dsh/cordis.patch.yml" {
+			patch = f.Content
+		}
+		if f.Path == ".aiofcage/env" {
+			env = f.Content
+		}
+	}
+	for _, want := range []string{"openai-responses", "https://gateway.example/v1", "custom-model", "agent-default-model", "apiKeyEnv: AIOFCAGE_DSH_API_KEY"} {
+		if !strings.Contains(patch, want) {
+			t.Fatalf("缺少 %s", want)
+		}
+	}
+	if !strings.Contains(env, "cage-placeholder") || strings.Contains(patch, "cage-placeholder") {
+		t.Fatal("凭据引用不正确")
+	}
+}

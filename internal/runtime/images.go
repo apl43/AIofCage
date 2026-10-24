@@ -42,7 +42,7 @@ type AgentSpec struct {
 var agentCatalog = []AgentSpec{
 	{session.Codex, "Codex", "@openai/codex", "0.164.0", "codex", false},
 	{session.ClaudeCode, "Claude Code", "@anthropic-ai/claude-code", "2.1.309", "claude", true},
-	{session.DSH, "dsh", "@deepseek-ai/dsh", "0.2.1-rc.2", "dsh", false},
+	{session.DSH, "DeepSeek Harness", "@deepseek-ai/dsh", "0.2.1-rc.2", "dsh", false},
 }
 
 func Spec(agent session.Agent) (AgentSpec, bool) {

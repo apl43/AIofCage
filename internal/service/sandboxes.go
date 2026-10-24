@@ -150,8 +150,7 @@ func (a *App) DeleteSandbox(id string, keepHome bool) error {
 	return a.retireUsage(sbx)
 }
 
-// BindProvider switches one agent's provider; a running sandbox is updated immediately and the
-// agent uses the new provider from its next launch.
+// BindProvider 保存供应商选择，运行中的沙箱在重启后应用。
 func (a *App) BindProvider(id string, agent session.Agent, providerID string) error {
 	if err := a.runtimeReady(); err != nil {
 		return err
