@@ -1,0 +1,4 @@
+#!/bin/sh
+# 先加载 AIofCage 为 Agent 生成的设置（占位符、接口地址；不含真实密钥），再运行命令。
+if [ -f "$HOME/.aiofcage/env" ]; then . "$HOME/.aiofcage/env"; fi
+exec "$@"

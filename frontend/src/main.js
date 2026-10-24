@@ -1,115 +1,121 @@
-const $ = (selector) => document.querySelector(selector);
-const feedback = $("#feedback");
-const dialog = $("#session-dialog");
-let agents = [];
+// AIofCage 桌面界面：左侧导航 + 各页面。样式见 main.css。
+import { render } from "preact";
+import { useEffect, useState, useCallback } from "preact/hooks";
+import { html, call } from "./js/core.js";
+import { ProvidersPage } from "./js/providers.js";
+import { SandboxesPage } from "./js/sandboxes.js";
+import { SettingsPage } from "./js/settings.js";
+import { LogsPage } from "./js/logs.js";
+import { MCPPage } from "./js/mcp.js";
 
-function backend() {
-  const app = window.go?.service?.App;
-  if (!app) throw new Error("桌面后端尚未连接，请使用 make desktop 构建后启动应用。");
-  return app;
-}
+const PAGES = [
+  { id: "sandboxes", title: "沙箱" },
+  { id: "providers", title: "供应商" },
+  { id: "mcp", title: "MCP" },
+  { id: "logs", title: "日志" },
+  { id: "settings", title: "设置" },
+];
 
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
-}
+function App() {
+  const [page, setPage] = useState(() => PAGES.some((p) => `#${p.id}` === location.hash) ? location.hash.slice(1) : "sandboxes");
+  const [overview, setOverview] = useState(null);
+  const [providers, setProviders] = useState([]);
+  const [presets, setPresets] = useState([]);
+  const [sandboxes, setSandboxes] = useState([]);
+  const [toast, setToast] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [summary, setSummary] = useState({ sandboxes: [], providers: {} });
+  const [logSandbox, setLogSandbox] = useState("");
+  const [logFilter, setLogFilter] = useState("all");
+  const [services, setServices] = useState([]);
+  const [mcpPresets, setMcpPresets] = useState([]);
 
-function showFeedback(message) {
-  feedback.textContent = message;
-  feedback.hidden = false;
-}
+  const notify = useCallback((message, isError = false) => {
+    setToast({ message, isError });
+    setTimeout(() => setToast((current) => (current?.message === message ? null : current)), 4000);
+  }, []);
 
-function element(tag, text, className) {
-  const node = document.createElement(tag);
-  if (text !== undefined) node.textContent = text;
-  if (className) node.className = className;
-  return node;
-}
-
-async function refresh() {
-  const app = backend();
-  const [overview, sessions] = await Promise.all([app.GetOverview(), app.ListSessions()]);
-  agents = overview.agents;
-  $("#version").textContent = `v${overview.version} · ${overview.stage}`;
-  const labels = { detected: "已检测", missing: "未找到", unsupported: "不支持", not_implemented: "待实现" };
-  const environment = $("#environment");
-  environment.replaceChildren();
-  for (const check of overview.environment.checks) {
-    const row = element("div", undefined, "check-row");
-    const details = element("div");
-    details.append(element("h3", check.name), element("p", check.detail));
-    row.append(details, element("span", labels[check.status] ?? check.status, `check-status ${check.status}`));
-    environment.append(row);
-  }
-  const select = $("#agent");
-  const previous = select.value;
-  select.replaceChildren();
-  for (const agent of agents) {
-    const option = element("option", `${agent.name} · ${agent.status}`);
-    option.value = agent.id;
-    select.append(option);
-  }
-  if (agents.some((agent) => agent.id === previous)) select.value = previous;
-  const list = $("#session-list");
-  if (!sessions.length) return;
-  list.replaceChildren();
-  for (const session of sessions) {
-    const row = element("article", undefined, "session-row");
-    const details = element("div");
-    const name = agents.find((agent) => agent.id === session.agent)?.name ?? session.agent;
-    details.append(element("h3", session.name), element("p", session.project_path), element("small", `${name} · 内存草稿 · 未挂载`));
-    const start = element("button", "启动（未就绪）");
-    start.disabled = true;
-    start.title = "隔离编排、凭据和启动自检尚未实现";
-    row.append(details, start);
-    list.append(row);
-  }
-}
-
-for (const button of document.querySelectorAll("[data-page]")) {
-  button.addEventListener("click", () => {
-    for (const page of document.querySelectorAll(".page")) page.hidden = page.id !== button.dataset.page;
-    for (const item of document.querySelectorAll("[data-page]")) item.classList.toggle("active", item === button);
-    $("#page-title").textContent = button.childNodes[0].textContent;
-  });
-}
-
-$("#new-session").addEventListener("click", () => {
-  $("#session-form").reset();
-  $("#form-error").hidden = true;
-  dialog.showModal();
-});
-$("#close-dialog").addEventListener("click", () => dialog.close());
-$("#refresh").addEventListener("click", () => refresh().catch((error) => showFeedback(errorMessage(error))));
-$("#choose-project").addEventListener("click", async () => {
-  try {
-    const project = await backend().SelectProject();
-    if (project) {
-      $("#project-path").value = project;
-      if (!$("#session-name").value) $("#session-name").value = project.split("/").filter(Boolean).at(-1) ?? "项目";
+  const reload = useCallback(async () => {
+    try {
+      const [p, s, m] = await Promise.all([call("ListProviders"), call("ListSandboxes"), call("ListMCPServices")]);
+      setProviders(p);
+      setSandboxes(s);
+      setServices(m);
+    } catch (error) {
+      notify(error.message, true);
     }
-  } catch (error) {
-    $("#form-error").textContent = errorMessage(error);
-    $("#form-error").hidden = false;
-  }
-});
-$("#session-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  $("#create-session").disabled = true;
-  try {
-    await backend().CreateSession({
-      name: $("#session-name").value,
-      project_path: $("#project-path").value,
-      agent: $("#agent").value,
-    });
-    dialog.close();
-    showFeedback("已保存内存草稿；项目尚未导入或挂载，退出应用后草稿会清除。");
-    await refresh();
-  } catch (error) {
-    $("#form-error").textContent = errorMessage(error);
-    $("#form-error").hidden = false;
-  } finally {
-    $("#create-session").disabled = false;
-  }
-});
+  }, [notify]);
 
-refresh().catch((error) => showFeedback(errorMessage(error)));
+  const refreshSummary = useCallback(() => call("UsageSummary").then(setSummary).catch(() => {}), []);
+
+  useEffect(() => {
+    call("ListPresets").then(setPresets).catch((error) => notify(error.message, true));
+    call("ListMCPPresets").then(setMcpPresets).catch(() => {});
+    reload();
+    refreshSummary();
+    call("RecentEvents", "").then(setEvents).catch(() => {});
+    const alerted = {};
+    const offEvent = window.runtime?.EventsOn?.("sandbox:event", (event) => {
+      setEvents((current) => [...current.slice(-499), event]);
+      // 额度提醒：同一沙箱 30 秒内只提醒一次。
+      if (event.action === "quota.warning" || event.action === "quota.blocked") {
+        const key = `${event.session_id}-${event.action}`;
+        if (!alerted[key] || Date.now() - alerted[key] > 30000) {
+          alerted[key] = Date.now();
+          notify(event.action === "quota.warning"
+            ? `「${event.sandbox_name}」的用量已到上限的 80%`
+            : `「${event.sandbox_name}」已达到用量上限，模型请求会被拒绝`, event.action === "quota.blocked");
+        }
+      }
+    });
+    const offStats = window.runtime?.EventsOn?.("sandbox:stats", () => refreshSummary());
+    const offAlert = window.runtime?.EventsOn?.("sandbox:alert", (alert) => notify(alert.message, true));
+    // 启动进度由后端记住；收到进度就刷新列表，切换页面回来也能看到正在进行的操作。
+    const offProgress = window.runtime?.EventsOn?.("sandbox:progress", () => reload());
+    // Esc 关闭最上层的对话框（等同点“关闭”或“取消”；操作进行中按钮禁用时不响应）。
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      const overlays = document.querySelectorAll(".overlay");
+      overlays[overlays.length - 1]?.querySelector("[data-dismiss], [aria-label='关闭']")?.click();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { offEvent?.(); offStats?.(); offAlert?.(); offProgress?.(); document.removeEventListener("keydown", onKey); };
+  }, []);
+
+  useEffect(() => { reload(); }, [page]);
+
+  useEffect(() => {
+    // 环境检查要访问虚拟机，单独加载，避免拖慢首屏。
+    call("GetOverview").then(setOverview).catch((error) => notify(error.message, true));
+  }, []);
+
+  const content = {
+    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} overview=${overview} summary=${summary}
+      reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
+      onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
+    providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
+    mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} reload=${reload} notify=${notify} />`,
+    logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify} initialFilter=${logFilter}
+      sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
+    settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify} />`,
+  }[page];
+
+  return html`
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-icon">C</span><span>AIofCage<small>Agent 的安全工作区</small></span></div>
+      <nav aria-label="主导航">
+        ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
+          aria-current=${item.id === page ? "page" : undefined} onClick=${() => { setLogFilter("all"); setPage(item.id); }}>${item.title}</button>`)}
+      </nav>
+      <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
+        ${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}
+        <small>${overview ? `v${overview.version}` : ""}</small></div>
+    </aside>
+    <main>
+      <header><div><p class="eyebrow">YOUR AGENTS. YOUR BOUNDARIES.</p><h1>${PAGES.find((p) => p.id === page).title}</h1></div></header>
+      ${toast && html`<p class=${toast.isError ? "feedback error" : "feedback"} role="status" aria-live="polite">${toast.message}</p>`}
+      ${content}
+    </main>`;
+}
+
+render(html`<${App} />`, document.getElementById("app"));

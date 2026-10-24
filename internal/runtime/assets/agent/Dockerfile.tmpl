@@ -1,0 +1,33 @@
+# 由 AIofCage 按所选 Agent 生成，请勿手改。
+# 基础镜像来自 AWS 上的 Docker 官方镜像（Docker Hub 在部分网络不可用），并固定摘要。
+# Node 24：dsh 依赖 import.meta.main（Node 22.16 不支持，会静默不执行）。
+FROM public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git less procps python3 ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/aiofcage \
+    && cp /etc/ssl/certs/ca-certificates.crt /opt/aiofcage/system-ca.crt \
+    && usermod --home /home/agent --move-home --login agent node \
+    && groupmod --new-name agent node
+# 内置的 filesystem MCP（无需任何密钥，只开放项目目录）。
+RUN npm install --global --no-fund --no-audit --ignore-scripts "@modelcontextprotocol/server-filesystem@2.0.0" \
+    && npm cache clean --force
+{{range .Agents}}RUN npm install --global --no-fund --no-audit{{if not .Scripts}} --ignore-scripts{{end}} "{{.Package}}@{{.Version}}" \
+    && npm cache clean --force
+{{end}}COPY aiofcage-init.py aiofcage-run /opt/aiofcage/
+COPY bashrc /home/agent/.bashrc
+RUN chmod 0755 /opt/aiofcage/aiofcage-init.py /opt/aiofcage/aiofcage-run \
+    && ln -s /opt/aiofcage/aiofcage-run /usr/local/bin/aiofcage-run \
+    && chown -R 1000:1000 /home/agent
+ENV HOME=/home/agent CODEX_HOME=/home/agent/.codex \
+    HTTP_PROXY=http://gatekeeper:8888 HTTPS_PROXY=http://gatekeeper:8888 \
+    http_proxy=http://gatekeeper:8888 https_proxy=http://gatekeeper:8888 \
+    NO_PROXY=localhost,127.0.0.1,gatekeeper no_proxy=localhost,127.0.0.1,gatekeeper \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt \
+    NODE_EXTRA_CA_CERTS=/home/agent/.aiofcage/gatekeeper-ca.crt
+USER 1000:1000
+WORKDIR /home/agent
+CMD ["sleep", "infinity"]

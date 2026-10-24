@@ -10,14 +10,14 @@ Qiniu Builder Day 2026 · 赛道一（产品研发组）参赛项目 · 🚧 开
 
 ## 开发启动
 
-桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本和 Xcode Command Line Tools。前端采用 Wails 的纯静态资源方式，不依赖 Node、npm 或前端打包步骤。Wails 固定为 v2.17.0。
+桌面目标为 macOS Apple Silicon，需要 Go 1.26.4 或更高版本、Xcode Command Line Tools，以及 Docker CLI 和 Colima（`brew install colima docker`）。前端用固定版本的 Preact + htm（放在 `frontend/src/vendor`），不依赖 Node、npm 或打包步骤。Wails 固定为 v2.17.0。
 
 ```bash
-make desktop
-./bin/AIofCage
+make app                  # 生成 bin/AIofCage.app（会先编译门卫和连接器）
+open bin/AIofCage.app     # 或在访达里双击
 ```
 
-界面可以选择文件夹并创建会话草稿；选择动作不会复制或挂载文件夹，草稿在退出应用后清除。启动按钮保持禁用，后端启动方法也返回未就绪。服务连接、策略、审计页标明待实现，不接受真实密钥。
+界面已有“供应商”页（从预设添加、API Key 存进钥匙串、测试连接、编辑与删除）、“沙箱”页（创建时选项目文件夹、勾选 Agent 并绑定供应商；启动、停止、在终端里打开 Agent、切换供应商、删除；实时用量与 CPU/内存）和“日志”页（每个经过门卫的请求实时显示，拦截标红，同时写入本地审计日志）。
 
 ```bash
 make gatekeeper   # 构建独立门卫二进制
@@ -26,7 +26,7 @@ make test         # 后端边界测试，包含竞态检查
 make dev          # 可选：使用固定版本 Wails CLI 热开发
 ```
 
-门卫的本机开发方式及接口状态见[模块与开发说明](docs/modules.md)。门卫当前始终拒绝代理和 MCP 请求，不能配置成可转发状态；应用不会创建 VM、容器或修改用户的 Docker context。
+门卫与沙箱运行时的开发方式见[模块与开发说明](docs/modules.md)。门卫已能按下发的策略做 MITM 转发、占位符换 key、额度和事件流（MCP 入口仍拒绝）；沙箱运行时可以用 `make cagectl` 生成的命令行工具创建、启动沙箱并在里面运行 Codex。桌面应用尚未接上运行时。
 
 独立的[第一批验证包](experiments/validation/README.md)提供环境检查、最小门卫测试、容器隔离探针和可选 Codex 真实任务；[验证记录](docs/validation/README.md)区分实测结果与阻塞项。实验通过不等于产品功能已完成或设计已冻结。
 
@@ -62,17 +62,18 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 
 - [x] 可构建的 Wails 桌面入口、模块页面和内存会话草稿
 - [x] 独立门卫入口、管理鉴权及未配置时始终拒绝的数据入口
-- [ ] 容器隔离 + 强制所有出网走门卫代理
-- [ ] 钥匙串存储密钥，门卫按域名注入
-- [ ] 供应商管理（参考 CC Switch）：按 agent 分组，预设一键添加，key 存钥匙串，连通性测试
-- [ ] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
-- [ ] 每个沙箱的用量与资源占用，按供应商汇总
-- [ ] 实时请求面板：放行 / 拦截 / 已注入密钥
-- [ ] 支持 Codex、Claude Code、dsh
-- [ ] MCP 免填上游秘密：HTTP Token、OAuth、无密钥 stdio、数据库密码四类基线
+- [x] 容器隔离 + 强制所有出网走门卫代理
+- [x] 钥匙串存储密钥，门卫按域名注入
+- [x] 供应商管理（参考 CC Switch）：按 agent 分组，预设一键添加，key 存钥匙串，连通性测试
+- [x] 沙箱管理（参考 Docker Desktop）：创建时勾选 agent、绑定供应商；启停、删除、打开终端、切换供应商
+- [x] 每个沙箱的用量与资源占用，按供应商汇总
+- [x] 实时请求面板：放行 / 拦截 / 已注入密钥
+- [ ] 支持 Codex、Claude Code、dsh（Claude Code 与 dsh 已用 DeepSeek 在沙箱里完成真实任务；Codex 已接入，真实模型应答待网络可达 xapi 后验证）
+- [x] MCP 免填上游秘密：HTTP Token、OAuth（浏览器登录，自动续期）、无密钥 stdio、数据库密码（PostgreSQL，可信连接器代持）四类基线（OAuth 已用 Notion、Linear 的真实服务验证到发现、注册客户端和授权页；完整登录需用真实账号点一次）
 - [ ] MCP 服务、工具与资源权限；连接、撤销、过期处理及跨会话隔离
-- [ ] 用量上限与异常告警，防止被下套的 Agent 刷光额度
-- [ ] 一键"模拟攻击"演示
+- [x] 用量上限与异常告警，防止被下套的 Agent 刷光额度
+- [x] 一键"模拟攻击"演示：7 个攻击各对应一起真实事件，结果和拦截记录同时可见
+- [x] AI 安全解说：一键让模型用中文解释某条拦截或总结沙箱活动（只发元数据，AI 不参与放行）
 
 权限边界：文件范围由 VM 共享和容器挂载执行；网络与模型 API 权限由门卫执行，MCP 工具/资源权限由协议网关执行。第一版不提供逐命令审批或完整文件访问审计。被拦请求结束后，用户只能授权后续访问，由客户端重新请求；代理不重放请求体。
 
@@ -86,7 +87,7 @@ Claude Code、Codex 这类编程 Agent 能直接在你的电脑上执行命令�
 
 - Go
 - [Wails](https://github.com/wailsapp/wails)：桌面界面
-- [goproxy](https://github.com/elazarl/goproxy)：计划用于 MITM 门卫，尚未接入
+- [goproxy](https://github.com/elazarl/goproxy)：门卫的 HTTPS 中间人代理（固定 v1.9.2）
 - Docker：容器隔离
 - Colima：专用 profile `aiofcage`，Docker context `colima-aiofcage`，仅共享 `~/CageWorkspace:w`
 - macOS 钥匙串：密钥存储

@@ -1,0 +1,208 @@
+// Package sandbox describes long-lived isolated environments. Each sandbox installs a set of
+// agents and binds each agent to one provider; several sandboxes may share a provider.
+package sandbox
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/shaoxier/AIofCage/internal/session"
+)
+
+type Binding struct {
+	Agent      session.Agent `json:"agent"`
+	ProviderID string        `json:"provider_id,omitempty"`
+}
+
+type Limits struct {
+	MaxRequests uint64 `json:"max_requests,omitempty"`
+	MaxTokens   uint64 `json:"max_tokens,omitempty"`
+}
+
+// Usage is the cumulative quota usage carried across gatekeeper restarts.
+type Usage struct {
+	Requests uint64 `json:"requests"`
+	Tokens   uint64 `json:"tokens"`
+}
+
+// ProviderUsage is the cumulative usage of one provider within one sandbox.
+type ProviderUsage struct {
+	Requests     uint64 `json:"requests"`
+	InputTokens  uint64 `json:"input_tokens"`
+	OutputTokens uint64 `json:"output_tokens"`
+}
+
+// UsageCursor remembers the per-provider counters last seen from the current gatekeeper run, so
+// that polling adds only the difference and an app restart does not count a run twice.
+type UsageCursor struct {
+	RunID     string                   `json:"run_id"`
+	Providers map[string]ProviderUsage `json:"providers"`
+}
+
+type Sandbox struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	ProjectPath string    `json:"project_path"`
+	Bindings    []Binding `json:"bindings"`
+	// Placeholders maps provider ID to the placeholder visible inside this sandbox. Placeholders
+	// are not secrets, but they are unique per sandbox and provider.
+	Placeholders map[string]string `json:"placeholders"`
+	Limits       Limits            `json:"limits"`
+	// MCP lists enabled remote MCP services; FilesystemMCP enables the built-in, secret-free
+	// filesystem server scoped to the project folder.
+	MCP           []string `json:"mcp,omitempty"`
+	FilesystemMCP bool     `json:"filesystem_mcp,omitempty"`
+	Usage         Usage    `json:"usage"`
+	// ProviderUsage is cumulative per provider ID; UsageCursor tracks the live gatekeeper run.
+	ProviderUsage map[string]ProviderUsage `json:"provider_usage,omitempty"`
+	UsageCursor   *UsageCursor             `json:"usage_cursor,omitempty"`
+	CreatedAt     time.Time                `json:"created_at"`
+}
+
+// AddLive folds a live per-provider snapshot from gatekeeper run runID into the cumulative counters.
+func (s *Sandbox) AddLive(runID string, live map[string]ProviderUsage, quotaRequests, quotaTokens uint64) {
+	if s.UsageCursor == nil || s.UsageCursor.RunID != runID {
+		s.UsageCursor = &UsageCursor{RunID: runID, Providers: map[string]ProviderUsage{}}
+	}
+	if s.ProviderUsage == nil {
+		s.ProviderUsage = map[string]ProviderUsage{}
+	}
+	for id, current := range live {
+		previous := s.UsageCursor.Providers[id]
+		total := s.ProviderUsage[id]
+		total.Requests += delta(current.Requests, previous.Requests)
+		total.InputTokens += delta(current.InputTokens, previous.InputTokens)
+		total.OutputTokens += delta(current.OutputTokens, previous.OutputTokens)
+		s.ProviderUsage[id] = total
+		s.UsageCursor.Providers[id] = current
+	}
+	s.Usage.Requests = max(s.Usage.Requests, quotaRequests)
+	s.Usage.Tokens = max(s.Usage.Tokens, quotaTokens)
+}
+
+func delta(current, previous uint64) uint64 {
+	if current < previous {
+		return current // counter reset without a new run ID: count what we see
+	}
+	return current - previous
+}
+
+// NewID returns an identifier usable in Docker object names.
+func NewID() string {
+	var b [5]byte
+	_, _ = rand.Read(b[:])
+	return "sbx-" + strings.ToLower(strings.TrimRight(base32(b[:]), "="))
+}
+
+func base32(b []byte) string {
+	const alphabet = "abcdefghijklmnopqrstuvwxyz234567"
+	var out strings.Builder
+	var buffer, bits uint
+	for _, value := range b {
+		buffer = buffer<<8 | uint(value)
+		bits += 8
+		for bits >= 5 {
+			out.WriteByte(alphabet[(buffer>>(bits-5))&31])
+			bits -= 5
+		}
+	}
+	return out.String()
+}
+
+// NewPlaceholder returns a fresh placeholder for one provider in one sandbox.
+func NewPlaceholder() string {
+	var b [24]byte
+	_, _ = rand.Read(b[:])
+	return "cage-" + base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+// Agents lists the installed agents in a stable order.
+func (s Sandbox) Agents() []session.Agent {
+	var result []session.Agent
+	for _, agent := range []session.Agent{session.Codex, session.ClaudeCode, session.DSH} {
+		for _, binding := range s.Bindings {
+			if binding.Agent == agent {
+				result = append(result, agent)
+				break
+			}
+		}
+	}
+	return result
+}
+
+// ProviderFor returns the provider bound to agent, or "".
+func (s Sandbox) ProviderFor(agent session.Agent) string {
+	for _, binding := range s.Bindings {
+		if binding.Agent == agent {
+			return binding.ProviderID
+		}
+	}
+	return ""
+}
+
+// Workspace is the only host directory shared with the dedicated VM.
+func Workspace() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "CageWorkspace")
+}
+
+func (s Sandbox) Validate() error {
+	if !strings.HasPrefix(s.ID, "sbx-") || len(s.ID) > 32 {
+		return errors.New("沙箱 ID 无效")
+	}
+	name := strings.TrimSpace(s.Name)
+	if name == "" || len([]rune(name)) > 60 {
+		return errors.New("沙箱名称须为 1 至 60 个字符")
+	}
+	if err := ValidateProject(s.ProjectPath); err != nil {
+		return err
+	}
+	if len(s.Bindings) == 0 {
+		return errors.New("至少选择一个 Agent")
+	}
+	seen := map[session.Agent]bool{}
+	for _, binding := range s.Bindings {
+		if !binding.Agent.Valid() {
+			return fmt.Errorf("不支持的 Agent：%s", binding.Agent)
+		}
+		if seen[binding.Agent] {
+			return fmt.Errorf("Agent 重复：%s", binding.Agent)
+		}
+		seen[binding.Agent] = true
+	}
+	return nil
+}
+
+// ValidateProject requires a real directory inside ~/CageWorkspace (after resolving symlinks),
+// because that is the only directory the VM can see.
+func ValidateProject(project string) error {
+	if !filepath.IsAbs(project) || strings.ContainsAny(project, "\x00\n") {
+		return errors.New("项目路径必须是绝对路径")
+	}
+	workspace, err := filepath.EvalSymlinks(Workspace())
+	if err != nil {
+		return errors.New("工作区 ~/CageWorkspace 不存在")
+	}
+	resolved, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		return errors.New("项目目录不存在")
+	}
+	if resolved != project {
+		return errors.New("项目路径不能包含符号链接")
+	}
+	rel, err := filepath.Rel(workspace, resolved)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return errors.New("项目目录必须位于 ~/CageWorkspace 之内")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return errors.New("项目路径不是目录")
+	}
+	return nil
+}

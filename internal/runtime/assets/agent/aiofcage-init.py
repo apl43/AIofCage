@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""沙箱启动时由 AIofCage 调用：写入门卫的公有 CA 和 Agent 配置。
+
+只接收公有证书和非敏感设置（占位符、接口地址、模型名）；真实密钥永远不会进入这里。
+"""
+import json
+import os
+from pathlib import Path
+import sys
+
+HOME = Path("/home/agent")
+data = json.load(sys.stdin)
+ca = data["ca"]
+if "PRIVATE KEY" in ca or not ca.startswith("-----BEGIN CERTIFICATE-----"):
+    raise SystemExit("invalid certificate")
+
+# 系统信任库 = 镜像自带的公共根证书 + 本次门卫的 CA。/etc/ssl/certs 是 tmpfs，每次启动重写。
+system = Path("/opt/aiofcage/system-ca.crt").read_text()
+Path("/etc/ssl/certs/ca-certificates.crt").write_text(system.rstrip("\n") + "\n" + ca)
+
+
+def safe_target(relative: str) -> Path:
+    rel = Path(relative)
+    if rel.is_absolute() or ".." in rel.parts or not rel.parts:
+        raise SystemExit("invalid path")
+    current = HOME
+    for part in rel.parts:
+        current = current / part
+        # 拒绝经符号链接写到 home 以外（例如被链接到挂载的项目目录）。
+        if current.is_symlink():
+            raise SystemExit("refusing to write through a symlink")
+    return current
+
+
+def merge(base, update):
+    """把 update 合并进 base：字典递归合并，其他类型直接覆盖。"""
+    for key, value in update.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
+files = [{"path": ".aiofcage/gatekeeper-ca.crt", "mode": 0o644, "content": ca}] + data.get("files", [])
+for item in files:
+    target = safe_target(item["path"])
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    content = item["content"]
+    if item.get("merge_json"):
+        # Agent 自己也会写这个文件（例如 ~/.claude.json），只合并我们需要的键，保留其余状态。
+        try:
+            existing = json.loads(target.read_text()) if target.exists() else {}
+        except (OSError, ValueError):
+            existing = {}
+        if not isinstance(existing, dict):
+            existing = {}
+        update = json.loads(content)
+        for key in item.get("replace_keys", []):
+            # 这些键由 AIofCage 整体管理（例如 mcpServers），先删除旧值再写入，避免残留已停用的服务。
+            existing.pop(key, None)
+        content = json.dumps(merge(existing, update), ensure_ascii=False, indent=2)
+    tmp = target.with_name(target.name + ".aiofcage-tmp")
+    tmp.write_text(content)
+    os.chmod(tmp, item.get("mode", 0o600))
+    os.replace(tmp, target)
+print("ok")

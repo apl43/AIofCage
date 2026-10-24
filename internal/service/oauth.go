@@ -1,0 +1,129 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/shaoxier/AIofCage/internal/runtime"
+)
+
+// oauthCheckInterval is how often tokens of OAuth services used by running sandboxes are checked.
+const oauthCheckInterval = time.Minute
+
+func openURL(target string) error {
+	if !strings.HasPrefix(target, "https://") {
+		return errors.New("只打开 https 地址")
+	}
+	return exec.Command("/usr/bin/open", target).Run()
+}
+
+// AuthorizeMCPService runs the OAuth login in the user's browser and keeps the credentials in the
+// Keychain. Running sandboxes that use the service get the new access token at once.
+func (a *App) AuthorizeMCPService(id string) (MCPServiceView, error) {
+	service, err := a.store.MCPService(id)
+	if err != nil {
+		return MCPServiceView{}, err
+	}
+	if !service.IsOAuth() {
+		return MCPServiceView{}, errors.New("这个服务不使用 OAuth 登录")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+	creds, err := a.oauth.Login(ctx, service.URL)
+	if err != nil {
+		return MCPServiceView{}, err
+	}
+	data, err := json.Marshal(creds)
+	if err != nil {
+		return MCPServiceView{}, err
+	}
+	if err := a.vault.Put(ctx, service.KeyRef, data); err != nil {
+		return MCPServiceView{}, err
+	}
+	view, err := a.mcpView(service)
+	if err != nil {
+		return view, err
+	}
+	return view, a.refreshSandboxesUsing(ctx, service.ID)
+}
+
+// refreshSandboxesUsing re-delivers configuration to running sandboxes that use a service.
+func (a *App) refreshSandboxesUsing(ctx context.Context, serviceID string) error {
+	if a.manager == nil {
+		return nil
+	}
+	sandboxes, err := a.store.Sandboxes()
+	if err != nil {
+		return err
+	}
+	for _, sbx := range sandboxes {
+		for _, id := range sbx.MCP {
+			if id == serviceID {
+				if err := a.manager.Refresh(ctx, sbx.ID); err != nil {
+					return fmt.Errorf("已保存，但更新运行中的沙箱「%s」失败：%w", sbx.Name, err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// refreshOAuth renews access tokens that running sandboxes will need soon and hands the new ones
+// to their gatekeepers, so long agent sessions are not cut off when a token expires.
+func (a *App) refreshOAuth(ctx context.Context) {
+	sandboxes, err := a.store.Sandboxes()
+	if err != nil {
+		return
+	}
+	checked := map[string]bool{}
+	for _, sbx := range sandboxes {
+		for _, id := range sbx.MCP {
+			if checked[id] {
+				continue
+			}
+			checked[id] = true
+			service, err := a.store.MCPService(id)
+			if err != nil || !service.IsOAuth() || !a.usedByRunning(ctx, id) {
+				continue
+			}
+			// Renew well before the gatekeeper's copy expires.
+			_, refreshed, err := a.oauth.AccessToken(ctx, a.vault, service.KeyRef, 2*runtime.OAuthMargin)
+			a.monitor.mu.Lock()
+			alerted := a.monitor.oauthAlerted[id]
+			a.monitor.oauthAlerted[id] = err != nil
+			a.monitor.mu.Unlock()
+			if err != nil {
+				if !alerted {
+					a.emit("sandbox:alert", map[string]string{"id": sbx.ID,
+						"message": fmt.Sprintf("MCP 服务「%s」需要重新登录授权：%s", service.Name, err.Error())})
+				}
+				continue
+			}
+			if refreshed {
+				if err := a.refreshSandboxesUsing(ctx, id); err != nil {
+					a.emit("sandbox:alert", map[string]string{"id": sbx.ID, "message": err.Error()})
+				}
+			}
+		}
+	}
+}
+
+func (a *App) usedByRunning(ctx context.Context, serviceID string) bool {
+	sandboxes, err := a.store.Sandboxes()
+	if err != nil {
+		return false
+	}
+	for _, sbx := range sandboxes {
+		for _, id := range sbx.MCP {
+			if id == serviceID && a.manager.Status(ctx, sbx.ID).State == "running" {
+				return true
+			}
+		}
+	}
+	return false
+}

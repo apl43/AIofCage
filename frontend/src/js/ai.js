@@ -1,0 +1,90 @@
+// AI 安全解说与模拟攻击。AI 只负责解释，不参与放行决定。
+import { useEffect, useState } from "preact/hooks";
+import { html, call } from "./core.js";
+
+const RISK_TONE = { 高: "bad", 中: "warn", 低: "ok" };
+
+export function ExplainDialog({ request, onClose }) {
+  const [state, setState] = useState({ loading: true });
+  useEffect(() => {
+    const job = request.eventId ? call("ExplainEvent", request.sandboxId, request.eventId) : call("SummarizeSandbox", request.sandboxId);
+    job.then((result) => setState({ result })).catch((error) => setState({ error: error.message }));
+  }, []);
+  const r = state.result;
+  return html`
+    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+      <div class="dialog" role="dialog" aria-modal="true" aria-label="AI 安全解说">
+        <div class="dialog-heading"><h2>${request.eventId ? "AI 解读这条记录" : `AI 总结「${request.sandboxName}」`}</h2>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}>×</button></div>
+        ${state.loading && html`<p class="caption" role="status">正在请模型分析（只发送主机、路径、结果等元数据，不发送请求内容和密钥）…</p>`}
+        ${state.error && html`<p class="form-error" role="alert">${state.error}</p>
+          <p class="caption">可以在“设置”页换一个 AI 解说使用的供应商，或检查网络后重试。</p>`}
+        ${r && html`<div class="explain">
+          <div class="card-top"><h3>${r.title}</h3><span class=${`pill ${RISK_TONE[r.risk] ?? "idle"}`}>风险：${r.risk}</span></div>
+          <p>${r.explanation}</p>
+          ${r.similar && html`<p><strong>类似的攻击：</strong>${r.similar}</p>`}
+          ${r.advice && html`<p><strong>建议：</strong>${r.advice}</p>`}
+          <p class="caption">由「${r.provider}」生成 · ${(r.latency_ms / 1000).toFixed(1)} 秒 · AI 只做解释，放行与否由门卫规则决定。</p>
+        </div>`}
+      </div>
+    </div>`;
+}
+
+export function AttackDialog({ sandbox, onClose, onLogs }) {
+  const [attacks, setAttacks] = useState([]);
+  const [results, setResults] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => { call("ListAttacks").then(setAttacks).catch((e) => setError(e.message)); }, []);
+  const start = async () => {
+    setRunning(true);
+    setError("");
+    try { setResults(await call("SimulateAttacks", sandbox.id)); } catch (e) { setError(e.message); } finally { setRunning(false); }
+  };
+  const list = results ?? attacks;
+  const blocked = results?.filter((r) => r.blocked).length ?? 0;
+  return html`
+    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && !running && onClose()}>
+      <div class="dialog wide" role="dialog" aria-modal="true" aria-label="模拟攻击">
+        <div class="dialog-heading"><h2>模拟攻击：检验「${sandbox.name}」</h2>
+          <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose} disabled=${running}>×</button></div>
+        <p class="caption">每一项都照着一起真实发生过的攻击，在沙箱里以 Agent 的身份执行。不会读取或修改你的任何真实文件。</p>
+        ${results && html`<p class=${blocked === results.filter((r) => !r.skipped).length ? "test-result ok" : "test-result bad"} role="status">
+          ${blocked} / ${results.filter((r) => !r.skipped).length} 项被拦截${results.some((r) => r.skipped) ? `，${results.filter((r) => r.skipped).length} 项跳过` : ""}</p>
+          <p class="caption">只有经过门卫的尝试（发往网站的请求）会出现在日志里；直连外网、DNS 外传这类根本没有网络可走的尝试不会产生日志。</p>`}
+        <div class="attack-list">
+          ${list.map((a) => html`<article class=${`attack ${a.blocked ? "ok" : a.skipped ? "" : results ? "bad" : ""}`} key=${a.id}>
+            <div class="card-top">
+              <h3>${a.title}</h3>
+              ${results ? html`<span class=${`pill ${a.skipped ? "idle" : a.blocked ? "ok" : "bad"}`}>${a.skipped ? "跳过" : a.blocked ? `✓ 已拦截 · ${a.layer}` : "✕ 未拦截"}</span>`
+                : html`<span class="pill idle">${a.layer}</span>`}
+            </div>
+            <p class="caption">参照：${a.incident}</p>
+            ${a.evidence && html`<pre class="evidence">${a.evidence}</pre>`}
+            ${a.note && html`<p class="note">${a.note}</p>`}
+          </article>`)}
+        </div>
+        ${error && html`<p class="form-error" role="alert">${error}</p>`}
+        <div class="dialog-actions">
+          ${results && html`<button onClick=${onLogs}>查看日志里的拦截记录</button>`}
+          <button class="primary" onClick=${start} disabled=${running}>${running ? "正在模拟…" : results ? "再来一次" : "开始模拟"}</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+export function ExplainerSettings({ providers, notify }) {
+  const [current, setCurrent] = useState("");
+  useEffect(() => { call("ExplainerProvider").then((p) => setCurrent(p.id)).catch(() => setCurrent("")); }, [providers.length]);
+  const usable = providers.filter((p) => p.key_saved);
+  const change = async (e) => {
+    try { await call("SetExplainerProvider", e.target.value); setCurrent(e.target.value); notify("已更新 AI 解说使用的供应商"); }
+    catch (err) { notify(err.message, true); }
+  };
+  return html`<div><dt>AI 安全解说使用的供应商</dt><dd>
+    ${usable.length
+      ? html`<select value=${current} onChange=${change}>${usable.map((p) => html`<option value=${p.id}>${p.name}（${p.model}）</option>`)}</select>
+        <p class="caption">只发送门卫记录的主机、路径、结果等元数据，不发送请求内容和任何密钥；由桌面应用直接调用。</p>`
+      : "先在“供应商”页添加一个供应商并保存密钥"}
+  </dd></div>`;
+}

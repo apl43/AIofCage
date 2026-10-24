@@ -1,0 +1,162 @@
+package runtime
+
+import (
+	"context"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/shaoxier/AIofCage/internal/mcp"
+	"github.com/shaoxier/AIofCage/internal/provider"
+	"github.com/shaoxier/AIofCage/internal/sandbox"
+	"github.com/shaoxier/AIofCage/internal/session"
+	"github.com/shaoxier/AIofCage/internal/store"
+)
+
+func TestAgentFilesContainOnlyPlaceholders(t *testing.T) {
+	codex := provider.Provider{ID: "xapi", Name: `七牛 "xapi"`, Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://xapi.qiniu.io/v1", Model: "gpt-6.1-sol", Auth: provider.AuthBearer, KeyRef: "k"}
+	claude := provider.Provider{ID: "ds", Name: "DeepSeek", Agent: session.ClaudeCode, Protocol: provider.Anthropic,
+		BaseURL: "https://api.deepseek.com/anthropic", Model: "deepseek-chat", Auth: provider.AuthXAPIKey, KeyRef: "k2"}
+	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "it's mine", ProjectPath: "/Users/u/CageWorkspace/p",
+		Bindings:     []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode, ProviderID: "ds"}, {Agent: session.DSH}},
+		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "ds": "cage-BBBBBBBBBBBBBBBBBBBB"}}
+	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex, "ds": claude}, nil)
+	byPath := map[string]string{}
+	for _, f := range files {
+		byPath[f.Path] = f.Content
+		if f.Mode != 0o600 {
+			t.Errorf("%s mode %o", f.Path, f.Mode)
+		}
+	}
+	env := byPath[".aiofcage/env"]
+	for _, want := range []string{"export AIOFCAGE_CODEX_API_KEY='cage-AAAAAAAAAAAAAAAAAAAA'",
+		"export ANTHROPIC_API_KEY='cage-BBBBBBBBBBBBBBBBBBBB'", "export ANTHROPIC_BASE_URL='https://api.deepseek.com/anthropic'",
+		`export AIOFCAGE_SANDBOX='it'"'"'s mine'`} {
+		if !strings.Contains(env, want) {
+			t.Errorf("env missing %q:\n%s", want, env)
+		}
+	}
+	config := byPath[".codex/config.toml"]
+	for _, want := range []string{`model = "gpt-6.1-sol"`, `name = "七牛 \"xapi\""`, `wire_api = "responses"`,
+		`env_key = "AIOFCAGE_CODEX_API_KEY"`, `[projects."/Users/u/CageWorkspace/p"]`} {
+		if !strings.Contains(config, want) {
+			t.Errorf("codex config missing %q:\n%s", want, config)
+		}
+	}
+	if strings.Contains(config, "cage-") {
+		t.Error("codex config must reference the placeholder through env_key only")
+	}
+}
+
+func TestConnectorImageContext(t *testing.T) {
+	build, err := connectorContext()
+	if err != nil {
+		t.Skip("connector binary not built (make connector-linux)")
+	}
+	dockerfile := string(build.files["Dockerfile"])
+	if !strings.Contains(dockerfile, `"@modelcontextprotocol/server-postgres@0.6.2"`) || !strings.Contains(dockerfile, "--ignore-scripts") ||
+		!strings.Contains(dockerfile, "USER 1000:1000") || !strings.HasPrefix(build.tag, "aiofcage/connector:") {
+		t.Fatalf("connector image:\n%s", dockerfile)
+	}
+}
+
+func TestAgentImageContext(t *testing.T) {
+	a, err := agentContext([]session.Agent{session.DSH, session.Codex})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := agentContext([]session.Agent{session.Codex, session.DSH})
+	if a.tag != b.tag || !strings.HasPrefix(a.tag, "aiofcage/agent:") {
+		t.Fatalf("tag must not depend on selection order: %s %s", a.tag, b.tag)
+	}
+	dockerfile := string(a.files["Dockerfile"])
+	codex := strings.Index(dockerfile, "@openai/codex@0.164.0")
+	dsh := strings.Index(dockerfile, "@deepseek-ai/dsh@")
+	if codex < 0 || dsh < 0 || codex > dsh || strings.Contains(dockerfile, "claude-code") {
+		t.Fatalf("unexpected Dockerfile:\n%s", dockerfile)
+	}
+	if !strings.Contains(dockerfile, "public.ecr.aws/docker/library/node:24.22.1-bookworm-slim@sha256:") {
+		t.Fatal("base image must be pinned from public.ecr.aws")
+	}
+	if _, err := agentContext(nil); err == nil {
+		t.Fatal("empty agent set accepted")
+	}
+}
+
+func TestParseSize(t *testing.T) {
+	for value, want := range map[string]uint64{"512B": 512, "1.5KiB": 1536, "12MiB": 12 << 20, "2kB": 2000, " 1.2GB ": 1_200_000_000, "bogus": 0} {
+		if got := parseSize(value); got != want {
+			t.Errorf("%q: got %d want %d", value, got, want)
+		}
+	}
+}
+
+func TestMCPConfigUsesPlaceholdersOnly(t *testing.T) {
+	codex := provider.Provider{ID: "xapi", Name: "x", Agent: session.Codex, Protocol: provider.OpenAIResponses,
+		BaseURL: "https://xapi.qiniu.io/v1", Model: "m", Auth: provider.AuthBearer, KeyRef: "k"}
+	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
+	shop := mcp.Service{ID: "shop", Name: "Shop", Kind: mcp.KindPostgres, URL: "postgresql://app@localhost/shop", KeyRef: mcp.KeyRefFor("shop")}
+	sbx := sandbox.Sandbox{ID: "sbx-x", Name: "n", ProjectPath: "/Users/u/CageWorkspace/p", FilesystemMCP: true, MCP: []string{"github", "shop"},
+		Bindings: []sandbox.Binding{{Agent: session.Codex, ProviderID: "xapi"}, {Agent: session.ClaudeCode}},
+		Placeholders: map[string]string{"xapi": "cage-AAAAAAAAAAAAAAAAAAAA", "mcp:github": "cage-GGGGGGGGGGGGGGGGGGGG",
+			"mcp:shop": "cage-SSSSSSSSSSSSSSSSSSSS"}}
+	files := agentFiles(sbx, map[string]provider.Provider{"xapi": codex}, map[string]mcp.Service{"github": github, "shop": shop})
+	byPath := map[string]agentFile{}
+	for _, f := range files {
+		byPath[f.Path] = f
+	}
+	config := byPath[".codex/config.toml"].Content
+	for _, want := range []string{"[mcp_servers.github]", `url = "https://api.githubcopilot.com/mcp/"`,
+		`bearer_token_env_var = "AIOFCAGE_MCP_GITHUB_TOKEN"`, "[mcp_servers.filesystem]", `args = ["/Users/u/CageWorkspace/p"]`,
+		"[mcp_servers.shop]", `url = "http://gatekeeper:8890/mcp/shop"`, `bearer_token_env_var = "AIOFCAGE_MCP_SHOP_TOKEN"`} {
+		if !strings.Contains(config, want) {
+			t.Errorf("codex config missing %q:\n%s", want, config)
+		}
+	}
+	if !strings.Contains(byPath[".aiofcage/env"].Content, "export AIOFCAGE_MCP_GITHUB_TOKEN='cage-GGGGGGGGGGGGGGGGGGGG'") {
+		t.Error("env missing MCP placeholder")
+	}
+	claude := byPath[".claude.json"]
+	if !claude.MergeJSON || len(claude.ReplaceKeys) != 1 || !strings.Contains(claude.Content, `"Authorization":"Bearer cage-GGGGGGGGGGGGGGGGGGGG"`) ||
+		!strings.Contains(claude.Content, `"command":"mcp-server-filesystem"`) ||
+		!strings.Contains(claude.Content, `"url":"http://gatekeeper:8890/mcp/shop"`) || strings.Contains(claude.Content, "postgresql://") {
+		t.Errorf("claude state: %+v", claude)
+	}
+}
+
+// SetMCP once deadlocked: it read the store inside the store's own update callback.
+func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{store: st, docker: runner{path: "/usr/bin/false"}, gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}}
+	github := mcp.Service{ID: "github", Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", KeyRef: mcp.KeyRefFor("github")}
+	if err := st.SaveMCPService(github); err != nil {
+		t.Fatal(err)
+	}
+	sbx := sandbox.Sandbox{ID: "sbx-test0001", Name: "t", ProjectPath: "/Users/u/CageWorkspace/p",
+		Bindings: []sandbox.Binding{{Agent: session.Codex}}, Placeholders: map[string]string{}}
+	if err := st.SaveSandbox(sbx); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- m.SetMCP(context.Background(), sbx.ID, []string{"github"}, true) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SetMCP deadlocked")
+	}
+	saved, _ := st.Sandbox(sbx.ID)
+	if len(saved.MCP) != 1 || !saved.FilesystemMCP || !strings.HasPrefix(saved.Placeholders["mcp:github"], "cage-") {
+		t.Fatalf("%+v", saved)
+	}
+	if err := m.SetMCP(context.Background(), sbx.ID, []string{"missing"}, false); err == nil {
+		t.Fatal("unknown services must be rejected")
+	}
+}
