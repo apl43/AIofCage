@@ -1,6 +1,6 @@
-# AiOf Cage
+# Ai of Cage
 
-AiOf Cage，寓意“笼中 AI”，是结合独立沙箱的桌面智能体工作区：为 Codex、Claude Code 和 DeepSeek Harness 配置供应商，在沙箱中工作，并查看用量、费用估算和运行状态。
+Ai of Cage，寓意“笼中 AI”，是结合独立沙箱的桌面智能体工作区：为 Codex、Claude Code 和 DeepSeek Harness 配置供应商，在沙箱中工作，并查看用量、费用估算和运行状态。
 
 Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silicon。
 
@@ -42,8 +42,8 @@ Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silic
 需要 Go 1.26.4 或更高版本、Xcode Command Line Tools、Docker CLI 与 Colima（可通过 `brew install colima docker` 安装）。Wails 固定为 v2.17.0。前端使用固定版本的 Preact、htm、xterm.js，直接嵌入应用，无 npm 构建步骤。
 
 ```bash
-make app                 # bin/AIofCage.app
-open bin/AIofCage.app     # 或在访达里双击
+make app                 # "bin/Ai of Cage.app"
+open "bin/Ai of Cage.app"     # 或在访达里双击
 make check               # Go 静态检查与编译
 make test                # 后端测试与竞态检查
 make cagectl             # 共用相同运行时的命令行工具

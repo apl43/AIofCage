@@ -1,5 +1,5 @@
 // 设置页：只读展示运行环境与 Agent 版本。
-import { html, PageTitle } from "./core.js";
+import { html, PageTitle, Icon } from "./core.js";
 import { EnvironmentPanel } from "./sandboxes.js";
 import { ExplainerSettings } from "./ai.js";
 
@@ -16,6 +16,12 @@ export function SettingsPage({ overview, providers, notify }) {
         <div><dt>可安装的 Agent</dt><dd>${overview.agents.map((a) => html`<span class="binding">${a.name} <span class="mono">${a.version}</span></span>`)}</dd></div>
         <${ExplainerSettings} providers=${providers} notify=${notify} />
         <div><dt>版本</dt><dd class="mono">${overview.version}</dd></div>
+        <div><dt>窗口</dt><dd><button onClick=${async () => {
+          const runtime = window.runtime;
+          if (!runtime?.WindowIsFullscreen) return;
+          if (await runtime.WindowIsFullscreen()) runtime.WindowUnfullscreen();
+          else runtime.WindowFullscreen();
+        }}><${Icon} name="expand" />切换全屏</button></dd></div>
       </dl>
       <${EnvironmentPanel} environment=${overview.environment} />
     </section>`;
