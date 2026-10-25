@@ -226,6 +226,8 @@ input[type="radio"], input[type="checkbox"] { width: 16px; height: 16px; min-hei
 .security-grid, .security-mcp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .security-item { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
 .security-item small { color: var(--faint); line-height: 1.45; }
+.conversation-diagnostics { display: grid; gap: 8px; margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.conversation-check { display: flex; gap: 8px; align-items: flex-start; font-size: var(--text-sm); }
 .agent-line { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 12px; align-items: center; }
 .agent-line label.check { margin: 0; }
 details { margin-top: 18px; }

@@ -20,4 +20,14 @@ func TestConversationValidation(t *testing.T) {
 	if string(buffer.data) != "aaaaaEND" {
 		t.Fatalf("诊断未按上限保存尾部：%q", buffer.data)
 	}
+	for _, tc := range []struct{ detail, want string }{
+		{"401 unauthorized", "供应商认证失败"},
+		{"429 rate limit", "供应商限流"},
+		{"dial timeout", "请求超时"},
+		{"connection refused", "无法连接供应商"},
+	} {
+		if got := classifyConversationFailure(tc.detail); !strings.Contains(got, tc.want) {
+			t.Fatalf("%q: %q", tc.detail, got)
+		}
+	}
 }

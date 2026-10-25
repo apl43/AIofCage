@@ -125,7 +125,11 @@ export async function openTerminal(sandbox, agent) {
       if (!sessions.has(id)) { await call("CloseConversation", id); return id; }
       session.model = session.info.model;
       session.models = [session.info.model];
-    } catch (error) { session.error = error.message; session.exited = true; }
+    } catch (error) {
+      session.error = error.message;
+      session.exited = true;
+      try { session.diagnostics = await call("DiagnoseConversation", sandbox.id, agent); } catch { /* 原始错误已经足够显示 */ }
+    }
     notifyChange();
     return id;
   }
