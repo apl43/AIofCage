@@ -31,12 +31,20 @@ function ServiceCard({ service, onEdit, reload, notify }) {
   const [result, setResult] = useState(null);
   const [testing, setTesting] = useState(false);
   const [authorizing, setAuthorizing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const authorize = async () => {
     setAuthorizing(true);
     setResult(null);
     try { await call("AuthorizeMCPService", service.id); notify(`「${service.name}」已授权`); await reload(); }
     catch (e) { setResult({ ok: false, message: e.message }); }
     finally { setAuthorizing(false); }
+  };
+  const disconnect = async () => {
+    setDisconnecting(true);
+    setResult(null);
+    try { await call("DisconnectMCPService", service.id); notify(`已断开「${service.name}」的本机授权`); await reload(); }
+    catch (e) { setResult({ ok: false, message: e.message }); }
+    finally { setDisconnecting(false); }
   };
   const test = async () => {
     setTesting(true);
@@ -73,8 +81,9 @@ function ServiceCard({ service, onEdit, reload, notify }) {
       ${result && html`<p class=${result.ok ? "test-result ok" : "test-result bad"} role="status">${result.ok ? "✓" : "✕"} ${result.message}</p>`}
       ${authorizing && html`<p class="test-result" role="status">请在打开的浏览器页面里登录并同意授权…</p>`}
       <div class="card-actions">
-        ${oauth && html`<button class=${service.key_saved ? "" : "primary"} onClick=${authorize} disabled=${authorizing}>
+        ${oauth && html`<button class=${service.key_saved ? "" : "primary"} onClick=${authorize} disabled=${authorizing || disconnecting}>
           ${authorizing ? "等待授权…" : service.key_saved ? "重新登录" : "登录授权"}</button>`}
+        ${oauth && service.key_saved && html`<button onClick=${disconnect} disabled=${disconnecting}>${disconnecting ? "断开中…" : "断开授权"}</button>`}
         <button onClick=${test} disabled=${testing || (oauth && !service.key_saved)}>${testing ? "测试中…" : "测试连接"}</button>
         <button onClick=${onEdit}>编辑</button>
         <button class="danger" onClick=${() => setConfirming(true)} disabled=${service.used_by.length > 0}
