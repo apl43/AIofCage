@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -34,5 +36,20 @@ func TestOnboardingDependenciesReportOnlyMissingTools(t *testing.T) {
 	checks, _ := checkDependencies("linux", "amd64", func(string) (string, error) { return "/tool", nil })
 	if checks[0].Status != "unsupported" {
 		t.Fatal("unsupported platform accepted")
+	}
+}
+
+func TestOnboardingExplainsIntelDependencyAndUsesNativeHomebrew(t *testing.T) {
+	checks, command := checkDependencies("darwin", "arm64", func(name string) (string, error) {
+		if name == "limactl" {
+			return "", fmt.Errorf("%w：limactl 是 Intel 版本", errToolArchitecture)
+		}
+		return "/tools/" + name, nil
+	})
+	if command != "/opt/homebrew/bin/brew install lima" {
+		t.Fatalf("suggested the wrong Homebrew: %s", command)
+	}
+	if checks[3].Status != "unsupported" || !strings.Contains(checks[3].Detail, "Intel") {
+		t.Fatalf("architecture error hidden as an installed dependency: %+v", checks[3])
 	}
 }

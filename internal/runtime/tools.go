@@ -3,38 +3,83 @@ package runtime
 import (
 	"bytes"
 	"context"
+	"debug/macho"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 )
 
-// Apps launched from Finder get a minimal PATH, so look in the usual Homebrew and Docker
-// locations explicitly. Child processes get the same directories prepended.
-var toolDirs = []string{"/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+var errToolArchitecture = errors.New("需要 ARM 原生工具")
+
+// Finder does not inherit shell startup files. Include user-installed tools explicitly.
+func toolSearchDirs() []string {
+	dirs := []string{"/opt/homebrew/bin"}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"))
+	}
+	dirs = append(dirs, "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+	return append(dirs, filepath.SplitList(os.Getenv("PATH"))...)
+}
 
 func findTool(name string) (string, error) {
-	for _, dir := range toolDirs {
+	return findToolIn(name, toolSearchDirs(), goruntime.GOOS == "darwin" && goruntime.GOARCH == "arm64")
+}
+
+func findToolIn(name string, dirs []string, nativeARM bool) (string, error) {
+	var incompatible error
+	for _, dir := range dirs {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
 		candidate := filepath.Join(dir, name)
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			if nativeARM && (name == "colima" || name == "limactl") && intelOnly(candidate) {
+				incompatible = fmt.Errorf("%w：%s 是 Intel 版本，请使用 Apple Silicon 版 Homebrew（/opt/homebrew/bin/brew）安装", errToolArchitecture, name)
+				continue
+			}
 			return candidate, nil
 		}
 	}
-	if path, err := exec.LookPath(name); err == nil {
-		return path, nil
+	if incompatible != nil {
+		return "", incompatible
 	}
 	return "", fmt.Errorf("未找到 %s，请先安装", name)
+}
+
+// Lima refuses Rosetta even for status checks. Accept ARM and universal binaries;
+// scripts remain supported for installations that use executable wrappers.
+func intelOnly(path string) bool {
+	if file, err := macho.Open(path); err == nil {
+		defer file.Close()
+		return file.Cpu == macho.CpuAmd64 || file.Cpu == macho.Cpu386
+	}
+	if file, err := macho.OpenFat(path); err == nil {
+		defer file.Close()
+		for _, arch := range file.Arches {
+			if arch.Cpu == macho.CpuArm64 {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // childEnv removes proxy and Docker selection variables so every command talks to the dedicated
 // instance directly and nothing from the user's shell leaks into the VM.
 func childEnv() []string {
+	return childEnvFor(os.Environ(), toolSearchDirs(), goruntime.GOOS == "darwin" && goruntime.GOARCH == "arm64")
+}
+
+func childEnvFor(source, dirs []string, nativeARM bool) []string {
 	var env []string
-	for _, item := range os.Environ() {
+	for _, item := range source {
 		key, _, _ := strings.Cut(item, "=")
 		lower := strings.ToLower(key)
 		if strings.HasSuffix(lower, "_proxy") || lower == "docker_host" || lower == "docker_context" || key == "PATH" {
@@ -42,11 +87,22 @@ func childEnv() []string {
 		}
 		env = append(env, item)
 	}
-	path := strings.Join(toolDirs, ":")
-	if current := os.Getenv("PATH"); current != "" {
-		path += ":" + current
+	// Colima invokes limactl by name; it must resolve the same native Lima we detected.
+	var selected []string
+	for _, name := range []string{"limactl", "colima"} {
+		if path, err := findToolIn(name, dirs, nativeARM); err == nil {
+			selected = append(selected, filepath.Dir(path))
+		}
 	}
-	return append(env, "PATH="+path)
+	var paths []string
+	seen := make(map[string]bool)
+	for _, dir := range append(selected, dirs...) {
+		if filepath.IsAbs(dir) && !seen[dir] {
+			paths = append(paths, dir)
+			seen[dir] = true
+		}
+	}
+	return append(env, "PATH="+strings.Join(paths, string(os.PathListSeparator)))
 }
 
 // commandError keeps only a short, fixed-size summary of stderr. Callers never pass secrets as
