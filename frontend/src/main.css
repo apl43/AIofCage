@@ -196,6 +196,14 @@ main:focus { outline: none; }
 .pricing-candidate { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .pricing-candidate span, .pricing-candidate small { display: block; color: var(--muted); font-size: var(--text-sm); }
 .pricing-candidate button { flex-shrink: 0; }
+.agent-version-settings { padding: 24px; margin: 24px 0; }
+.agent-version-settings .section-heading { flex-wrap: wrap; }
+.agent-version-list article { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding: 20px 0; border-top: 1px solid var(--line); }
+.agent-version-list article > div:first-child { min-width: 200px; }
+.agent-version-list small { display: block; color: var(--muted); margin-top: 6px; }
+.sandbox-agent-versions { border-top: 1px solid var(--line); padding-top: 22px; }
+.sandbox-agent-version { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 10px 0; }
+.sandbox-agent-version strong, .sandbox-agent-version span { display: block; }
 label { display: block; font-size: var(--text-sm); margin: 18px 0 7px; color: var(--muted); }
 label.check { display: flex; align-items: center; gap: 9px; min-height: 28px; font-size: var(--text-body); color: var(--ink); }
 input, select { width: 100%; min-width: 0; min-height: 42px; padding: 9px 12px; border: 1px solid #ced9d6; border-radius: 9px; background: #fff; color: var(--ink); }

@@ -45,6 +45,7 @@ type App struct {
 	usageMu       sync.Mutex
 	demos         demoLog
 	prices        pricingCatalog
+	updatesMu     sync.Mutex
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then
@@ -57,6 +58,7 @@ func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, mana
 		client: client, oauth: oauth.NewClient(client, openURL),
 		explainClient: &http.Client{Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second}}}
 	if manager != nil {
+		manager.BeforeReplace = a.closeSandboxConversations
 		// Progress is remembered as well as emitted, so a page opened later still shows it.
 		manager.Progress = func(id, message string) {
 			a.ops.setProgress(id, message)
@@ -412,11 +414,17 @@ type BindingView struct {
 	ProviderID         string        `json:"provider_id"`
 	ProviderName       string        `json:"provider_name"`
 	Version            string        `json:"version"`
+	TargetVersion      string        `json:"target_version"`
+	DefaultVersion     string        `json:"default_version"`
 	ActiveProviderID   string        `json:"active_provider_id"`
 	ActiveProviderName string        `json:"active_provider_name"`
 }
 
 func (a *App) ListSandboxes() ([]SandboxView, error) {
+	defaults, err := runtime.DefaultAgentVersions(a.store)
+	if err != nil {
+		return nil, err
+	}
 	sandboxes, err := a.store.Sandboxes()
 	if err != nil {
 		return nil, err
@@ -450,8 +458,12 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 					}
 				}
 			}
-			spec, _ := runtime.Spec(b.Agent)
-			view.Bindings = append(view.Bindings, BindingView{Agent: b.Agent, ProviderID: b.ProviderID, ProviderName: names[b.ProviderID], Version: spec.Version, ActiveProviderID: activeID, ActiveProviderName: names[activeID]})
+			target := runtime.PinnedAgentVersions(s)[b.Agent]
+			installed := s.AppliedAgentVersions[b.Agent]
+			if installed == "" && view.State != "not_created" {
+				installed = runtime.PinnedAgentVersions(sandbox.Sandbox{Bindings: []sandbox.Binding{b}})[b.Agent]
+			}
+			view.Bindings = append(view.Bindings, BindingView{Agent: b.Agent, ProviderID: b.ProviderID, ProviderName: names[b.ProviderID], Version: installed, TargetVersion: target, DefaultVersion: defaults[b.Agent], ActiveProviderID: activeID, ActiveProviderName: names[activeID]})
 			if view.State == "running" && s.AppliedProviders != nil {
 				if activeID != b.ProviderID {
 					view.ConfigPending = true

@@ -47,10 +47,12 @@ type UsageCursor struct {
 }
 
 type Sandbox struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	ProjectPath string    `json:"project_path"`
-	Bindings    []Binding `json:"bindings"`
+	ID                   string                   `json:"id"`
+	Name                 string                   `json:"name"`
+	ProjectPath          string                   `json:"project_path"`
+	Bindings             []Binding                `json:"bindings"`
+	AgentVersions        map[session.Agent]string `json:"agent_versions,omitempty"`
+	AppliedAgentVersions map[session.Agent]string `json:"applied_agent_versions,omitempty"`
 	// AppliedProviders 保存当前容器使用的非敏感配置；选择变更在重启后应用。
 	AppliedBindings  []Binding                    `json:"applied_bindings,omitempty"`
 	AppliedProviders map[string]provider.Provider `json:"applied_providers,omitempty"`

@@ -51,6 +51,8 @@ type Manager struct {
 
 	// Progress, when set, receives human-readable steps for long operations.
 	Progress func(sandboxID, message string)
+	// BeforeReplace 仅在候选镜像就绪、即将中断旧容器时关闭桌面会话。
+	BeforeReplace func(sandboxID string)
 	// OAuth refreshes tokens of OAuth MCP services before they are handed to a gatekeeper.
 	OAuth *oauth.Client
 
@@ -114,6 +116,14 @@ func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sand
 		FilesystemMCP: request.FilesystemMCP, Placeholders: map[string]string{}, CreatedAt: time.Now().UTC()}
 	if err := sbx.Validate(); err != nil {
 		return sbx, err
+	}
+	defaults, err := DefaultAgentVersions(m.store)
+	if err != nil {
+		return sbx, err
+	}
+	sbx.AgentVersions = map[session.Agent]string{}
+	for _, agent := range sbx.Agents() {
+		sbx.AgentVersions[agent] = defaults[agent]
 	}
 	if err := m.checkServices(request.MCP); err != nil {
 		return sbx, err
@@ -299,7 +309,7 @@ func (m *Manager) startSnapshot(ctx context.Context, id string, original *sandbo
 	if err != nil {
 		return err
 	}
-	agentBuild, err := agentContext(sbx.Agents())
+	agentBuild, err := agentContextVersions(sbx.Agents(), PinnedAgentVersions(sbx))
 	if err != nil {
 		return err
 	}
@@ -348,6 +358,8 @@ func (m *Manager) startSnapshot(ctx context.Context, id string, original *sandbo
 	if err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
 		s.AppliedBindings = append([]sandbox.Binding{}, sbx.Bindings...)
 		s.AppliedProviders = providers
+		s.AgentVersions = PinnedAgentVersions(sbx)
+		s.AppliedAgentVersions = PinnedAgentVersions(sbx)
 		return nil
 	}); err != nil {
 		m.stopContainers(context.Background(), n)

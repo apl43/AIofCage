@@ -82,6 +82,7 @@ func (r runner) run(ctx context.Context, timeout time.Duration, stdin []byte, ar
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, r.path, append(append([]string{}, r.args...), args...)...)
+	boundCommandLifetime(cmd)
 	cmd.Env = childEnv()
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
@@ -96,6 +97,9 @@ func (r runner) run(ctx context.Context, timeout time.Duration, stdin []byte, ar
 		}
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return stdout.Bytes(), &commandError{filepath.Base(r.path), action, "超时"}
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return stdout.Bytes(), &commandError{filepath.Base(r.path), action, "已取消"}
 		}
 		return stdout.Bytes(), &commandError{filepath.Base(r.path), action, summarize(stderr.Bytes())}
 	}

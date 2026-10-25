@@ -7,6 +7,7 @@ import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminalDraft, addTerminalImages, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
 import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
+import { SandboxAgentUpdates } from "./agent-versions.js";
 
 const activeTerminals = new Map();
 
@@ -58,6 +59,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         <div class="section-heading"><div><h3>已安装智能体</h3><p class="caption">为每个智能体独立选择供应商。</p></div>
           <button onClick=${onAddAgents} disabled=${Boolean(busy) || sandbox.bindings.length === AGENTS.length}><${Icon} name="plus" size=${18} />添加智能体</button></div>
         <${BindingSelects} sandbox=${sandbox} providers=${providers} busy=${busy} run=${run} notify=${notify} />
+        <${SandboxAgentUpdates} sandbox=${sandbox} busy=${busy} run=${run} />
       </div>`}
       ${tab === "overview" && html`<div class="panel detail-overview">
         <div><h3>智能体与供应商</h3><button class="link" onClick=${() => setDetail({ ...detail, tab: "agents" })}>管理智能体</button><p class="caption">选择在下次重启沙箱后应用。</p>
