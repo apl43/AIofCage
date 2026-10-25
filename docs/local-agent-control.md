@@ -1,5 +1,7 @@
 # 让本机 AI 调用 Ai of Cage
 
+[文档目录](README.md) · [使用指南](user-guide.md)
+
 设置 → 本机 AI 调用 → 复制 MCP 配置，将配置加入外部 AI 的 MCP 设置。应用二进制以 `--mcp` 启动时只运行控制服务，不打开桌面窗口。开发时也可以使用 `bin/cagectl ai serve`。无需启动桌面应用，不监听 TCP 端口，不新增 API Key；由父 Agent 启动并保持标准输入/输出连接。
 
 典型指令：
