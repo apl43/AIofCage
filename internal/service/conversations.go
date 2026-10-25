@@ -28,6 +28,7 @@ type ConversationInfo struct {
 	Agent           session.Agent `json:"agent"`
 	ProviderName    string        `json:"provider_name"`
 	Model           string        `json:"model"`
+	Effort          string        `json:"effort"`
 	ImageInput      bool          `json:"image_input"`
 	Resumed         bool          `json:"resumed"`
 	NativeSessionID string        `json:"native_session_id,omitempty"`
@@ -127,7 +128,7 @@ func (a *App) startConversation(id, sandboxID string, agent session.Agent, recov
 	if model == "" {
 		model = p.Model
 	}
-	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, Model: model,
+	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, Model: model, Effort: effort,
 		ImageInput: agent != session.DSH || p.ImageInput, Resumed: recovery != nil, NativeSessionID: nativeID}, nil
 }
 
@@ -559,7 +560,7 @@ func (a *App) ListRecoverableConversations() ([]ConversationRecoveryView, error)
 	if err != nil {
 		return nil, err
 	}
-	var result []ConversationRecoveryView
+	result := []ConversationRecoveryView{}
 	for _, item := range items {
 		sbx, err := a.store.Sandbox(item.SandboxID)
 		if err != nil {

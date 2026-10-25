@@ -450,6 +450,9 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 		}
 		result := c.executeAttempt(ctx, task, s, text, attemptModel, effort)
 		if result.err == nil {
+			c.mu.Lock()
+			task.State = "done"
+			c.mu.Unlock()
 			return
 		}
 		if ctx.Err() != nil || !result.retryable || index == len(task.providerChain)-1 {
@@ -522,6 +525,7 @@ func (c *agentController) executeAttempt(ctx context.Context, task *controlTask,
 		_ = c.app.manager.Exec(killCtx, s.ID, false, nil, io.Discard, io.Discard, "python3", "-c", endTerminalProcesses, marker)
 	}()
 	scanner := bufio.NewScanner(out)
+	var reportedError string
 	scanner.Buffer(make([]byte, 32768), 8<<20)
 	for scanner.Scan() {
 		var event struct {
@@ -549,6 +553,7 @@ func (c *agentController) executeAttempt(ctx context.Context, task *controlTask,
 			}
 		case "error":
 			task.Error = "智能体报告任务失败，请在沙箱中检查模型与供应商"
+			reportedError = event.Text
 		}
 		c.mu.Unlock()
 	}
@@ -561,17 +566,17 @@ func (c *agentController) executeAttempt(ctx context.Context, task *controlTask,
 	finalUsage, usageErr := c.app.manager.Usage(context.Background(), s.ID)
 	if usageErr == nil {
 		c.mu.Lock()
-		task.Requests = deltaCounter(finalUsage.QuotaRequests, initialUsage.QuotaRequests)
-		task.Tokens = deltaCounter(finalUsage.QuotaTokens, initialUsage.QuotaTokens)
+		task.Requests += deltaCounter(finalUsage.QuotaRequests, initialUsage.QuotaRequests)
+		task.Tokens += deltaCounter(finalUsage.QuotaTokens, initialUsage.QuotaTokens)
 		c.mu.Unlock()
 	}
 	if ctx.Err() != nil {
 		return taskAttemptResult{err: ctx.Err(), reason: "任务已取消"}
 	}
 	if scanner.Err() != nil || runErr != nil || task.Error != "" {
-		detail := strings.ToLower(strings.TrimSpace(string(diagnostics.data)))
-		reason := classifyConversationFailure(detail)
-		if task.Error != "" && reason == "请求失败，请检查模型、供应商和网络" {
+		detail := strings.TrimSpace(string(diagnostics.data) + "\n" + reportedError)
+		reason := conversationFailureHint(detail)
+		if task.Error != "" && detail == "" {
 			reason = task.Error
 		}
 		return taskAttemptResult{err: errors.New(reason), retryable: retryableProviderFailure(detail), reason: reason}
@@ -608,8 +613,9 @@ func deltaCounter(current, previous uint64) uint64 {
 
 func outputSummary(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
-	if len(text) > 500 {
-		return text[:500] + "…"
+	runes := []rune(text)
+	if len(runes) > 500 {
+		return string(runes[:500]) + "…"
 	}
 	return text
 }

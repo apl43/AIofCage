@@ -50,16 +50,17 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `GetOverview()` | 版本、运行环境检查（会访问专用虚拟机）、可安装的 Agent 及版本、数据目录与工作区 |
 | `ListPresets()` | 供应商预设（`internal/provider/presets.json`，模型名可能过时，可随时修改） |
 | `ListProviders()` | 供应商列表，只返回“密钥是否已保存”和使用它的沙箱，不返回密钥 |
-| `SaveProvider(request)` | 新建或编辑；`api_key` 只写入钥匙串；编辑时留空表示不改密钥；改动会立即同步到运行中的沙箱 |
+| `SaveProvider(request)` | 新建或编辑；`api_key` 只写入钥匙串，编辑时留空表示不改密钥；修改在用密钥前须停止引用它的沙箱，其他配置保存为下次重启生效 |
 | `DeleteProvider(id)` | 仍有沙箱在用时拒绝；同时删除 AIofCage 保存的钥匙串条目 |
 | `TestProvider(id)` | 由桌面进程直连供应商的模型列表接口，返回是否可达、密钥是否有效与耗时 |
 | `ListSandboxes()` | 沙箱、实际容器状态、Agent→供应商、累计用量，以及正在进行的操作（启动/停止/删除）和最近一条进度。操作由后端记住，切换页面或重开窗口都能看到；同一沙箱的操作进行中时再次点击会被拒绝并说明原因 |
 | `CreateSandbox(request)` | 名称、项目（`use` 工作区内已有文件夹 / `copy` 复制进工作区 / `new` 新建空文件夹）、Agent→供应商、可选的请求数与 token 上限 |
 | `StartSandbox(id)` / `StopSandbox(id)` | 启动过程通过 `sandbox:progress` 事件推送进度；首次启动会构建镜像 |
-| `BindProvider(id, agent, providerID)` | 切换某个 Agent 的供应商；运行中立即下发，Agent 下次启动生效 |
+| `BindProvider(id, agent, providerID)` | 保存某个 Agent 的供应商选择，重启沙箱后生效；当前运行快照保持原供应商 |
 | `OpenTerminal(id, agent)` | 在“终端”里以 Agent 用户进入项目目录，运行该 Agent（`agent` 为空时开 Shell）；第一次会请求“自动化”权限 |
 | `StartTerminal(termID, id, agent, cols, rows)` / `WriteTerminal(termID, data)` / `ResizeTerminal(termID, cols, rows)` / `CloseTerminal(termID)` | 应用内置终端（沙箱详情页的“终端”标签）：后端用 PTY 运行 `docker exec -it`，与系统终端的权限相同（Agent 用户、项目目录）；输出以 `terminal:data` 事件（base64）推给 xterm.js，进程结束发 `terminal:exit`；终端 ID 由窗口生成，避免启动输出丢失；最多同时 12 个，退出应用时全部关闭。切换页面时终端继续运行，回来时原样显示 |
 | `StartConversation(id, sandboxID, agent)` / `ListRecoverableConversations()` / `RecoverConversation(id)` | 结构化会话启动、恢复和列表；恢复只依赖非敏感原生 session 元数据，要求沙箱运行、桥接组件存在且供应商配置匹配，不返回消息正文或凭据 |
+| `DiagnoseConversation(sandboxID, agent)` | 检查本机环境、供应商绑定、钥匙串凭据是否存在、门卫容器与会话组件，不发送模型计费请求，也不等于上游模型已经可用 |
 | `OpenProjectFolder(id)` | 在访达中打开项目文件夹 |
 | `ResetSandbox(id, keepHome, restart)` | 清空门卫授权，删除连接器、Agent、门卫和网络，再按选项重建；项目与沙箱配置保留，`keepHome` 决定是否保留 Agent home，`restart` 决定是否自动恢复运行 |
 | `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
@@ -67,10 +68,14 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `RecentEvents(id)` | 最近的门卫事件（`id` 为空表示全部沙箱，最多 300 条），附沙箱名称 |
 | `UsageSummary()` | 每个沙箱的累计请求/token、实时拒绝数与 CPU/内存，以及按供应商汇总的累计用量（包括已删除沙箱的用量；删除供应商时一并清掉） |
 | `RevealAuditLog(id)` | 在访达中显示该沙箱的 JSONL 审计日志 |
+| `ExportAuditTimeline(id)` | 导出该沙箱最近最多 300 条脱敏事件到数据目录 `audit/<id>.timeline.json`，权限 0600；每次覆盖同名快照，不是完整历史归档 |
 | `ListMCPPresets()` / `ListMCPServices()` | MCP 预设与已保存的服务（不含令牌） |
 | `SaveMCPService(request)` / `DeleteMCPService(id)` / `TestMCPService(id)` | 令牌或数据库密码只写入钥匙串（连接串里带的密码会被移走；OAuth 服务不接受粘贴的令牌）；在用时不能删除；HTTP/OAuth 服务测试发送 MCP `initialize`（OAuth 先按需续期）；数据库测试在虚拟机里起一个一次性的连接器容器，用保存的密码登录并执行只读的 `SELECT 1`，能区分密码错误、库不存在、端口不通等原因（连接器镜像还没构建过时退回只测端口，并说明没验证密码） |
 | `AuthorizeMCPService(id)` | OAuth 服务在默认浏览器里登录授权（最多等 5 分钟），授权保存到钥匙串，运行中的沙箱立即换上新令牌；应用每分钟检查一次在用的 OAuth 服务，令牌 10 分钟内到期就续期并下发，续期失败时提醒一次 |
+| `DisconnectMCPService(id)` | 删除 OAuth 本机凭据并刷新引用它的运行沙箱，保留服务配置；当前不调用上游撤销端点 |
 | `SetSandboxMCP(id, ids, filesystem)` | 选择沙箱可用的远程 MCP 与内置 filesystem；运行中立即下发 |
+| `SetSandboxMCPPermissions(id, ids, filesystem, permissions)` | 保存固定连接器的工具白名单，运行中立即刷新门卫；显式空数组拒绝所有工具，远程 HTTP/OAuth 仍按服务授权 |
+| `SecurityDiagnostics(id)` | 返回安全边界说明、门卫状态、MCP 授权、最近拒绝数与最近隔离检查；边界说明不是探针通过结果，最近隔离检查只保存在当前应用进程 |
 | `ListAttacks()` / `SimulateAttacks(id)` | 7 个模拟攻击（偷环境变量里的 key、外传到攻击者域名、绕过代理直连、用外来 key 借白名单域名外传、读写宿主文件、DNS 外传、找数据库密码并直连数据库），各自对应一起真实事件；在沙箱里以 Agent 用户执行，宿主再核对输出中没有真实密钥；全部非破坏性 |
 | `ExplainEvent(sandboxID, eventID)` / `SummarizeSandbox(id)` | AI 安全解说：只把事件元数据和允许的域名发给选定的供应商（桌面进程直接调用），提示词声明元数据是不可信数据；每条事件标明来源（“系统”下发配置等 / “沙箱内程序”），并标出用户运行内置模拟攻击期间的事件，避免把系统动作或演示说成 Agent 的行为；时间统一换成本机时间（与日志页一致），不让模型换算时区；结果按事件和解说供应商缓存，换供应商会重新生成；单次请求最长等 90 秒（推理模型常需十几秒以上，不沿用连接测试的 12 秒超时）；AI 不参与放行 |
 | `ExplainerProvider()` / `SetExplainerProvider(id)` | AI 解说使用的供应商，默认取第一个已保存密钥的供应商 |

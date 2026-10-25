@@ -126,6 +126,7 @@ export async function openTerminal(sandbox, agent, recovery = null) {
         : await call("StartConversation", id, sandbox.id, agent);
       if (!sessions.has(id)) { await call("CloseConversation", id); return id; }
       session.model = session.info.model;
+      session.effort = session.info.effort ?? "";
       session.models = [session.info.model];
       session.started = Boolean(session.info.resumed);
       session.status = session.info.resumed ? "已恢复原生会话" : "";

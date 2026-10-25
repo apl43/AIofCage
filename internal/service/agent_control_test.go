@@ -118,3 +118,17 @@ func TestProviderFallbackFailureClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestTaskSummaryPreservesChineseCharacters(t *testing.T) {
+	text := strings.Repeat("验", 501)
+	if got, want := outputSummary(text), strings.Repeat("验", 500)+"…"; got != want {
+		t.Fatal("任务摘要未按完整字符截断")
+	}
+}
+
+func TestControlFailureHintDoesNotReturnStderr(t *testing.T) {
+	detail := "401 unauthorized: Authorization=Bearer synthetic-test-credential"
+	if got := conversationFailureHint(detail); got != "供应商认证失败，请检查 API Key、协议和供应商配置" {
+		t.Fatalf("控制任务未返回固定处理建议：%q", got)
+	}
+}

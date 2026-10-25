@@ -107,8 +107,7 @@ func (a *App) DiagnoseConversation(sandboxID string, agent session.Agent) (Conve
 	return view, nil
 }
 
-func classifyConversationFailure(detail string) string {
-	detail = strings.TrimSpace(detail)
+func conversationFailureHint(detail string) string {
 	lower := strings.ToLower(detail)
 	hint := "任务未完成，请检查模型、供应商和沙箱状态"
 	switch {
@@ -121,6 +120,12 @@ func classifyConversationFailure(detail string) string {
 	case strings.Contains(lower, "connection refused") || strings.Contains(lower, "network is unreachable") || strings.Contains(lower, "no route"):
 		hint = "无法连接供应商，请检查门卫状态、域名策略和网络连通性"
 	}
+	return hint
+}
+
+func classifyConversationFailure(detail string) string {
+	detail = strings.TrimSpace(detail)
+	hint := conversationFailureHint(detail)
 	if detail == "" {
 		return hint
 	}
