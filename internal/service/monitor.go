@@ -11,11 +11,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/audit"
+	"github.com/shaoxier/AIofCage/internal/events"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
@@ -143,7 +143,7 @@ func (a *App) subscribe(ctx context.Context, s sandbox.Sandbox) {
 	}
 	subCtx, cancel := context.WithCancel(ctx)
 	a.monitor.subs[s.ID] = cancel
-	go a.follow(subCtx, s)
+	go a.follow(subCtx, s, a.manager)
 }
 
 func (a *App) unsubscribe(id string) {
@@ -155,17 +155,30 @@ func (a *App) unsubscribe(id string) {
 	}
 }
 
-// follow resumes from the last recorded event of the same gatekeeper run. A new run (sandbox
-// restarted) starts from its beginning; the gatekeeper itself reports gaps it cannot fill.
-func (a *App) follow(ctx context.Context, s sandbox.Sandbox) {
+// follow 只从持久化成功的游标续传；跨运行仍保留旧游标，由门卫声明缺口。
+func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Source) {
+	interrupted := false
 	for ctx.Err() == nil {
-		run, err := a.manager.RunID(ctx, s.ID)
-		if err == nil {
-			cursor := a.cursor(s.ID)
-			if !strings.HasPrefix(cursor, run+":") {
-				cursor = ""
-			}
-			_ = a.manager.Events(ctx, s.ID, cursor, func(event audit.Event) { a.record(s, event) })
+		if cursor, err := a.cursor(s.ID); err == nil {
+			// 流返回（包括正常 EOF）都需要重连；只显示采集状态，不暴露错误正文。
+			_ = source.Events(ctx, s.ID, cursor, func(event audit.Event) error {
+				if err := a.record(s, event); err != nil {
+					return err
+				}
+				if interrupted {
+					a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计采集已恢复", "level": "info"})
+					interrupted = false
+				}
+				return nil
+			})
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if !interrupted {
+			// 不展示上游响应或错误正文；异常时不宣称日志完整。
+			a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计采集中断，正在从已保存的位置重试。日志和用量明细可能不完整。"})
+			interrupted = true
 		}
 		select {
 		case <-ctx.Done():
@@ -175,14 +188,18 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox) {
 	}
 }
 
-func (a *App) cursor(id string) string {
+func (a *App) cursor(id string) (string, error) {
 	a.monitor.mu.Lock()
 	cursor, known := a.monitor.lastID[id]
 	a.monitor.mu.Unlock()
 	if known {
-		return cursor
+		return cursor, nil
 	}
-	for _, event := range a.loadTail(id, 50) {
+	tail, err := a.loadTail(id, ringCapacity)
+	if err != nil {
+		return "", err
+	}
+	for _, event := range tail {
 		if event.Action != audit.ActionGap {
 			cursor = event.ID
 		}
@@ -190,13 +207,15 @@ func (a *App) cursor(id string) string {
 	a.monitor.mu.Lock()
 	a.monitor.lastID[id] = cursor
 	a.monitor.mu.Unlock()
-	return cursor
+	return cursor, nil
 }
 
-func (a *App) record(s sandbox.Sandbox, event audit.Event) {
+func (a *App) record(s sandbox.Sandbox, event audit.Event) error {
+	if event.SessionID != "" && event.SessionID != s.ID {
+		return errors.New("审计事件与沙箱不匹配")
+	}
 	if err := a.appendAudit(s.ID, event); err != nil {
-		a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计日志写入失败：" + err.Error()})
-		return
+		return err
 	}
 	a.monitor.mu.Lock()
 	if event.Action != audit.ActionGap {
@@ -210,6 +229,7 @@ func (a *App) record(s sandbox.Sandbox, event audit.Event) {
 	a.monitor.mu.Unlock()
 
 	a.emit("sandbox:event", EventView{Event: event, SandboxName: s.Name})
+	return nil
 }
 
 func (a *App) auditPath(id string) string {
@@ -220,7 +240,7 @@ func (a *App) appendAudit(id string, event audit.Event) error {
 	if err := os.MkdirAll(filepath.Dir(a.auditPath(id)), 0o700); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(a.auditPath(id), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+	file, err := os.OpenFile(a.auditPath(id), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}
@@ -228,6 +248,20 @@ func (a *App) appendAudit(id string, event audit.Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		return err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if info.Size() > 0 {
+		var last [1]byte
+		if _, err := file.ReadAt(last[:], info.Size()-1); err != nil {
+			return err
+		}
+		if last[0] != '\n' {
+			// 保留崩溃留下的残行供查询标记缺口，避免吞掉下一条完整记录。
+			data = append([]byte{'\n'}, data...)
+		}
 	}
 	_, err = file.Write(append(data, '\n'))
 	if err != nil {
@@ -237,15 +271,24 @@ func (a *App) appendAudit(id string, event audit.Event) error {
 }
 
 // loadTail reads the last n events of a sandbox's audit log.
-func (a *App) loadTail(id string, n int) []audit.Event {
+func (a *App) loadTail(id string, n int) ([]audit.Event, error) {
 	file, err := os.Open(a.auditPath(id))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer file.Close()
 	const window = 512 << 10
-	if info, err := file.Stat(); err == nil && info.Size() > window {
-		_, _ = file.Seek(info.Size()-window, io.SeekStart)
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > window {
+		if _, err := file.Seek(info.Size()-window, io.SeekStart); err != nil {
+			return nil, err
+		}
 	}
 	var events []audit.Event
 	scanner := bufio.NewScanner(file)
@@ -259,7 +302,7 @@ func (a *App) loadTail(id string, n int) []audit.Event {
 	if len(events) > n {
 		events = events[len(events)-n:]
 	}
-	return events
+	return events, scanner.Err()
 }
 
 // EventView is a gatekeeper event with the sandbox's display name.
@@ -283,7 +326,10 @@ func (a *App) RecentEvents(id string) ([]EventView, error) {
 		ring := append([]audit.Event(nil), a.monitor.rings[s.ID]...)
 		a.monitor.mu.Unlock()
 		if len(ring) == 0 {
-			ring = a.loadTail(s.ID, ringCapacity)
+			ring, err = a.loadTail(s.ID, ringCapacity)
+			if err != nil {
+				return nil, err
+			}
 			a.monitor.mu.Lock()
 			if len(a.monitor.rings[s.ID]) == 0 {
 				a.monitor.rings[s.ID] = ring

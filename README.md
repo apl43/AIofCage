@@ -81,12 +81,14 @@ Agent 容器仅连接内部网络，通过每个沙箱独立的门卫访问已�
 
 请求审计不记录正文、上游凭据、MCP 参数与结果；终端内容不作为完整操作审计。应用不提供逐命令审批，也不声称记录全部文件访问或防御容器逃逸。断线超出补发范围时显示日志缺口。
 
+审计事件保存成功后才推进续传游标；写盘失败会停止当前订阅并重试，门卫重启会记录跨运行缺口。当前部署、模块职责和恢复边界见[当前架构](docs/architecture-current.md)。
+
 ## 相关文档
 
 - [本次产品规格与 12 步验收矩阵](docs/product-workspace.md)
 - [交付验收记录](outputs/workspace-acceptance/report.md)
 - [原始产品目标与安全验收](docs/requirements-and-acceptance.md)
-- [架构设计](docs/architecture.md)、[模块与开发说明](docs/modules.md)
+- [当前架构](docs/architecture-current.md)、[早期设计过程](docs/architecture.md)、[模块与开发记录](docs/modules.md)
 - [早期验证记录](docs/validation/README.md)、[实验验证包](experiments/validation/README.md)
 - [比赛规则](docs/competition-rules.md)
 

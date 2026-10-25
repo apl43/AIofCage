@@ -46,3 +46,29 @@ func TestNewLedgerDoesNotClaimLegacy(t *testing.T) {
 		t.Fatal("旧请求未提示无法细分")
 	}
 }
+
+func TestUsageQueryKeepsGapBesideRequest(t *testing.T) {
+	for _, gapFirst := range []bool{false, true} {
+		t.Run(map[bool]string{true: "gap-first", false: "request-first"}[gapFirst], func(t *testing.T) {
+			a, _, st := newApp(t)
+			s := sandbox.Sandbox{ID: "sbx-gap", Name: "缺口核对"}
+			if err := st.SaveSandbox(s); err != nil {
+				t.Fatal(err)
+			}
+			request := audit.Event{ID: "run:1", Time: time.Now(), Action: audit.ActionRequest, ModelRequest: true, SecretRef: "p", UsageKind: "reported", InputTokens: 10}
+			// 缺口标记使用补发游标的 ID，可能与正常请求相同，不能互相去重。
+			gap := audit.Event{ID: request.ID, Time: request.Time, Action: audit.ActionGap, ReasonCode: "buffer_overflow"}
+			first, second := request, gap
+			if gapFirst {
+				first, second = gap, request
+			}
+			a.record(s, first)
+			a.record(s, second)
+			a.record(s, gap)
+			report, err := a.QueryUsage(UsageQuery{SandboxID: s.ID})
+			if err != nil || report.Gaps != 1 || report.Requests != 1 || len(report.Groups) != 1 || report.Groups[0].InputTokens != 10 {
+				t.Fatalf("缺口与请求必须分别保留：%+v %v", report, err)
+			}
+		})
+	}
+}

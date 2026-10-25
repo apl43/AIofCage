@@ -104,7 +104,11 @@ func (a *App) QueryUsage(query UsageQuery) (UsageReport, error) {
 			if !report.Since.IsZero() && event.Time.Before(report.Since) {
 				continue
 			}
-			key := id + ":" + event.ID
+			// 缺口标记的 ID 是补发游标，可能与正常事件相同；按类型分别去重。
+			key := id + ":" + event.ID + ":" + event.Action
+			if event.Action == audit.ActionGap {
+				key += ":" + event.ReasonCode
+			}
 			if event.ID != "" {
 				if seen[key] {
 					continue

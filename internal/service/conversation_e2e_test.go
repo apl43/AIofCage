@@ -96,8 +96,9 @@ func checkConversationAgent(t *testing.T, p provider.Provider) {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		_ = manager.Events(ctx, s.ID, "", func(event audit.Event) {
+		_ = manager.Events(ctx, s.ID, "", func(event audit.Event) error {
 			t.Logf("门卫元数据: %s %s%s %s/%s status=%d elapsed=%dms", event.Action, event.Host, event.Path, event.Decision, event.ReasonCode, event.Status, event.DurationMS)
+			return nil
 		})
 	}()
 	id := "t-realcheck"

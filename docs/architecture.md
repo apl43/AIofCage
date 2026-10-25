@@ -1,5 +1,7 @@
 # AIofCage 架构设计与实施文档
 
+> 本文保留早期 v3 设计过程，包含已被后续实现替换的方案与完成状态。当前部署、模块职责、配置一致性与故障恢复请阅读[当前架构](architecture-current.md)，不要使用本文的旧清单判断当前产品完成度。
+
 > 桌面级 AI Agent 安全沙箱：让 Claude Code、Codex、dsh 放手干活，密钥永远不进笼子。
 > Qiniu Builder Day 2026 · 赛道一（产品研发组）
 >

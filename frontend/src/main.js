@@ -73,7 +73,7 @@ function App() {
       }
     });
     const offStats = window.runtime?.EventsOn?.("sandbox:stats", () => refreshSummary());
-    const offAlert = window.runtime?.EventsOn?.("sandbox:alert", (alert) => notify(alert.message, true));
+    const offAlert = window.runtime?.EventsOn?.("sandbox:alert", (alert) => notify(alert.message, alert.level !== "info"));
     // 启动进度由后端记住；收到进度就刷新列表，切换页面回来也能看到正在进行的操作。
     const offProgress = window.runtime?.EventsOn?.("sandbox:progress", () => reload());
     // 弹窗焦点与键盘导航统一处理，兼容现有原生表单。
