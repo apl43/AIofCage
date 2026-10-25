@@ -248,13 +248,22 @@ func (s *Store) DeleteSandbox(id string) error {
 
 // Setting returns a non-secret application setting ("" when unset).
 func (s *Store) Setting(key string) string {
+	value, _ := s.SettingValue(key)
+	return value
+}
+
+// SettingValue distinguishes an unset preference from unreadable or damaged settings.
+func (s *Store) SettingValue(key string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	values := map[string]string{}
-	if s.load("settings.json", &values) != nil {
-		return ""
+	if err := s.load("settings.json", &values); err != nil {
+		return "", err
 	}
-	return values[key]
+	if values == nil {
+		return "", errors.New("settings.json 内容损坏：需要配置对象")
+	}
+	return values[key], nil
 }
 
 func (s *Store) SetSetting(key, value string) error {
@@ -268,6 +277,9 @@ func (s *Store) SetSetting(key, value string) error {
 	values := map[string]string{}
 	if err := s.load("settings.json", &values); err != nil {
 		return err
+	}
+	if values == nil {
+		return errors.New("settings.json 内容损坏：需要配置对象")
 	}
 	values[key] = value
 	data, err := json.MarshalIndent(values, "", "  ")

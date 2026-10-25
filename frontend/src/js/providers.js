@@ -1,22 +1,23 @@
 // 供应商页：参考 CC Switch，按 Agent 分组管理模型供应商；密钥只写入钥匙串，界面从不读取。
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { html, call, AGENTS, agentName, PROTOCOLS, COMPATIBLE, AUTHS, formatTokens, ConfirmDialog, Icon, agentIcon, PageTitle } from "./core.js";
 import { PricingLookup } from "./pricing.js";
 
-export function ProvidersPage({ providers, presets, summary, reload, notify }) {
-  const [agent, setAgent] = useState("codex");
+export function ProvidersPage({ providers, presets, summary, reload, notify, tutorial }) {
+  const [agent, setAgent] = useState(tutorial?.state.agent ?? "codex");
+  useEffect(() => { if (tutorial) setAgent(tutorial.state.agent); }, [tutorial?.state.agent]);
   const [dialog, setDialog] = useState(null); // { mode: "add" | "edit", provider? }
   const list = providers.filter((p) => p.agent === agent);
   return html`
     <section class="page">
       <div class="section-heading">
         <${PageTitle} icon="layers" title="模型供应商" description="按智能体管理供应商，在各个沙箱中独立选择。" />
-        <button class="primary" onClick=${() => setDialog({ mode: "add" })}><${Icon} name="plus" />添加供应商</button>
+        <button class="primary" data-guide="add-provider" onClick=${() => setDialog({ mode: "add" })} disabled=${tutorial?.saving}><${Icon} name="plus" />添加供应商</button>
       </div>
       <div class="tabs" role="tablist">
         ${AGENTS.map(
           (item) => html`<button role="tab" aria-selected=${item.id === agent} tabindex=${item.id === agent ? 0 : -1} class=${item.id === agent ? "tab active" : "tab"}
-            onClick=${() => setAgent(item.id)}><${Icon} name=${agentIcon(item.id)} size=${19} />${item.name}<span class="count">${providers.filter((p) => p.agent === item.id).length}</span></button>`
+            disabled=${tutorial?.saving} onClick=${() => tutorial ? tutorial.selectAgent(item.id) : setAgent(item.id)}><${Icon} name=${agentIcon(item.id)} size=${19} />${item.name}<span class="count">${providers.filter((p) => p.agent === item.id).length}</span></button>`
         )}
       </div>
       ${list.length === 0
@@ -28,7 +29,7 @@ export function ProvidersPage({ providers, presets, summary, reload, notify }) {
           </div>`
         : html`<div class="card-grid">${list.map(
             (p) => html`<${ProviderCard} key=${p.id} provider=${p} usage=${summary?.providers?.[p.id]} onEdit=${() => setDialog({ mode: "edit", provider: p })}
-              reload=${reload} notify=${notify} />`
+              reload=${reload} notify=${notify} onTest=${tutorial?.providerTested} guided=${tutorial?.state.provider_id === p.id} />`
           )}</div>`}
       ${dialog &&
       html`<${ProviderDialog} agent=${agent} presets=${presets} initial=${dialog.provider}
@@ -37,20 +38,24 @@ export function ProvidersPage({ providers, presets, summary, reload, notify }) {
           setAgent(saved.agent);
           notify(`已保存「${saved.name}」`);
           await reload();
+          if (tutorial) await tutorial.selectProvider(saved);
         }} />`}
     </section>`;
 }
 
-function ProviderCard({ provider, usage, onEdit, reload, notify }) {
+function ProviderCard({ provider, usage, onEdit, reload, notify, onTest, guided }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState(null);
   const test = async () => {
     setTesting(true);
     setResult(null);
     try {
-      setResult(await call("TestProvider", provider.id));
+      const tested = await call("TestProvider", provider.id);
+      setResult(tested);
+      onTest?.(provider, tested);
     } catch (error) {
       setResult({ ok: false, message: error.message });
+      onTest?.(provider, { ok: false, message: error.message });
     } finally {
       setTesting(false);
     }
@@ -94,8 +99,8 @@ function ProviderCard({ provider, usage, onEdit, reload, notify }) {
         ${result.ok ? "✓" : "✕"} ${result.message}${result.latency_ms ? ` · ${result.latency_ms} ms` : ""}
       </p>`}
       <div class="card-actions">
-        <button onClick=${test} disabled=${testing}><${Icon} name="activity" size=${17} />${testing ? "测试中…" : "测试连接"}</button>
-        <button onClick=${onEdit}><${Icon} name="edit" size=${17} />编辑</button>
+        <button data-guide=${guided ? "provider-test" : undefined} onClick=${test} disabled=${testing}><${Icon} name="activity" size=${17} />${testing ? "测试中…" : "测试连接"}</button>
+        <button data-guide=${guided ? "provider-edit" : undefined} onClick=${onEdit}><${Icon} name="edit" size=${17} />编辑</button>
         <button onClick=${async () => { try { await call("DuplicateProvider", provider.id); await reload(); notify("已复制供应商，请编辑名称和模型"); } catch (e) { notify(e.message, true); } }}><${Icon} name="copy" size=${17} />复制</button>
         <button class="danger" onClick=${() => setConfirming(true)} disabled=${provider.used_by.length > 0}
           title=${provider.used_by.length ? "仍有沙箱在用，先给它们换一个供应商" : ""}><${Icon} name="trash" size=${17} />删除</button>

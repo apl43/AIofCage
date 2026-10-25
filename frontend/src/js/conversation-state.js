@@ -19,6 +19,7 @@ export function applyConversationEvent(session, event) {
   if (event.type === "done" || event.type === "stopped") {
     session.busy = false;
     session.status = event.type === "stopped" ? "已停止" : "本轮结束";
+    if (message?.role === "assistant") message.completed = event.type === "done" && !message.error && Boolean(message.text?.trim());
     if (message?.role === "assistant" && !message.text && !message.error) message.text = event.type === "stopped" ? "任务已停止。" : "本轮已结束，未返回文本。";
     return;
   }

@@ -32,7 +32,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
     <section class="page detail">
       <button class="link back" onClick=${() => setDetail(null)}><${Icon} name="arrowLeft" size=${18} />全部沙箱</button>
       <div class="detail-heading">
-        <div class="sandbox-title">
+        <div class="sandbox-title" data-guide="sandbox-status">
           <span class=${`status-dot ${state.tone}`} aria-hidden="true"></span>
           <h1>${sandbox.name}</h1>
           <span class=${`pill ${busy ? "warn" : state.tone}`}>${busy ? `${busy}中…` : state.label}</span>
@@ -40,7 +40,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         <div class="row-actions">
           ${running
             ? html`<button onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)} disabled=${Boolean(busy)}><${Icon} name="stop" size=${18} />停止</button>`
-            : html`<button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}><${Icon} name="play" size=${18} />启动</button>`}
+            : html`<button class="primary" data-guide="sandbox-start" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}><${Icon} name="play" size=${18} />启动</button>`}
           ${sandbox.config_pending && html`<button class="primary" disabled=${Boolean(busy)} onClick=${() => setRestartConfirm(true)}>重启以应用</button>`}
           <details class="action-menu"><summary aria-label="更多沙箱操作"><${Icon} name="more" /></summary><div class="menu-items">
             <button onClick=${onAttack} disabled=${!running || Boolean(busy)}>隔离检查</button>
@@ -129,7 +129,11 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
 
   // 从沙箱列表点“打开终端”过来时，按选中的 Agent 新开一个标签。
   useEffect(() => {
-    if (request && running) open(request.agent);
+    if (request && running) {
+      const existing = request.reuse && sessions.findLast((s) => !s.exited && s.agent === request.agent && s.info?.provider_id === sandbox.bindings.find((b) => b.agent === request.agent)?.active_provider_id);
+      if (existing) setActive(existing.id);
+      else open(request.agent);
+    }
   }, [request?.nonce]);
 
   const current = sessions.find((s) => s.id === active) ?? sessions[sessions.length - 1];
@@ -161,7 +165,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
       <div class="terminal-new">
         <details class="terminal-new-menu" ref=${menu} onKeyDown=${terminalMenuKey} onToggle=${(event) => placeTerminalMenu(event.currentTarget)}
           onFocusOut=${(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}>
-          <summary aria-label="新建会话"><${Icon} name="plus" size=${18} /><span>新建</span><${Icon} name="chevronDown" size=${15} /></summary>
+          <summary aria-label="新建会话" data-guide="new-conversation"><${Icon} name="plus" size=${18} /><span>新建</span><${Icon} name="chevronDown" size=${15} /></summary>
           <div class="terminal-menu-choices">${choices.map((choice) => html`<button onClick=${() => open(choice.agent)} disabled=${!running || creating}><${Icon} name=${agentIcon(choice.agent)} size=${18} />${choice.label}</button>`)}</div>
         </details>
       </div>
@@ -202,7 +206,7 @@ function TerminalComposer({ session }) {
     </ul>`}
     <div class="terminal-input-row">
       <label class="sr-only" for=${inputID}>发送给 ${session.title}</label>
-      <textarea id=${inputID} rows="2" value=${draft.text} placeholder=${session.agent ? "输入任务，或粘贴图片…" : "输入 Shell 命令…"}
+      <textarea id=${inputID} data-guide="message-input" rows="2" value=${draft.text} placeholder=${session.agent ? "输入任务，或粘贴图片…" : "输入 Shell 命令…"}
         disabled=${draft.busy} aria-invalid=${Boolean(draft.error)} aria-describedby=${draft.error ? errorID : undefined}
         onInput=${(e) => { draft.text = e.target.value; draft.error = ""; updateTerminalDraft(); }}
         onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } }}></textarea>
