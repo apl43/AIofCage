@@ -129,6 +129,24 @@ func (a *App) StopSandbox(id string) error {
 	return a.manager.Stop(ctx, id)
 }
 
+// ResetSandbox rebuilds the isolated runtime objects while keeping the sandbox configuration
+// and project directory. keepHome controls Agent settings and session history; restart restores a
+// sandbox that was running before the reset.
+func (a *App) ResetSandbox(id string, keepHome, restart bool) error {
+	if err := a.runtimeReady(); err != nil {
+		return err
+	}
+	done, err := a.beginOperation(id, "重置")
+	if err != nil {
+		return err
+	}
+	defer done()
+	a.closeSandboxConversations(id)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	return a.manager.Reset(ctx, id, keepHome, restart)
+}
+
 // DeleteSandbox removes containers and networks. The project folder is never deleted; keepHome
 // keeps the agent's home volume (its settings and session history).
 func (a *App) DeleteSandbox(id string, keepHome bool) error {

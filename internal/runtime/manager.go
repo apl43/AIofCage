@@ -942,9 +942,17 @@ func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
 	return errors.Join(errs...)
 }
 
-// Delete removes containers, networks and (unless keepHome) the agent home volume. The project
-// directory is never touched.
-func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
+// Reset tears down a sandbox's runtime objects while keeping its stored configuration and
+// project directory. When restart is true, the normal start path recreates the VM objects and
+// reapplies the saved configuration after the teardown succeeds.
+func (m *Manager) Reset(ctx context.Context, id string, keepHome, restart bool) error {
+	m.environmentMu.RLock()
+	defer m.environmentMu.RUnlock()
+	unlockEnvironment, environmentErr := m.useEnvironment(ctx, false)
+	if environmentErr != nil {
+		return environmentErr
+	}
+	defer unlockEnvironment()
 	unlock, lockErr := m.lock(ctx, id)
 	if lockErr != nil {
 		return lockErr
@@ -954,12 +962,40 @@ func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
 	if err != nil {
 		return err
 	}
-	n := names(sbx.ID)
-	m.mu.Lock()
-	delete(m.gates, sbx.ID)
-	m.mu.Unlock()
+	m.saveUsage(ctx, sbx)
 	var errs []error
-	if err := m.removeConnectors(ctx, sbx.ID); err != nil {
+	if err := m.revokeRuntime(ctx, sbx); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.stopContainers(ctx, names(sbx.ID)); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.removeRuntimeObjects(ctx, sbx.ID, keepHome); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	if err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+		s.AppliedBindings = nil
+		s.AppliedProviders = nil
+		s.AppliedAgentVersions = nil
+		return nil
+	}); err != nil {
+		return err
+	}
+	if restart {
+		return m.startSnapshot(ctx, id, nil)
+	}
+	return nil
+}
+
+// removeRuntimeObjects removes containers, networks and optionally the Agent home volume. The
+// project directory and stored sandbox configuration are never touched.
+func (m *Manager) removeRuntimeObjects(ctx context.Context, id string, keepHome bool) error {
+	n := names(id)
+	var errs []error
+	if err := m.removeConnectors(ctx, id); err != nil {
 		errs = append(errs, err)
 	}
 	for _, args := range [][]string{{"rm", "--force", n.agent}, {"rm", "--force", n.gate},
@@ -975,8 +1011,27 @@ func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
 			errs = append(errs, err)
 		}
 	}
-	if len(errs) > 0 {
-		return errors.Join(errs...)
+	m.mu.Lock()
+	delete(m.gates, id)
+	m.mu.Unlock()
+	m.revokeRuntimeTokens(id)
+	return errors.Join(errs...)
+}
+
+// Delete removes containers, networks and (unless keepHome) the agent home volume. The project
+// directory is never touched.
+func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
+	sbx, err := m.store.Sandbox(id)
+	if err != nil {
+		return err
+	}
+	if err := m.removeRuntimeObjects(ctx, sbx.ID, keepHome); err != nil {
+		return err
 	}
 	return m.store.DeleteSandbox(sbx.ID)
 }
