@@ -48,6 +48,7 @@ type App struct {
 	isolationRuns map[string]SecurityIsolationRun
 	prices        pricingCatalog
 	updatesMu     sync.Mutex
+	onboardingMu  sync.Mutex
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then

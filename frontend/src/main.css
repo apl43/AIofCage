@@ -45,8 +45,40 @@ nav { display: grid; gap: 7px; margin-top: 34px; }
 .sidebar-footer small { display: block; font-size: var(--text-xs); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .dot { display: inline-block; width: 8px; height: 8px; background: #b58a40; border-radius: 50%; margin-right: 8px; }
 .dot.ok { background: var(--ok); }
+.tutorial-entry { width: 100%; margin: 0 0 14px; padding-inline: 8px; }
 main { margin-left: var(--sidebar-width); max-width: 1640px; padding: 32px 36px 44px; min-width: 0; }
 main:focus { outline: none; }
+
+/* 实操教程沿用真实页面；卡片参与布局，不遮挡表单和会话。 */
+.tutorial-card { padding: 22px 24px; margin-bottom: 28px; border-color: #b3cfc1; background: #f7fbf8; overflow: visible; scroll-margin-top: 24px; }
+.tutorial-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.tutorial-heading .caption { margin: 0; }
+.tutorial-heading h2 { margin-top: 3px; }
+.tutorial-steps { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 0; margin: 18px 0; list-style: none; }
+.tutorial-steps li { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: var(--text-xs); }
+.tutorial-steps li span { display: inline-grid; place-items: center; width: 23px; height: 23px; border: 1px solid var(--line); border-radius: 50%; }
+.tutorial-steps .current { color: var(--brand-dark); font-weight: 600; }
+.tutorial-steps .current span { background: var(--brand); color: white; border-color: var(--brand); }
+.tutorial-card > p { font-size: var(--text-sm); }
+.tutorial-card label { margin-top: 14px; }
+.tutorial-card select { max-width: 520px; }
+.tutorial-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.tutorial-checks { padding: 0; margin: 14px 0; list-style: none; }
+.tutorial-checks li { display: grid; grid-template-columns: 180px 1fr; gap: 14px; border-top: 1px solid var(--line); padding: 7px 0; font-size: var(--text-sm); }
+.tutorial-checks strong { font-weight: 500; }
+.tutorial-checks span { color: var(--muted); overflow-wrap: anywhere; }
+.tutorial-command { display: block; padding: 10px 14px; margin: 8px 0 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); user-select: all; overflow-wrap: anywhere; }
+.tutorial-example { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.tutorial-example code { font-family: var(--font-ui); font-size: var(--text-sm); }
+.tutorial-welcome > p { margin-top: 16px; }
+.tutorial-welcome-steps { margin-block: 20px; padding-left: 24px; color: var(--muted); }
+.tutorial-welcome-steps li { padding: 4px 0; }
+.tutorial-target { outline: 2px solid var(--brand); outline-offset: 4px; scroll-margin-block: 24px; }
+@media (max-width: 760px) {
+  .tutorial-card { padding: 16px; }
+  .tutorial-checks li { grid-template-columns: 1fr; gap: 2px; }
+  .tutorial-steps { gap: 8px; }
+}
 
 /* 页面标题、状态与通用容器。 */
 .section-heading, .dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

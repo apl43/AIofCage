@@ -6,7 +6,7 @@ import { AttackDialog } from "./ai.js";
 import { useTerminals } from "./terminal.js";
 import { SandboxDetail } from "./sandbox-detail.js";
 
-export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
+export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail, tutorial }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [addingAgents, setAddingAgents] = useState(null);
@@ -52,11 +52,12 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
           setEditingMCP(null);
           if (await run(target, "更新 MCP", "SetSandboxMCPPermissions", target.id, ids, filesystem, permissions)) notify(`已更新「${target.name}」的 MCP 服务和工具权限`);
         }} />`}
-      ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider}
+      ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider} tutorial=${tutorial}
         onClose=${() => setCreating(false)} onCreated=${async (created, start) => {
           setCreating(false);
           notify(`已创建沙箱「${created.name}」`);
           await reload();
+          if (tutorial) await tutorial.sandboxCreated(created);
           setDetail({ id: created.id, tab: start ? "terminal" : "overview" });
           if (start && await run(created, "启动", "StartSandbox", created.id)) setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
         }} />`}
@@ -90,7 +91,7 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
     <section class="page">
       <div class="section-heading">
         <${PageTitle} icon="box" title="沙箱" description="管理项目、智能体和运行状态。" />
-        <button class="primary" onClick=${() => setCreating(true)} disabled=${!overview}><${Icon} name="plus" />创建沙箱</button>
+        <button class="primary" data-guide="create-sandbox" onClick=${() => setCreating(true)} disabled=${!overview || tutorial?.saving}><${Icon} name="plus" />创建沙箱</button>
       </div>
       ${sandboxes.length > 0 && html`<div class="toolbar sandbox-toolbar">
         <div class="search-field"><${Icon} name="search" /><input type="search" aria-label="搜索沙箱" placeholder="搜索名称或项目目录" value=${query} onInput=${(e) => setQuery(e.target.value)} /></div>
@@ -194,15 +195,15 @@ function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, on
     </div></article>`;
 }
 
-function CreateSandboxDialog({ providers, services, overview, onClose, onCreated, onAddProvider }) {
+function CreateSandboxDialog({ providers, services, overview, onClose, onCreated, onAddProvider, tutorial }) {
   const workspace = overview?.workspace ?? "";
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [mode, setMode] = useState("new");
-  const [agents, setAgents] = useState({});
+  const [agents, setAgents] = useState(() => tutorial ? { [tutorial.state.agent]: true } : {});
   const [bindings, setBindings] = useState(() => {
     const first = (agent) => providers.find((p) => p.agent === agent)?.id ?? "";
-    return Object.fromEntries(AGENTS.map((a) => [a.id, first(a.id)]));
+    return Object.fromEntries(AGENTS.map((a) => [a.id, tutorial?.state.agent === a.id ? tutorial.state.provider_id : first(a.id)]));
   });
   const [mcp, setMcp] = useState([]);
   const [mcpPermissions, setMcpPermissions] = useState({});
@@ -230,6 +231,9 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
     setError("");
     try {
       const selected = AGENTS.filter((a) => agents[a.id]);
+      if (tutorial && (!agents[tutorial.state.agent] || bindings[tutorial.state.agent] !== tutorial.state.provider_id)) {
+        throw new Error(`请为本次教程选择 ${agentName(tutorial.state.agent)}，并绑定刚才的供应商。`);
+      }
       const created = await call("CreateSandbox", {
         name, project_path: mode === "new" ? "" : path, project_mode: mode,
         bindings: selected.map((a) => ({ agent: a.id, provider_id: bindings[a.id] })),
@@ -247,7 +251,8 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
       <div class="dialog wide" role="dialog" aria-modal="true" aria-label="创建沙箱">
         <div class="dialog-heading"><h2>创建沙箱</h2>
           <button type="button" class="icon-button" aria-label="关闭" disabled=${saving} onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
-        <form onSubmit=${(e) => { e.preventDefault(); submit(true); }}>
+        ${tutorial && html`<p class="caption">已选好本次教程的智能体和供应商，填写名称即可创建。下一步会引导启动。</p>`}
+        <form onSubmit=${(e) => { e.preventDefault(); submit(!tutorial); }}>
           <label for="s-name">名称</label>
           <input id="s-name" required maxlength="60" value=${name} onInput=${(e) => setName(e.target.value)} placeholder="例如：我的网站" />
 
@@ -301,8 +306,8 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
           ${error && html`<p class="form-error" role="alert">${error}</p>`}
           <p class="caption">首次启动需要准备镜像，可在沙箱列表查看进度。</p>
           <div class="dialog-actions">
-            <button type="button" onClick=${() => submit(false)} disabled=${saving}>只创建</button>
-            <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : "创建并启动"}</button>
+            ${!tutorial && html`<button type="button" onClick=${() => submit(false)} disabled=${saving}>只创建</button>`}
+            <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : tutorial ? "创建沙箱" : "创建并启动"}</button>
           </div>
         </form>
       </div>
@@ -352,7 +357,7 @@ const CHECK_LABELS = { ready: "就绪", detected: "已检测", missing: "缺失"
 export function EnvironmentPanel({ environment }) {
   if (!environment) return null;
   return html`
-    <details class="environment-details"><summary>运行环境 · ${environment.ready ? "就绪" : "需要检查"}</summary>
+    <details class="environment-details" data-guide="environment"><summary>运行环境 · ${environment.ready ? "就绪" : "需要检查"}</summary>
     <div class="panel">
       ${environment.checks.map(
         (check) => html`<div class="check-row" key=${check.id}>

@@ -9,6 +9,7 @@ import { UsagePage } from "./js/usage.js";
 import { SettingsPage } from "./js/settings.js";
 import { LogsPage } from "./js/logs.js";
 import { MCPPage } from "./js/mcp.js";
+import { Onboarding, useOnboarding } from "./js/onboarding.js";
 
 const PAGES = [
   { id: "sandboxes", title: "沙箱", icon: "box" },
@@ -34,6 +35,10 @@ function App() {
   const [services, setServices] = useState([]);
   const [mcpPresets, setMcpPresets] = useState([]);
   const [recoverable, setRecoverable] = useState([]);
+  const [dataReady, setDataReady] = useState(false);
+  const navigate = useCallback((nextPage, nextDetail = null) => {
+    setPage(nextPage); setDetail(nextDetail); location.hash = nextPage;
+  }, []);
 
   const notify = useCallback((message, isError = false) => {
     setToast({ message, isError });
@@ -47,10 +52,14 @@ function App() {
       setSandboxes(s);
       setServices(m);
       setRecoverable(r ?? []);
+      setDataReady(true);
     } catch (error) {
+      setDataReady(false);
       notify(error.message, true);
     }
   }, [notify]);
+
+  const tutorial = useOnboarding({ providers, sandboxes, dataReady, navigate, reload });
 
   const refreshSummary = useCallback(() => call("UsageSummary").then(setSummary).catch(() => {}), []);
 
@@ -138,9 +147,11 @@ function App() {
   const content = {
     sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} recoverable=${recoverable} overview=${overview} summary=${summary}
       events=${events} detail=${detail} setDetail=${setDetail}
+      tutorial=${tutorial.active && tutorial.step === 2 ? tutorial : null}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
-    providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify} />`,
+    providers: html`<${ProvidersPage} providers=${providers} presets=${presets} summary=${summary} reload=${reload} notify=${notify}
+      tutorial=${tutorial.active && tutorial.step === 1 ? tutorial : null} />`,
     mcp: html`<${MCPPage} services=${services} presets=${mcpPresets} providers=${providers} reload=${reload} notify=${notify}
       onCreated=${(id) => { setPage("sandboxes"); setDetail({ id, tab: "overview" }); }} />`,
     usage: html`<${UsagePage} sandboxes=${sandboxes} providers=${providers} />`,
@@ -160,13 +171,15 @@ function App() {
           onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}>
           <${Icon} class="nav-icon" name=${item.icon} size=${22} /><span class="nav-label">${item.title}</span></button>`)}
       </nav>
-      <div class="sidebar-footer"><span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
+      <div class="sidebar-footer"><button class="nav-item tutorial-entry" onClick=${tutorial.open} title="使用教程" aria-label="使用教程"><${Icon} name="book" size=${22} /><span class="nav-label">使用教程</span></button>
+        <span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
         <span class="environment-label">${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}</span>
         <small>${overview ? `v${overview.version}` : ""}</small></div>
     </aside>
     <main id="main-content" tabindex="-1">
       ${toast && html`<div class=${toast.isError ? "feedback error" : "feedback"} role=${toast.isError ? "alert" : "status"}>
         <span>${toast.message}</span><button class="icon-button" aria-label="关闭通知" onClick=${() => setToast(null)}><${Icon} name="x" /></button></div>`}
+      <${Onboarding} tutorial=${tutorial} page=${page} detail=${detail} />
       ${content}
     </main>`;
 }

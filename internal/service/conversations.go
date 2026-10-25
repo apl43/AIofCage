@@ -27,6 +27,7 @@ type ConversationInfo struct {
 	ID              string        `json:"id"`
 	Agent           session.Agent `json:"agent"`
 	ProviderName    string        `json:"provider_name"`
+	ProviderID      string        `json:"provider_id"`
 	Model           string        `json:"model"`
 	Effort          string        `json:"effort"`
 	ImageInput      bool          `json:"image_input"`
@@ -128,7 +129,7 @@ func (a *App) startConversation(id, sandboxID string, agent session.Agent, recov
 	if model == "" {
 		model = p.Model
 	}
-	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, Model: model, Effort: effort,
+	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, ProviderID: p.ID, Model: model, Effort: effort,
 		ImageInput: agent != session.DSH || p.ImageInput, Resumed: recovery != nil, NativeSessionID: nativeID}, nil
 }
 
