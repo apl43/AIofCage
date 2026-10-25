@@ -27,6 +27,8 @@ export function LogsPage({ events, sandboxes, providers, sandboxFilter, setSandb
         <div class="heading-actions">
           ${sandboxFilter && html`<button onClick=${() => call("RevealAuditLog", sandboxFilter).catch((e) => notify(e.message, true))}>
             在访达中显示日志文件</button>`}
+          ${sandboxFilter && html`<button onClick=${async () => { try { await call("ExportAuditTimeline", sandboxFilter); notify("已导出当前脱敏审计时间线"); } catch (e) { notify(e.message, true); } }}>
+            导出时间线</button>`}
           <button class="primary" disabled=${!sandboxFilter} title=${sandboxFilter ? "" : "先选择一个沙箱"}
             onClick=${() => setExplain({ sandboxId: sandboxFilter, sandboxName: sandboxes.find((s) => s.id === sandboxFilter)?.name })}><${Icon} name="sparkles" size=${18} />AI 总结</button>
         </div>

@@ -421,3 +421,29 @@ func (a *App) RevealAuditLog(id string) error {
 	}
 	return exec.Command("/usr/bin/open", "-R", path).Run()
 }
+
+// ExportAuditTimeline writes the current redacted timeline to a standalone JSON file. It uses the
+// same EventView data as the UI, so provider names and sandbox names are included while request
+// bodies, MCP arguments and credentials remain absent.
+func (a *App) ExportAuditTimeline(id string) (string, error) {
+	if _, err := a.store.Sandbox(id); err != nil {
+		return "", err
+	}
+	events, err := a.RecentEvents(id)
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(struct {
+		ExportedAt time.Time   `json:"exported_at"`
+		SandboxID  string      `json:"sandbox_id"`
+		Events     []EventView `json:"events"`
+	}{ExportedAt: time.Now(), SandboxID: id, Events: events}, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(a.store.Dir(), "audit", id+".timeline.json")
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
