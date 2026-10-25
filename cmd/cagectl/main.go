@@ -25,12 +25,14 @@ import (
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
+	"github.com/shaoxier/AIofCage/internal/service"
 	"github.com/shaoxier/AIofCage/internal/session"
 	"github.com/shaoxier/AIofCage/internal/store"
 	"github.com/shaoxier/AIofCage/internal/vault"
 )
 
 const usage = `用法：
+  cagectl ai serve                       作为本机 stdio MCP，供外部 AI 创建隔离实验沙箱和执行任务
   cagectl env check                      检查专用虚拟机
   cagectl env up                         创建或启动专用虚拟机并校验共享边界
 
@@ -83,6 +85,8 @@ func run(args []string) error {
 	}
 	keychain := vault.NewKeychain()
 	switch args[0] + " " + args[1] {
+	case "ai serve":
+		return service.RunAgentControl(ctx, os.Stdin, os.Stdout)
 	case "env check", "env up":
 		env, err := runtime.NewEnvironment(st)
 		if err != nil {

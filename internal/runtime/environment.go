@@ -78,6 +78,13 @@ func (e *Environment) vm(ctx context.Context) (*VMInfo, error) {
 
 // Ensure creates or starts the dedicated VM and then verifies its sharing boundary.
 func (e *Environment) Ensure(ctx context.Context) error {
+	if e.store != nil {
+		unlock, err := e.store.LockOperation(ctx, "environment", false)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+	}
 	if goruntime.GOOS != "darwin" || goruntime.GOARCH != "arm64" {
 		return errors.New("仅支持 Apple Silicon 的 macOS")
 	}

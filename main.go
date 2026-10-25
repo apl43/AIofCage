@@ -22,6 +22,13 @@ import (
 var assets embed.FS
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--mcp" {
+		if err := runControl(); err != nil {
+			fmt.Fprintln(os.Stderr, "本机控制结束：", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Ai of Cage 启动失败:", err)
 		os.Exit(1)

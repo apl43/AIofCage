@@ -444,3 +444,6 @@ details.advanced label:first-of-type { margin-top: 12px; }
 .resource-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; max-width: 740px; }
 .resource-fields label { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .resource-fields input { width: 100%; }
+.agent-control-settings { padding: 26px; margin-top: 24px; }
+.agent-control-settings .card-actions { margin: 18px 0; }
+.agent-control-settings textarea { width: 100%; resize: vertical; min-height: 190px; }

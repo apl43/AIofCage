@@ -4,6 +4,7 @@ import { EnvironmentPanel } from "./sandboxes.js";
 import { ExplainerSettings } from "./ai.js";
 import { AgentUpdateSettings } from "./agent-versions.js";
 import { EnvironmentResources } from "./environment-resources.js";
+import { AgentControlSettings } from "./agent-control.js";
 
 export function SettingsPage({ overview, providers, notify, onEnvironmentChanged }) {
   if (!overview) return null;
@@ -26,6 +27,7 @@ export function SettingsPage({ overview, providers, notify, onEnvironmentChanged
       </dl>
       <${EnvironmentResources} notify=${notify} onChanged=${onEnvironmentChanged} />
       <${AgentUpdateSettings} notify=${notify} />
+      <${AgentControlSettings} notify=${notify} />
       <${EnvironmentPanel} environment=${overview.environment} />
     </section>`;
 }

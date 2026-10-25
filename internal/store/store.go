@@ -3,6 +3,8 @@
 package store
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +12,9 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/shaoxier/AIofCage/internal/filelock"
 	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
@@ -40,6 +44,18 @@ func Open(dir string) (*Store, error) {
 }
 
 func (s *Store) Dir() string { return s.dir }
+
+// LockOperation 供桌面与本机控制进程协调运行期操作；名称经摘要处理，不能形成任意路径。
+func (s *Store) LockOperation(ctx context.Context, name string, exclusive bool) (func(), error) {
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(name)))
+	return filelock.Acquire(ctx, filepath.Join(s.dir, "locks", key+".lock"), exclusive)
+}
+
+func (s *Store) lockMetadata() (func(), error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return s.LockOperation(ctx, "metadata", true)
+}
 
 func (s *Store) Providers() ([]provider.Provider, error) {
 	s.mu.Lock()
@@ -244,6 +260,11 @@ func (s *Store) Setting(key string) string {
 func (s *Store) SetSetting(key, value string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockMetadata()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	values := map[string]string{}
 	if err := s.load("settings.json", &values); err != nil {
 		return err
@@ -276,6 +297,11 @@ func (s *Store) load(name string, target any) error {
 func (s *Store) update(name string, change func(*[]json.RawMessage) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	unlock, err := s.lockMetadata()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	var raw []json.RawMessage
 	if err := s.load(name, &raw); err != nil {
 		return err
