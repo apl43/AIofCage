@@ -33,6 +33,7 @@ function App() {
   const [detail, setDetail] = useState(null); // 打开的沙箱详情：{ id, tab, open? }
   const [services, setServices] = useState([]);
   const [mcpPresets, setMcpPresets] = useState([]);
+  const [recoverable, setRecoverable] = useState([]);
 
   const notify = useCallback((message, isError = false) => {
     setToast({ message, isError });
@@ -41,10 +42,11 @@ function App() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, s, m] = await Promise.all([call("ListProviders"), call("ListSandboxes"), call("ListMCPServices")]);
+      const [p, s, m, r] = await Promise.all([call("ListProviders"), call("ListSandboxes"), call("ListMCPServices"), call("ListRecoverableConversations")]);
       setProviders(p);
       setSandboxes(s);
       setServices(m);
+      setRecoverable(r);
     } catch (error) {
       notify(error.message, true);
     }
@@ -134,7 +136,7 @@ function App() {
   }, []);
 
   const content = {
-    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} overview=${overview} summary=${summary}
+    sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} recoverable=${recoverable} overview=${overview} summary=${summary}
       events=${events} detail=${detail} setDetail=${setDetail}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,

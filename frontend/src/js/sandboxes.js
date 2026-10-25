@@ -6,7 +6,7 @@ import { AttackDialog } from "./ai.js";
 import { useTerminals } from "./terminal.js";
 import { SandboxDetail } from "./sandbox-detail.js";
 
-export function SandboxesPage({ sandboxes, providers, services, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
+export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [addingAgents, setAddingAgents] = useState(null);
@@ -79,7 +79,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
   const current = detail && sandboxes.find((s) => s.id === detail.id);
   if (current) {
     return html`<${SandboxDetail} sandbox=${current} detail=${detail} setDetail=${setDetail} providers=${providers}
-      services=${services} events=${events} vm=${overview?.environment?.vm} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
+      services=${services} recoverable=${recoverable} events=${events} vm=${overview?.environment?.vm} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
       busy=${busy[current.id] ?? current.operation} progress=${progress[current.id] || current.progress} run=${run} notify=${notify}
       onAddAgents=${() => setAddingAgents(current)} onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)}
       onReset=${() => setResetting(current)} onDelete=${() => setDeleting(current)} onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;

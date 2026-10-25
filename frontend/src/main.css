@@ -297,6 +297,11 @@ details.advanced label:first-of-type { margin-top: 12px; }
 .terminal-panel button:disabled { background: transparent; color: #768c80; }
 .terminal-panel :focus-visible { outline-color: #b9dcc8; }
 .terminal-tabs { display: flex; align-items: center; gap: 5px; padding: 8px; background: #0f1a16; border-bottom: 1px solid #33493f; flex-wrap: wrap; max-height: 150px; overflow-y: auto; flex-shrink: 0; }
+.conversation-recovery { display: grid; gap: 8px; margin: 10px; padding: 12px 14px; border-color: #385346; background: #1c3027; color: #dcebe2; box-shadow: none; flex-shrink: 0; }
+.conversation-recovery .caption { color: #abc4b4; }
+.conversation-recovery-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid #385346; }
+.conversation-recovery-row > span { display: inline-flex; align-items: center; gap: 7px; min-width: 0; overflow-wrap: anywhere; }
+.conversation-recovery-row .primary { background: #c0ddce; color: #14231e; border-color: #c0ddce; }
 .terminal-session-tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .terminal-tab { display: flex; align-items: center; border-radius: 8px; }
 .terminal-tab button { padding: 7px 9px; min-height: 34px; gap: 7px; }
