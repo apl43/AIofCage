@@ -43,10 +43,9 @@ type ConnectorSpec struct {
 
 var connectorCatalog = []ConnectorSpec{
 	{Kind: KindDemo, Name: "合成业务案例", Command: "/usr/local/bin/aiofcage-connector", Tools: democases.ToolNames, CheckTool: "case_overview", CheckArguments: map[string]any{}},
-	// The reference PostgreSQL server: one read-only "query" tool (each query runs in a READ ONLY
-	// transaction) plus table schemas as resources.
-	{Kind: KindPostgres, Name: "PostgreSQL", Package: "@modelcontextprotocol/server-postgres", Version: "0.6.2",
-		Command: "mcp-server-postgres", Tools: []string{"query"}, DefaultPort: "5432", Schemes: []string{"postgresql", "postgres"},
+	// 自有只读服务同时校验 SQL 结构和账号有效权限，不能依赖上游的只读描述或事务包装。
+	{Kind: KindPostgres, Name: "PostgreSQL", Version: "1.0.0",
+		Command: "/opt/aiofcage-postgres/server.mjs", Tools: []string{"query"}, DefaultPort: "5432", Schemes: []string{"postgresql", "postgres"},
 		CheckTool: "query", CheckArguments: map[string]any{"sql": "SELECT 1"}},
 }
 

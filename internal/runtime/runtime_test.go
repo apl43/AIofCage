@@ -56,9 +56,12 @@ func TestConnectorImageContext(t *testing.T) {
 		t.Skip("connector binary not built (make connector-linux)")
 	}
 	dockerfile := string(build.files["Dockerfile"])
-	if !strings.Contains(dockerfile, `"@modelcontextprotocol/server-postgres@0.6.2"`) || !strings.Contains(dockerfile, "--ignore-scripts") ||
+	if strings.Contains(dockerfile, "server-postgres") || !strings.Contains(dockerfile, "npm ci") || !strings.Contains(dockerfile, "--ignore-scripts") ||
 		!strings.Contains(dockerfile, "USER 1000:1000") || !strings.HasPrefix(build.tag, "aiofcage/connector:") {
 		t.Fatalf("connector image:\n%s", dockerfile)
+	}
+	if len(build.files["postgres-policy.mjs"]) == 0 || len(build.files["postgres-server.mjs"]) == 0 || len(build.files["postgres-package-lock.json"]) == 0 {
+		t.Fatal("连接器未打包只读策略、服务或依赖锁")
 	}
 }
 
