@@ -9,6 +9,7 @@ import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminal
 import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
 import { SandboxAgentUpdates } from "./agent-versions.js";
 import { DemoTask } from "./demo-cases.js";
+import { placeTerminalMenu, terminalMenuKey } from "./terminal-menu.js";
 
 const activeTerminals = new Map();
 
@@ -89,14 +90,22 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
   const menu = useRef(null);
   useEffect(() => {
     const dismiss = (event) => { if (menu.current && !menu.current.contains(event.target)) menu.current.open = false; };
+    const reposition = () => placeTerminalMenu(menu.current);
+    const observer = new ResizeObserver(reposition);
+    if (menu.current) observer.observe(menu.current.closest(".terminal-panel"));
     document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
+    window.addEventListener("resize", reposition);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      window.removeEventListener("resize", reposition);
+      observer.disconnect();
+    };
   }, []);
   const setActive = (id) => { activeTerminals.set(sandbox.id, id); updateActive(id); };
   const open = async (agent) => {
     if (creating) return;
     setCreating(true);
-    if (menu.current) menu.current.open = false;
+    if (menu.current?.open) { menu.current.open = false; menu.current.querySelector("summary").focus(); }
     try { setActive(await openTerminal(sandbox, agent)); }
     finally { setCreating(false); }
   };
@@ -132,7 +141,8 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
         <button class="close" aria-label=${`关闭 ${s.title}`} title="关闭" onClick=${() => close(s.id)}><${Icon} name="x" size=${16} /></button>
       </div>`)}</div>`}
       <div class="terminal-new">
-        <details class="terminal-new-menu" ref=${menu} onKeyDown=${(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary").focus(); } }}>
+        <details class="terminal-new-menu" ref=${menu} onKeyDown=${terminalMenuKey} onToggle=${(event) => placeTerminalMenu(event.currentTarget)}
+          onFocusOut=${(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}>
           <summary aria-label="新建会话"><${Icon} name="plus" size=${18} /><span>新建</span><${Icon} name="chevronDown" size=${15} /></summary>
           <div class="terminal-menu-choices">${choices.map((choice) => html`<button onClick=${() => open(choice.agent)} disabled=${!running || creating}><${Icon} name=${agentIcon(choice.agent)} size=${18} />${choice.label}</button>`)}</div>
         </details>
