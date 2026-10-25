@@ -63,9 +63,12 @@ type Sandbox struct {
 	Limits       Limits            `json:"limits"`
 	// MCP lists enabled remote MCP services; FilesystemMCP enables the built-in, secret-free
 	// filesystem server scoped to the project folder.
-	MCP           []string `json:"mcp,omitempty"`
-	FilesystemMCP bool     `json:"filesystem_mcp,omitempty"`
-	Usage         Usage    `json:"usage"`
+	MCP []string `json:"mcp,omitempty"`
+	// MCPPermissions stores the allowed connector tools per sandbox. A present empty
+	// list means that the service is enabled but all of its tools are denied.
+	MCPPermissions map[string][]string `json:"mcp_permissions,omitempty"`
+	FilesystemMCP  bool                `json:"filesystem_mcp,omitempty"`
+	Usage          Usage               `json:"usage"`
 	// ProviderUsage is cumulative per provider ID; UsageCursor tracks the live gatekeeper run.
 	ProviderUsage map[string]ProviderUsage `json:"provider_usage,omitempty"`
 	UsageCursor   *UsageCursor             `json:"usage_cursor,omitempty"`

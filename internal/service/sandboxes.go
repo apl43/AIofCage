@@ -48,14 +48,15 @@ const (
 )
 
 type CreateSandboxRequest struct {
-	Name          string            `json:"name"`
-	ProjectPath   string            `json:"project_path"`
-	ProjectMode   string            `json:"project_mode"`
-	Bindings      []sandbox.Binding `json:"bindings"`
-	MaxRequests   uint64            `json:"max_requests"`
-	MaxTokens     uint64            `json:"max_tokens"`
-	MCP           []string          `json:"mcp"`
-	FilesystemMCP bool              `json:"filesystem_mcp"`
+	Name           string              `json:"name"`
+	ProjectPath    string              `json:"project_path"`
+	ProjectMode    string              `json:"project_mode"`
+	Bindings       []sandbox.Binding   `json:"bindings"`
+	MaxRequests    uint64              `json:"max_requests"`
+	MaxTokens      uint64              `json:"max_tokens"`
+	MCP            []string            `json:"mcp"`
+	MCPPermissions map[string][]string `json:"mcp_permissions"`
+	FilesystemMCP  bool                `json:"filesystem_mcp"`
 }
 
 func (a *App) CreateSandbox(request CreateSandboxRequest) (SandboxView, error) {
@@ -75,7 +76,7 @@ func (a *App) CreateSandbox(request CreateSandboxRequest) (SandboxView, error) {
 	}
 	sbx, err := a.manager.Create(context.Background(), runtime.CreateRequest{Name: name, ProjectPath: project,
 		Bindings: request.Bindings, Limits: sandbox.Limits{MaxRequests: request.MaxRequests, MaxTokens: request.MaxTokens},
-		MCP: request.MCP, FilesystemMCP: request.FilesystemMCP})
+		MCP: request.MCP, MCPPermissions: request.MCPPermissions, FilesystemMCP: request.FilesystemMCP})
 	if err != nil {
 		return SandboxView{}, err
 	}

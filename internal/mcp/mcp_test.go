@@ -103,3 +103,30 @@ func TestOAuthService(t *testing.T) {
 		t.Fatal("OAuth services must use https")
 	}
 }
+
+func TestValidateTools(t *testing.T) {
+	postgres := Service{ID: "db", Name: "数据库", Kind: KindPostgres, URL: "postgresql://app@localhost/shop", KeyRef: KeyRefFor("db")}
+	for _, tc := range []struct {
+		name  string
+		tools []string
+		want  bool
+	}{
+		{name: "catalog tool", tools: []string{"query"}, want: true},
+		{name: "explicit empty grant", tools: []string{}, want: true},
+		{name: "unknown tool", tools: []string{"drop_table"}},
+		{name: "duplicate tool", tools: []string{"query", "query"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateTools(postgres, tc.tools); (err == nil) != tc.want {
+				t.Fatalf("ValidateTools(%v) error = %v, want valid = %v", tc.tools, err, tc.want)
+			}
+		})
+	}
+	httpService := Service{ID: "github", Name: "GitHub", Kind: KindHTTP, URL: "https://api.githubcopilot.com/mcp/", KeyRef: KeyRefFor("github")}
+	if err := ValidateTools(httpService, []string{"query"}); err == nil {
+		t.Fatal("remote HTTP service must reject connector tool grants")
+	}
+	if err := ValidateTools(httpService, nil); err != nil {
+		t.Fatalf("empty remote grant should be accepted for compatibility: %v", err)
+	}
+}

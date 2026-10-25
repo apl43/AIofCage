@@ -23,6 +23,7 @@ import (
 // KeySaved means the login is still usable (a valid access token or a refresh token).
 type MCPServiceView struct {
 	mcp.Service
+	Tools    []string `json:"tools"`
 	KeySaved bool     `json:"key_saved"`
 	UsedBy   []string `json:"used_by"`
 }
@@ -46,7 +47,7 @@ func (a *App) ListMCPServices() ([]MCPServiceView, error) {
 }
 
 func (a *App) mcpView(s mcp.Service) (MCPServiceView, error) {
-	view := MCPServiceView{Service: s, UsedBy: []string{}}
+	view := MCPServiceView{Service: s, Tools: s.Tools(), UsedBy: []string{}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var data []byte
@@ -270,12 +271,17 @@ func (a *App) TestMCPService(id string) (TestResult, error) {
 
 // SetSandboxMCP chooses the MCP services a sandbox may use; running sandboxes update at once.
 func (a *App) SetSandboxMCP(id string, ids []string, filesystem bool) error {
+	return a.SetSandboxMCPPermissions(id, ids, filesystem, nil)
+}
+
+// SetSandboxMCPPermissions updates enabled MCP services and connector tool grants.
+func (a *App) SetSandboxMCPPermissions(id string, ids []string, filesystem bool, permissions map[string][]string) error {
 	if err := a.runtimeReady(); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	return a.manager.SetMCP(ctx, id, ids, filesystem)
+	return a.manager.SetMCPPermissions(ctx, id, ids, filesystem, permissions)
 }
 
 // testDatabase logs in through a throwaway connector and runs a read-only query, which checks the

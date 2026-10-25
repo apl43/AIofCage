@@ -46,10 +46,10 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
       ${attacking && html`<${AttackDialog} sandbox=${attacking} onClose=${() => setAttacking(null)}
         onLogs=${() => { const id = attacking.id; setAttacking(null); onLogs(id, "deny"); }} />`}
       ${editingMCP && html`<${MCPDialog} sandbox=${editingMCP} services=${services} onClose=${() => setEditingMCP(null)}
-        onSave=${async (ids, filesystem) => {
+        onSave=${async (ids, filesystem, permissions) => {
           const target = editingMCP;
           setEditingMCP(null);
-          if (await run(target, "更新 MCP", "SetSandboxMCP", target.id, ids, filesystem)) notify(`已更新「${target.name}」的 MCP 服务`);
+          if (await run(target, "更新 MCP", "SetSandboxMCPPermissions", target.id, ids, filesystem, permissions)) notify(`已更新「${target.name}」的 MCP 服务和工具权限`);
         }} />`}
       ${creating && html`<${CreateSandboxDialog} providers=${providers} services=${services} overview=${overview} onAddProvider=${onAddProvider}
         onClose=${() => setCreating(false)} onCreated=${async (created, start) => {
@@ -196,6 +196,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
     return Object.fromEntries(AGENTS.map((a) => [a.id, first(a.id)]));
   });
   const [mcp, setMcp] = useState([]);
+  const [mcpPermissions, setMcpPermissions] = useState({});
   const [filesystem, setFilesystem] = useState(false);
   const [maxRequests, setMaxRequests] = useState("");
   const [maxTokens, setMaxTokens] = useState("");
@@ -223,7 +224,7 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
       const created = await call("CreateSandbox", {
         name, project_path: mode === "new" ? "" : path, project_mode: mode,
         bindings: selected.map((a) => ({ agent: a.id, provider_id: bindings[a.id] })),
-        max_requests: Number(maxRequests) || 0, max_tokens: Number(maxTokens) || 0, mcp, filesystem_mcp: filesystem,
+        max_requests: Number(maxRequests) || 0, max_tokens: Number(maxTokens) || 0, mcp, mcp_permissions: mcpPermissions, filesystem_mcp: filesystem,
       });
       onCreated(created, start);
     } catch (e) {
@@ -274,7 +275,8 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
           </div>
 
           <label>工具连接（可选）</label>
-          <${MCPChoices} services=${services} selected=${mcp} filesystem=${filesystem} onChange=${(ids, fs) => { setMcp(ids); setFilesystem(fs); }} />
+          <${MCPChoices} services=${services} selected=${mcp} permissions=${mcpPermissions} filesystem=${filesystem}
+            onChange=${(ids, fs, grants) => { setMcp(ids); setFilesystem(fs); setMcpPermissions(grants); }} />
 
           <details>
             <summary>用量上限（可选）</summary>
@@ -340,17 +342,27 @@ function quotaPercent(used, limit) {
 
 function MCPDialog({ sandbox, services, onClose, onSave }) {
   const [selected, setSelected] = useState(sandbox.mcp);
+  const [permissions, setPermissions] = useState(() => {
+    const grants = { ...(sandbox.mcp_permissions ?? {}) };
+    services.forEach((service) => {
+      if (selected.includes(service.id) && service.tools?.length && !Object.prototype.hasOwnProperty.call(grants, service.id)) {
+        grants[service.id] = [...service.tools];
+      }
+    });
+    return grants;
+  });
   const [filesystem, setFilesystem] = useState(sandbox.filesystem_mcp);
   return html`
     <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
       <div class="dialog" role="dialog" aria-modal="true" aria-label="MCP 设置">
         <div class="dialog-heading"><h2>「${sandbox.name}」的 MCP 服务</h2>
           <button type="button" class="icon-button" aria-label="关闭" onClick=${onClose}><${Icon} name="x" size=${20} /></button></div>
-        <${MCPChoices} services=${services} selected=${selected} filesystem=${filesystem} onChange=${(ids, fs) => { setSelected(ids); setFilesystem(fs); }} />
+        <${MCPChoices} services=${services} selected=${selected} permissions=${permissions} filesystem=${filesystem}
+          onChange=${(ids, fs, grants) => { setSelected(ids); setFilesystem(fs); setPermissions(grants); }} />
         <p class="caption">运行中的沙箱会立即更新配置，Agent 下次启动时生效。</p>
         <div class="dialog-actions">
           <button onClick=${onClose}>取消</button>
-          <button class="primary" onClick=${() => onSave(selected, filesystem)}>保存</button>
+          <button class="primary" onClick=${() => onSave(selected, filesystem, permissions)}>保存</button>
         </div>
       </div>
     </div>`;

@@ -157,6 +157,26 @@ func TestMCPGatewayDenials(t *testing.T) {
 	}
 }
 
+func TestMCPGatewayExplicitEmptyToolGrantDeniesEveryTool(t *testing.T) {
+	f := newMCPFixture(t)
+	config := testConfig(2)
+	config.Connectors = []Connector{{ID: "pg", Placeholder: connectorPlaceholder, Upstream: "http://10.9.0.3:8080",
+		Token: connectorToken, Tools: []string{}, ToolsRestricted: true}}
+	f.configure(t, config)
+	seq := f.gate.events.last()
+	status, body, _ := f.call(t, "/mcp/pg", connectorPlaceholder, "", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"query"}}`)
+	if status != http.StatusOK || !strings.Contains(body, `"code":-32001`) {
+		t.Fatalf("explicit empty tool grant must deny the call: %d %s", status, body)
+	}
+	if f.upstreamCalls.Load() != 0 {
+		t.Fatalf("denied tool call reached the connector: %d", f.upstreamCalls.Load())
+	}
+	events := f.eventsAfter(t, seq)
+	if len(events) == 0 || events[len(events)-1].ReasonCode != "mcp_tool_denied" || events[len(events)-1].Decision != audit.DecisionDeny {
+		t.Fatalf("missing denial audit event: %+v", events)
+	}
+}
+
 func TestConnectorConfigValidation(t *testing.T) {
 	valid := Connector{ID: "pg", Placeholder: connectorPlaceholder, Upstream: "http://10.9.0.3:8080", Token: connectorToken}
 	cases := map[string]func(*Connector){

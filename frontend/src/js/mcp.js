@@ -156,14 +156,39 @@ const isOAuth = (service) => service?.kind === "oauth";
 const isBuiltin = (service) => service?.kind === "demo";
 const isDatabase = (service) => service?.kind === "postgres";
 
-// 沙箱里勾选启用哪些 MCP；创建向导和沙箱行共用。
-export function MCPChoices({ services, selected, filesystem, onChange }) {
-  const toggle = (id) => onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id], filesystem);
+// 沙箱里勾选启用哪些 MCP；创建向导和沙箱行共用。连接器会显示可授予的工具。
+export function MCPChoices({ services, selected, filesystem, permissions = {}, onChange }) {
+  const update = (ids, fs, grants = permissions) => onChange(ids, fs, grants);
+  const toggle = (service) => {
+    const enabled = selected.includes(service.id);
+    if (enabled) {
+      const grants = { ...permissions };
+      delete grants[service.id];
+      update(selected.filter((x) => x !== service.id), filesystem, grants);
+      return;
+    }
+    const grants = { ...permissions };
+    if (service.tools?.length && !Object.prototype.hasOwnProperty.call(grants, service.id)) {
+      grants[service.id] = [...service.tools];
+    }
+    update([...selected, service.id], filesystem, grants);
+  };
+  const toggleTool = (service, tool) => {
+    const current = permissions[service.id] ?? service.tools ?? [];
+    const tools = current.includes(tool) ? current.filter((item) => item !== tool) : [...current, tool];
+    update(selected, filesystem, { ...permissions, [service.id]: tools });
+  };
   return html`<div class="agent-pick">
-    <label class="check"><input type="checkbox" checked=${filesystem} onChange=${(e) => onChange(selected, e.target.checked)} />
+    <label class="check"><input type="checkbox" checked=${filesystem} onChange=${(e) => update(selected, e.target.checked)} />
       项目文件（filesystem，内置，无需密钥）</label>
-    ${services.map((s) => html`<label class="check"><input type="checkbox" checked=${selected.includes(s.id)} onChange=${() => toggle(s.id)} />
-      ${s.name}${isDatabase(s) ? "（数据库，只读）" : isBuiltin(s) ? "（合成数据，只读）" : ""}${!s.key_saved && !isBuiltin(s)
-        ? html` <span class="pill warn">${isOAuth(s) ? "未登录" : `缺少${isDatabase(s) ? "密码" : "令牌"}`}</span>` : ""}</label>`)}
+    ${services.map((s) => html`<div class="mcp-choice" key=${s.id}>
+      <label class="check"><input type="checkbox" checked=${selected.includes(s.id)} onChange=${() => toggle(s)} />
+        ${s.name}${isDatabase(s) ? "（数据库，只读）" : isBuiltin(s) ? "（合成数据，只读）" : ""}${!s.key_saved && !isBuiltin(s)
+          ? html` <span class="pill warn">${isOAuth(s) ? "未登录" : `缺少${isDatabase(s) ? "密码" : "令牌"}`}</span>` : ""}</label>
+      ${selected.includes(s.id) && s.tools?.length ? html`<div class="mcp-tool-list" aria-label=${`${s.name} 工具权限`}>
+        <small>允许的工具（${(permissions[s.id] ?? s.tools).length}/${s.tools.length}）</small>
+        ${s.tools.map((tool) => html`<label class="check"><input type="checkbox" checked=${(permissions[s.id] ?? s.tools).includes(tool)}
+          onChange=${() => toggleTool(s, tool)} />${tool}</label>`)}</div>` : ""}
+    </div>`)}
   </div>`;
 }

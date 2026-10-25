@@ -121,19 +121,21 @@ func names(id string) objectNames {
 }
 
 type CreateRequest struct {
-	Name          string            `json:"name"`
-	ProjectPath   string            `json:"project_path"`
-	Bindings      []sandbox.Binding `json:"bindings"`
-	Limits        sandbox.Limits    `json:"limits"`
-	MCP           []string          `json:"mcp"`
-	FilesystemMCP bool              `json:"filesystem_mcp"`
+	Name           string              `json:"name"`
+	ProjectPath    string              `json:"project_path"`
+	Bindings       []sandbox.Binding   `json:"bindings"`
+	Limits         sandbox.Limits      `json:"limits"`
+	MCP            []string            `json:"mcp"`
+	MCPPermissions map[string][]string `json:"mcp_permissions"`
+	FilesystemMCP  bool                `json:"filesystem_mcp"`
 }
 
 // Create records a sandbox. Docker objects are created on first start.
 func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sandbox, error) {
 	sbx := sandbox.Sandbox{ID: sandbox.NewID(), Name: strings.TrimSpace(request.Name),
 		ProjectPath: filepath.Clean(request.ProjectPath), Bindings: request.Bindings, Limits: request.Limits,
-		FilesystemMCP: request.FilesystemMCP, Placeholders: map[string]string{}, CreatedAt: time.Now().UTC()}
+		FilesystemMCP: request.FilesystemMCP, MCPPermissions: cloneMCPPermissions(request.MCPPermissions),
+		Placeholders: map[string]string{}, CreatedAt: time.Now().UTC()}
 	if err := sbx.Validate(); err != nil {
 		return sbx, err
 	}
@@ -148,7 +150,11 @@ func (m *Manager) Create(_ context.Context, request CreateRequest) (sandbox.Sand
 	if err := m.checkServices(request.MCP); err != nil {
 		return sbx, err
 	}
-	applyMCP(&sbx, request.MCP)
+	permissions, err := m.normalizeMCPPermissions(request.MCP, request.MCPPermissions)
+	if err != nil {
+		return sbx, err
+	}
+	applyMCP(&sbx, request.MCP, permissions)
 	for _, binding := range sbx.Bindings {
 		if binding.ProviderID == "" {
 			continue
@@ -174,7 +180,7 @@ func (m *Manager) checkServices(ids []string) error {
 
 // applyMCP sets the enabled MCP services, creating placeholders for new ones. It must not touch
 // the store: SetMCP runs it inside a store update, whose lock is not reentrant.
-func applyMCP(sbx *sandbox.Sandbox, ids []string) {
+func applyMCP(sbx *sandbox.Sandbox, ids []string, permissions map[string][]string) {
 	var enabled []string
 	for _, id := range ids {
 		if sbx.Placeholders[mcp.PlaceholderKey(id)] == "" {
@@ -183,10 +189,56 @@ func applyMCP(sbx *sandbox.Sandbox, ids []string) {
 		enabled = append(enabled, id)
 	}
 	sbx.MCP = enabled
+	sbx.MCPPermissions = cloneMCPPermissions(permissions)
+}
+
+func cloneMCPPermissions(input map[string][]string) map[string][]string {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string][]string, len(input))
+	for id, tools := range input {
+		output[id] = append([]string(nil), tools...)
+	}
+	return output
+}
+
+func (m *Manager) normalizeMCPPermissions(ids []string, requested map[string][]string) (map[string][]string, error) {
+	permissions := make(map[string][]string)
+	selected := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		selected[id] = true
+		service, err := m.store.MCPService(id)
+		if err != nil {
+			return nil, err
+		}
+		if !service.IsConnector() {
+			continue
+		}
+		tools, specified := requested[id]
+		if !specified {
+			tools = service.Tools()
+		}
+		if err := mcp.ValidateTools(service, tools); err != nil {
+			return nil, err
+		}
+		permissions[id] = append([]string(nil), tools...)
+	}
+	for id := range requested {
+		if !selected[id] {
+			return nil, fmt.Errorf("MCP 权限引用了未启用的服务：%s", id)
+		}
+	}
+	return permissions, nil
 }
 
 // SetMCP changes which MCP services a sandbox can use; a running sandbox is updated at once.
 func (m *Manager) SetMCP(ctx context.Context, id string, ids []string, filesystem bool) error {
+	return m.SetMCPPermissions(ctx, id, ids, filesystem, nil)
+}
+
+// SetMCPPermissions changes enabled MCP services and their connector tool grants.
+func (m *Manager) SetMCPPermissions(ctx context.Context, id string, ids []string, filesystem bool, requested map[string][]string) error {
 	unlock, lockErr := m.lock(ctx, id)
 	if lockErr != nil {
 		return lockErr
@@ -195,12 +247,16 @@ func (m *Manager) SetMCP(ctx context.Context, id string, ids []string, filesyste
 	if err := m.checkServices(ids); err != nil {
 		return err
 	}
-	err := m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
+	permissions, err := m.normalizeMCPPermissions(ids, requested)
+	if err != nil {
+		return err
+	}
+	err = m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error {
 		if s.Placeholders == nil {
 			s.Placeholders = map[string]string{}
 		}
 		s.FilesystemMCP = filesystem
-		applyMCP(s, ids)
+		applyMCP(s, ids, permissions)
 		return nil
 	})
 	if err != nil {
