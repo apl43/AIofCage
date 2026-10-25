@@ -14,7 +14,7 @@ export function PageTitle({ icon, title, description }) {
 // 调用 Wails 绑定的 Go 方法；错误统一转成可直接展示的中文字符串。
 export async function call(method, ...args) {
   const app = window.go?.service?.App;
-  if (!app) throw new Error("应用连接中断，请重新打开 AiOf Cage。");
+  if (!app) throw new Error("应用连接中断，请重新打开 Ai of Cage。");
   try {
     return await app[method](...args);
   } catch (error) {

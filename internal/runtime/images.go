@@ -121,14 +121,14 @@ func agentContext(agents []session.Agent) (buildContext, error) {
 		return buildContext{}, err
 	}
 	files := map[string][]byte{"Dockerfile": dockerfile.Bytes()}
-	for _, name := range []string{"aiofcage-init.py", "aiofcage-run", "bashrc"} {
+	for _, name := range []string{"aiofcage-init.py", "aiofcage-run", "bashrc", "agent-turn.py"} {
 		data, err := assets.ReadFile("assets/agent/" + name)
 		if err != nil {
 			return buildContext{}, err
 		}
 		files[name] = data
 	}
-	return buildContext{tag: "aiofcage/agent:" + digest(files, "Dockerfile", "aiofcage-init.py", "aiofcage-run", "bashrc"), files: files}, nil
+	return buildContext{tag: "aiofcage/agent:" + digest(files, "Dockerfile", "aiofcage-init.py", "aiofcage-run", "bashrc", "agent-turn.py"), files: files}, nil
 }
 
 // ensureImage builds the image inside the dedicated VM unless an image with the same content

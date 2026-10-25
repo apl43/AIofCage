@@ -154,10 +154,19 @@ func claudeState(sbx sandbox.Sandbox, p provider.Provider, hasProvider bool, ser
 
 // dshConfig 对应 npm 0.2.1-rc.2 的 llm-pi-ai 与 agent-default-model 配置。
 func dshConfig(p provider.Provider) string {
+	return dshConfigWithEffort(p, "")
+}
+
+func dshConfigWithEffort(p provider.Provider, effort string) string {
 	api := map[provider.Protocol]string{provider.OpenAIChat: "openai-completions", provider.OpenAIResponses: "openai-responses", provider.Anthropic: "anthropic-messages"}[p.Protocol]
 	input := "text"
 	if p.ImageInput {
 		input += ", image"
 	}
-	return fmt.Sprintf("- id: llm-pi-ai\n  config:\n    providers:\n      aiofcage:\n        apiKeyEnv: AIOFCAGE_DSH_API_KEY\n        api: %s\n        baseURL: %s\n        models:\n          - id: %s\n            input: [%s]\n- id: agent-default-model\n  config:\n    provider: aiofcage\n    model: %s\n", api, tomlString(p.BaseURL), tomlString(p.Model), input, tomlString(p.Model))
+	reasoning, selection := "", ""
+	if effort != "" {
+		reasoning = fmt.Sprintf("            reasoningEfforts:\n              %s: %s\n", tomlString(effort), tomlString(effort))
+		selection = fmt.Sprintf("    reasoningEffort: %s\n", tomlString(effort))
+	}
+	return fmt.Sprintf("- id: llm-pi-ai\n  config:\n    providers:\n      aiofcage:\n        apiKeyEnv: AIOFCAGE_DSH_API_KEY\n        api: %s\n        baseURL: %s\n        models:\n          - id: %s\n            input: [%s]\n%s- id: agent-default-model\n  config:\n    provider: aiofcage\n    model: %s\n%s", api, tomlString(p.BaseURL), tomlString(p.Model), input, reasoning, tomlString(p.Model), selection)
 }

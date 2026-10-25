@@ -5,7 +5,7 @@ import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
 import { HealthPanel } from "./health.js";
 import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
-import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminalDraft, addTerminalImages, pasteTerminalImage, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
+import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminalDraft, addTerminalImages, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
 import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
 
 const activeTerminals = new Map();
@@ -81,8 +81,21 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
   const sessions = useTerminals(sandbox.id);
   const [active, updateActive] = useState(() => activeTerminals.get(sandbox.id));
   const [dragging, setDragging] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const menu = useRef(null);
+  useEffect(() => {
+    const dismiss = (event) => { if (menu.current && !menu.current.contains(event.target)) menu.current.open = false; };
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
+  }, []);
   const setActive = (id) => { activeTerminals.set(sandbox.id, id); updateActive(id); };
-  const open = async (agent) => setActive(await openTerminal(sandbox, agent));
+  const open = async (agent) => {
+    if (creating) return;
+    setCreating(true);
+    if (menu.current) menu.current.open = false;
+    try { setActive(await openTerminal(sandbox, agent)); }
+    finally { setCreating(false); }
+  };
 
   // 从沙箱列表点“打开终端”过来时，按选中的 Agent 新开一个标签。
   useEffect(() => {
@@ -108,14 +121,17 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
     onKeyDownCapture=${(e) => handleTerminalImageKey(current, e)}
     onDragOver=${(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragging(true); } }}
     onDragLeave=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
-    onDrop=${(e) => { e.preventDefault(); setDragging(false); if (current && !current.exited) addTerminalImages(current, e.dataTransfer.files); }}>
+    onDrop=${(e) => { e.preventDefault(); setDragging(false); if (current?.agent && !current.exited) addTerminalImages(current, e.dataTransfer.files); }}>
     <div class="terminal-tabs">
       ${sessions.length > 0 && html`<div class="terminal-session-tabs" role="tablist" aria-label="终端会话">${sessions.map((s) => html`<div class=${`terminal-tab ${s.id === current?.id ? "active" : ""} ${s.exited ? "exited" : ""}`} key=${s.id}>
         <button role="tab" aria-selected=${s.id === current?.id} tabindex=${s.id === current?.id ? 0 : -1} onClick=${() => setActive(s.id)}><${Icon} name=${agentIcon(s.agent)} size=${16} />${s.title}${s.exited ? "（已结束）" : ""}</button>
         <button class="close" aria-label=${`关闭 ${s.title}`} title="关闭" onClick=${() => close(s.id)}><${Icon} name="x" size=${16} /></button>
       </div>`)}</div>`}
       <div class="terminal-new">
-        ${choices.map((c) => html`<button onClick=${() => open(c.agent)} disabled=${!running} title=${`新开一个 ${c.label} 终端`}><${Icon} name="plus" size=${16} />${c.label}</button>`)}
+        <details class="terminal-new-menu" ref=${menu} onKeyDown=${(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary").focus(); } }}>
+          <summary aria-label="新建会话"><${Icon} name="plus" size=${18} /><span>新建</span><${Icon} name="chevronDown" size=${15} /></summary>
+          <div class="terminal-menu-choices">${choices.map((choice) => html`<button onClick=${() => open(choice.agent)} disabled=${!running || creating}><${Icon} name=${agentIcon(choice.agent)} size=${18} />${choice.label}</button>`)}</div>
+        </details>
       </div>
       <button class="link system-terminal" disabled=${!running} title="用 macOS 自带的“终端”打开"
         onClick=${() => call("OpenTerminal", sandbox.id, current?.agent ?? sandbox.bindings[0]?.agent ?? "").catch((e) => notify(e.message, true))}>
@@ -129,7 +145,7 @@ function TerminalTab({ sandbox, request, running, busy, run, notify }) {
           <p>打开智能体，或使用 Shell 管理项目。</p>
           <div class="terminal-choices">${choices.map((c) => html`<button class="primary" onClick=${() => open(c.agent)}><${Icon} name=${agentIcon(c.agent)} size=${18} />${c.label}</button>`)}</div>
         </div>`}
-    ${current && !current.exited && running && html`<${TerminalComposer} key=${current.id} session=${current} />`}
+    ${current?.agent && current.info && !current.exited && running && html`<${TerminalComposer} key=${current.id} session=${current} />`}
     ${dragging && html`<div class="terminal-drop-hint" aria-hidden="true">松开以添加图片</div>`}
   </div>`;
 }
@@ -139,7 +155,10 @@ function TerminalComposer({ session }) {
   const draft = session.draft;
   const inputID = `terminal-message-${session.id}`;
   const errorID = `terminal-message-error-${session.id}`;
-  const send = () => sendDraft(draft, (text, images) => call("SendTerminalMessage", session.id, text, images), updateTerminalDraft);
+  const send = () => {
+    if (session.busy) return;
+    return sendDraft(draft, (text, images) => call("SendConversationMessage", session.id, text, images, { model: session.model, effort: session.effort }), updateTerminalDraft);
+  };
   return html`<form class="terminal-composer" onSubmit=${(e) => { e.preventDefault(); send(); }}>
     ${draft.images.length > 0 && html`<ul class="terminal-attachments" aria-label="待发送的图片">
       ${draft.images.map((item, index) => html`<li key=${item.id}>
@@ -150,7 +169,7 @@ function TerminalComposer({ session }) {
       </li>`)}
     </ul>`}
     <div class="terminal-input-row">
-      <label class="sr-only" for=${inputID}>${session.agent ? "输入任务或回复" : "输入 Shell 命令"}</label>
+      <label class="sr-only" for=${inputID}>发送给 ${session.title}</label>
       <textarea id=${inputID} rows="2" value=${draft.text} placeholder=${session.agent ? "输入任务，或粘贴图片…" : "输入 Shell 命令…"}
         disabled=${draft.busy} aria-invalid=${Boolean(draft.error)} aria-describedby=${draft.error ? errorID : undefined}
         onInput=${(e) => { draft.text = e.target.value; draft.error = ""; updateTerminalDraft(); }}
@@ -161,10 +180,11 @@ function TerminalComposer({ session }) {
         ${session.agent && html`<input ref=${picker} type="file" accept=${IMAGE_ACCEPT} multiple hidden aria-label="选择图片"
           onChange=${(e) => { addTerminalImages(session, e.target.files); e.target.value = ""; }} />
           <button type="button" disabled=${draft.busy || draft.reading} onClick=${() => picker.current?.click()}><${Icon} name="image" size=${18} />添加图片</button>
-          <button type="button" title="粘贴图片（⌘V 或 Ctrl+V）" disabled=${draft.busy || draft.reading} onClick=${() => pasteTerminalImage(session)}><${Icon} name="clipboard" size=${18} />粘贴图片</button>`}
-        <span class="terminal-input-hint">${draft.images.length ? `${draft.images.length}/4 张 · 所选模型需支持图片` : "Shift + Enter 换行"}</span>
+          `}
+        <span class="terminal-input-hint">${draft.images.length ? `${draft.images.length}/4 张 · 所选模型需支持图片` : "Shift + Enter 换行 · ⌘V 粘贴图片"}</span>
       </div>
-      <button type="submit" class="terminal-send" disabled=${draft.busy || draft.reading}><${Icon} name="send" size=${18} />${draft.busy ? "正在发送…" : "发送 ↵"}</button>
+      ${session.busy ? html`<button type="button" class="terminal-send" onClick=${() => call("StopConversation", session.id).catch((error) => { draft.error = error.message; updateTerminalDraft(); })}><${Icon} name="stop" size=${18} />停止</button>`
+        : html`<button type="submit" class="terminal-send" disabled=${draft.busy || draft.reading}><${Icon} name="send" size=${18} />${draft.busy ? "正在发送…" : "发送 ↵"}</button>`}
     </div>
     <span class="sr-only" role="status">${draft.status}</span>
     <div class="terminal-input-error" id=${errorID} role="alert">${draft.error}</div>

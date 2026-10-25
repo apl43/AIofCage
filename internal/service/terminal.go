@@ -239,6 +239,7 @@ func (a *App) closeTerminal(t *terminal) {
 
 // CloseAllTerminals is called when the app quits.
 func (a *App) CloseAllTerminals() {
+	a.closeConversations()
 	a.terms.mu.Lock()
 	a.terms.closing = true
 	open := make([]*terminal, 0, len(a.terms.items))
