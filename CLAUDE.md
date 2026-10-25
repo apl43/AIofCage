@@ -9,11 +9,11 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 
 ## 产品形态（团队 2026-10-23 确定）
 
-“CC Switch + Docker Desktop”：桌面应用按 agent 分类管理**供应商**（接口地址、协议、模型，key 只存钥匙串），并像 Docker Desktop 一样管理**沙箱**（创建时选项目、勾选要装的 agent、给每个 agent 绑定供应商；启停、删除、打开终端、查看用量）。多个沙箱可以共用一个供应商，也可以各用各的。每个沙箱有自己的门卫，只持有该沙箱绑定的供应商 key。概念、已确认的行为、开发步骤与分工见 `docs/development-plan.md`；下文的安全机制是这个产品背后的引擎，实现时以服务该产品形态为重点。
+“CC Switch + Docker Desktop”：桌面应用按 agent 分类管理**供应商**（接口地址、协议、模型，key 只存钥匙串），并像 Docker Desktop 一样管理**沙箱**（创建时选项目、勾选要装的 agent、给每个 agent 绑定供应商；启停、删除、打开终端、查看用量）。多个沙箱可以共用一个供应商，也可以各用各的。每个沙箱有自己的门卫，只持有该沙箱绑定的供应商 key。当前规则见 `docs/product-workspace.md`，构建与贡献见 `docs/development.md`，完整文档入口见 `docs/README.md`；早期步骤与分工保留在 `docs/development-plan.md`。
 
 ## 设计目标与编码前置条件
 
-需求与验收以 `docs/requirements-and-acceptance.md` 为准，架构候选见 `docs/architecture.md`（v3 草案），比赛要求见 `docs/competition-rules.md`。按最新开发安排先搭可构建工程骨架，当前实现范围和模块接口见 `docs/modules.md`；这不表示 G0—G5 已通过或设计已冻结。真实隔离、凭据与 MCP 接入仍须完成对应验证，不得用模拟成功替代。旧 ADR 标记为被取代时不得照旧实现。
+当前产品规则以 `docs/product-workspace.md` 为准，实现机制与限制见 `docs/architecture-current.md`，实际验收范围见 `docs/validation/README.md`。原始目标与安全验收基线保留在 `docs/requirements-and-acceptance.md`，早期架构候选与接口过程分别保留在 `docs/architecture.md`、`docs/modules.md`；这些历史文件中的状态不代表当前完成度。比赛要求见 `docs/competition-rules.md`。真实隔离、凭据与 MCP 接入仍须完成对应验证，不得用模拟成功替代，也不得推定 G0—G5 全部通过。旧 ADR 标记为被取代时不得照旧实现。
 
 - 构建：`make app`（生成 `bin/Ai of Cage.app`，应用标识 `io.aiofcage.desktop`）、`make desktop`（裸二进制）、`make cagectl`（都会先编译并嵌入 Linux 门卫与连接器）、`make gatekeeper`；检查：`make check`、`make test`。桌面编译使用 `production` tag；前端为 `frontend/src` 静态资源。
 - 门卫（`internal/gatekeeper`）在经 `PUT /config` 下发策略与密钥后才转发，未配置时一律 503；MCP 入口 `8890` 只转发到已配置的可信连接器。沙箱运行时（`internal/runtime`）与 `cagectl` 已能创建并启动沙箱；桌面应用已接入供应商管理、沙箱管理、实时请求日志（JSONL 审计）与用量监视（`internal/service`）；远程 HTTP MCP（Bearer 令牌注入）、内置 filesystem MCP、数据库密码类 MCP（PostgreSQL，可信连接器代持密码，经门卫 MCP 入口 `8890` 访问）、OAuth 类 MCP（宿主浏览器登录、自动续期，门卫注入访问令牌）、AI 安全解说与模拟攻击已接入。前端为 Preact + htm（`frontend/src/vendor`），无 npm 构建。Codex 只支持 Responses API。
@@ -53,7 +53,7 @@ Qiniu Builder Day 2026 赛道一参赛作品：桌面级 AI Agent 安全沙箱�
 
 ## 开发顺序
 
-按 `docs/development-plan.md` 的 S0—S10 逐步推进：每一步自带验证，验证不过不进入依赖它的下一步；10-24 13:00 最小闭环（Codex 在沙箱中经门卫完成真实任务）是硬检查点。验证包中的实验门卫与运行器（`experiments/validation/`）是产品化的参照实现。
+S0—S10 的原始排期与检查点保留在 `docs/development-plan.md`，验证包中的实验门卫与运行器（`experiments/validation/`）保留为产品化过程的参考。后续开发按当前产品规格及 `docs/development.md` 推进：每一步自带验证，验证不过不进入依赖它的下一步；结果写入 `docs/validation/` 并更新索引。
 
 OAuth、密码连接器和 MCP 工具/资源授权是覆盖目标的一部分，缺失时明确写为缺口，不能只改成路线图后宣称满足议题。Hash 链、逐命令审批、写操作的交互式审批和高级策略编辑器可延后；未经授权的写工具保持拒绝。AI 解说不参与授权和拦截。
 
@@ -66,6 +66,6 @@ OAuth、密码连接器和 MCP 工具/资源授权是覆盖目标的一部分，
 
 - 文档、README 和界面文案都用中文。
 - 永远不要提交密钥；提交前扫描 `sk-`、`ghp_` 这类字符串。
-- README 里的功能清单，完成一项勾一项。
+- README 保留简短安装、开始使用和主要功能；详细功能清单在 `docs/features.md`，完成一项更新一项，并链接对应验收记录。新增文档更新 `docs/README.md` 或验收索引。
 - Git：一个功能一个分支一个 PR，不直接往 `main` 推。分支名用 `feat/xxx`、`fix/xxx`、`docs/xxx`、`test/xxx`。**合并用 merge commit**（比赛要求保留开发过程痕迹，squash 会丢掉 PR 内的分步提交）。队友不 fork，直接在本仓库开分支。
 - PR 自测通过后由团队成员合并，作者不自己合并改动 CLAUDE.md 或范围的 PR；依赖上一个未合并 PR 的分支从那个分支切出，并在 PR 描述里写明依赖。
