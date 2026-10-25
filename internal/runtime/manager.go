@@ -199,7 +199,7 @@ func cloneMCPPermissions(input map[string][]string) map[string][]string {
 	}
 	output := make(map[string][]string, len(input))
 	for id, tools := range input {
-		output[id] = append([]string(nil), tools...)
+		output[id] = append([]string{}, tools...)
 	}
 	return output
 }
@@ -223,7 +223,7 @@ func (m *Manager) normalizeMCPPermissions(ids []string, requested map[string][]s
 		if err := mcp.ValidateTools(service, tools); err != nil {
 			return nil, err
 		}
-		permissions[id] = append([]string(nil), tools...)
+		permissions[id] = append([]string{}, tools...)
 	}
 	for id := range requested {
 		if !selected[id] {
@@ -999,14 +999,14 @@ func (m *Manager) removeRuntimeObjects(ctx context.Context, id string, keepHome 
 		errs = append(errs, err)
 	}
 	for _, args := range [][]string{{"rm", "--force", n.agent}, {"rm", "--force", n.gate},
-		{"network", "rm", n.internal}, {"network", "rm", n.egress}} {
+		{"network", "rm", "--force", n.internal}, {"network", "rm", "--force", n.egress}} {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, args...); err != nil && !strings.Contains(err.Error(), "No such") &&
 			!strings.Contains(err.Error(), "not found") {
 			errs = append(errs, err)
 		}
 	}
 	if !keepHome {
-		if _, err := m.docker.run(ctx, 30*time.Second, nil, "volume", "rm", n.home); err != nil &&
+		if _, err := m.docker.run(ctx, 30*time.Second, nil, "volume", "rm", "--force", n.home); err != nil &&
 			!strings.Contains(err.Error(), "no such") && !strings.Contains(err.Error(), "No such") {
 			errs = append(errs, err)
 		}

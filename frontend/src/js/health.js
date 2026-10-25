@@ -45,7 +45,7 @@ export function HealthPanel({ sandbox, vm, events = [] }) {
       ${security && html`<div class="panel security-diagnostics" aria-label="安全诊断中心">
         <div class="card-top"><h3>安全诊断中心</h3><span class=${`pill ${security.gatekeeper_ready ? "ok" : security.gatekeeper_running ? "warn" : "idle"}`}>${security.gatekeeper_ready ? "门卫已就绪" : security.gatekeeper_running ? "门卫未确认" : "门卫未运行"}</span></div>
         ${security.gatekeeper_error && html`<p class="caption">${security.gatekeeper_error}</p>`}
-        <div class="security-grid">${security.controls.map((item) => html`<div class="security-item"><strong>${item.name}</strong><span class="pill ok">已执行</span><small>${item.detail}</small></div>`)}</div>
+        <div class="security-grid">${security.controls.map((item) => html`<div class="security-item"><strong>${item.name}</strong><span class="pill idle">边界说明</span><small>${item.detail}</small></div>`)}</div>
         <div class="section-heading compact"><h4>MCP 权限</h4><span class="caption">最近拒绝 ${security.recent_denied} 次</span></div>
         ${security.mcp.length ? html`<div class="security-mcp">${security.mcp.map((item) => html`<div class="security-item"><strong>${item.name}</strong><small>${item.connector ? `连接器工具 ${item.granted_tools.length}/${item.catalog_tools.length}${item.explicit_grant ? "（沙箱专属）" : "（默认目录）"}` : "远程服务级授权"} · ${item.key_saved ? "凭据可用" : "需要登录或配置"}</small></div>`)}</div>` : html`<p class="caption">当前沙箱未启用 MCP 服务。</p>`}
         ${security.last_isolation && html`<p class="caption">最近一次隔离检查：${new Date(security.last_isolation.finished_at).toLocaleString()}，${security.last_isolation.results.filter((item) => item.status === "passed").length}/${security.last_isolation.results.length} 项通过。</p>`}

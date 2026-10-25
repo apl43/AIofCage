@@ -430,7 +430,7 @@ func cloneMCPPermissions(input map[string][]string) map[string][]string {
 	}
 	output := make(map[string][]string, len(input))
 	for id, tools := range input {
-		output[id] = append([]string(nil), tools...)
+		output[id] = append([]string{}, tools...)
 	}
 	return output
 }

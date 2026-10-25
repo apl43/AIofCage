@@ -21,8 +21,8 @@ type SecurityMCPView struct {
 	KeySaved      bool     `json:"key_saved"`
 	Connector     bool     `json:"connector"`
 	ExplicitGrant bool     `json:"explicit_grant"`
-	CatalogTools  []string `json:"catalog_tools,omitempty"`
-	GrantedTools  []string `json:"granted_tools,omitempty"`
+	CatalogTools  []string `json:"catalog_tools"`
+	GrantedTools  []string `json:"granted_tools"`
 }
 
 type SecurityIsolationView struct {
@@ -50,11 +50,11 @@ func (a *App) SecurityDiagnostics(id string) (SecurityDiagnosticsView, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	view := SecurityDiagnosticsView{SandboxID: sbx.ID, SandboxName: sbx.Name, State: "unknown", Controls: []SecurityControlView{
-		{ID: "project", Name: "项目文件", Status: "enforced", Detail: "仅共享到沙箱项目目录；项目文件仍可被 Agent 修改。"},
-		{ID: "network", Name: "网络出口", Status: "enforced", Detail: "Agent 不直接接出网，模型和 MCP 请求经过门卫。"},
-		{ID: "credentials", Name: "凭据隔离", Status: "enforced", Detail: "上游密钥保留在宿主、门卫或可信连接器，沙箱只得到占位符。"},
-		{ID: "audit", Name: "审计记录", Status: "enforced", Detail: "记录脱敏请求元数据；请求正文、MCP 参数和结果不写入审计。"},
+	view := SecurityDiagnosticsView{SandboxID: sbx.ID, SandboxName: sbx.Name, State: "unknown", MCP: []SecurityMCPView{}, Controls: []SecurityControlView{
+		{ID: "project", Name: "项目文件", Status: "configured", Detail: "仅共享到沙箱项目目录；项目文件仍可被 Agent 修改。"},
+		{ID: "network", Name: "网络出口", Status: "configured", Detail: "Agent 不直接接出网，模型和 MCP 请求经过门卫。"},
+		{ID: "credentials", Name: "凭据隔离", Status: "configured", Detail: "上游密钥保留在宿主、门卫或可信连接器，沙箱只得到占位符。"},
+		{ID: "audit", Name: "审计记录", Status: "configured", Detail: "记录脱敏请求元数据；请求正文、MCP 参数和结果不写入审计。"},
 	}}
 	if a.manager == nil {
 		view.State = "unavailable"
@@ -83,7 +83,7 @@ func (a *App) SecurityDiagnostics(id string) (SecurityDiagnosticsView, error) {
 			return SecurityDiagnosticsView{}, err
 		}
 		item := SecurityMCPView{ID: service.ID, Name: service.Name, Kind: string(service.Kind), Connector: service.IsConnector(),
-			CatalogTools: service.Tools()}
+			CatalogTools: append([]string{}, service.Tools()...), GrantedTools: []string{}}
 		if service.IsBuiltin() {
 			item.KeySaved = true
 		} else {
@@ -94,7 +94,7 @@ func (a *App) SecurityDiagnostics(id string) (SecurityDiagnosticsView, error) {
 		if service.IsConnector() {
 			if tools, ok := sbx.MCPPermissions[service.ID]; ok {
 				item.ExplicitGrant = true
-				item.GrantedTools = append([]string(nil), tools...)
+				item.GrantedTools = append([]string{}, tools...)
 			} else {
 				item.GrantedTools = service.Tools()
 			}

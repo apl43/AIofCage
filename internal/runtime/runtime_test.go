@@ -280,7 +280,7 @@ func TestResetKeepsSandboxConfigurationAndHonorsHomeChoice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "volume rm aiofcage-sbx-reset0001-home") {
+	if strings.Contains(string(data), "volume rm") {
 		t.Fatal("keepHome reset removed the Agent home volume")
 	}
 }

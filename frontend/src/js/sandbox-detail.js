@@ -57,7 +57,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
         ${TABS.map((t) => html`<button role="tab" aria-selected=${t.id === tab} tabindex=${t.id === tab ? 0 : -1} class=${t.id === tab ? "tab active" : "tab"}
           onClick=${() => setDetail({ ...detail, tab: t.id, open: undefined })}><${Icon} name=${t.icon} size=${18} />${t.label}</button>`)}
       </div>
-      ${tab === "terminal" && html`<${TerminalTab} sandbox=${sandbox} request=${detail.open} running=${running} busy=${busy}
+      ${tab === "terminal" && html`<${TerminalTab} sandbox=${sandbox} request=${detail.open} recoverable=${recoverable} running=${running} busy=${busy}
         run=${run} notify=${notify} />`}
       ${tab === "agents" && html`<div class="panel detail-overview">
         <div class="section-heading"><div><h3>已安装智能体</h3><p class="caption">为每个智能体独立选择供应商。</p></div>
@@ -117,7 +117,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
     try { setActive(await openTerminal(sandbox, item.agent, item)); }
     finally { setCreating(false); }
   };
-  const pendingRecoveries = recoverable.filter((item) => item.sandbox_id === sandbox.id);
+  const pendingRecoveries = (recoverable ?? []).filter((item) => item.sandbox_id === sandbox.id && !sessions.some((session) => session.id === item.id && !session.exited));
   const recoveryPanel = pendingRecoveries.length > 0 && html`<div class="conversation-recovery panel" role="status">
     <div><strong>可恢复会话</strong><p class="caption">这些记录只保存原生会话元数据，不保存消息正文。启动沙箱后可继续。</p></div>
     ${pendingRecoveries.map((item) => html`<div class="conversation-recovery-row" key=${item.id}>

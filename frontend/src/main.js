@@ -46,7 +46,7 @@ function App() {
       setProviders(p);
       setSandboxes(s);
       setServices(m);
-      setRecoverable(r);
+      setRecoverable(r ?? []);
     } catch (error) {
       notify(error.message, true);
     }

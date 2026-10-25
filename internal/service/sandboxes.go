@@ -144,7 +144,13 @@ func (a *App) ResetSandbox(id string, keepHome, restart bool) error {
 	a.closeSandboxConversations(id)
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
 	defer cancel()
-	return a.manager.Reset(ctx, id, keepHome, restart)
+	if err := a.manager.Reset(ctx, id, keepHome, restart); err != nil {
+		return err
+	}
+	if !keepHome {
+		return a.removeSandboxConversationRecoveries(id)
+	}
+	return nil
 }
 
 // DeleteSandbox removes containers and networks. The project folder is never deleted; keepHome

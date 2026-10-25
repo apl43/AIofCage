@@ -11,12 +11,16 @@ Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silic
 3. 启动沙箱，在详情中打开 Shell 或智能体。创建后仍可添加三款智能体。
 4. 在“智能体”页为每个智能体独立选择供应商。多个沙箱可以共用配置，也可以分别选择。运行中的更改在重启沙箱后生效。
 5. 在“用量”“运行状态”和“日志”中查看实际请求、资源和诊断结果。
+6. 应用重开后可在沙箱“终端”页恢复原生智能体会话；恢复后继续发送消息，不回填旧消息正文。手动关闭会话会移除恢复入口。
+7. 运行环境异常时，可在沙箱“更多”中重置容器和网络。项目与配置保留，可选择保留 Agent 历史并自动重新启动。
 
 更新正在使用的 API Key 前，需要先停止引用它的沙箱；接口、模型和价格可保存为待生效配置。
 
 最新范围与验收标准见[桌面工作区产品规格](docs/product-workspace.md)，本次改造的实测、限制和 PR 对应关系见[交付验收记录](outputs/workspace-acceptance/report.md)。
 
 2026-10-25 的安全修复、会话改造、版本/资源设置、业务 MCP 与本机 AI 调用，见[本轮交付与验收记录](docs/validation/2026-10-25-final-delivery.md)。
+
+PR #50—#59 的权限、诊断、恢复、任务对比和故障切换，以及本次整合修复与实际验收，见[PR 整合验收记录](docs/validation/2026-10-25-pr-integration.md)。
 
 ## 功能清单
 
@@ -72,7 +76,7 @@ make dev                 # Wails 热开发
 前端调度回归测试使用 Node 内置测试器：
 
 ```bash
-node --experimental-default-type=module --test frontend/tests/frames.test.js
+node --test frontend/tests/*.test.js frontend/tests/*.test.mjs
 ```
 
 真实环境测试默认跳过，启用方法、测试供应商和清理情况见[验收记录](outputs/workspace-acceptance/report.md)。真实模型任务会调用已配置供应商并产生用量。
