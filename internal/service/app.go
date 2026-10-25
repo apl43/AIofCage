@@ -44,6 +44,7 @@ type App struct {
 	conversations conversationSessions
 	usageMu       sync.Mutex
 	demos         demoLog
+	prices        pricingCatalog
 }
 
 // NewApp wires the use cases. manager may be nil when Docker or Colima is missing; managerErr then

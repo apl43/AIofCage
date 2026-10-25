@@ -13,9 +13,14 @@ type Pricing struct {
 	CacheRead  float64 `json:"cache_read"`
 	CacheWrite float64 `json:"cache_write"`
 	Version    string  `json:"version"`
+	Source     string  `json:"source,omitempty"`
+	AsOf       string  `json:"as_of,omitempty"`
 }
 
 func (p Pricing) Validate() error {
+	if len(p.Source) > 512 || len(p.AsOf) > 40 {
+		return errors.New("价格来源或日期过长")
+	}
 	if p.Currency != "CNY" && p.Currency != "USD" {
 		return errors.New("价格币种请选择 CNY 或 USD")
 	}
