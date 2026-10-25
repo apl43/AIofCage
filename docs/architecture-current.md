@@ -1,10 +1,12 @@
 # Ai of Cage 当前架构
 
-本文对应 2026-10-25 的代码实现。原始设计过程保留在 [v3 设计草案](architecture.md)，产品行为以[工作区规格](product-workspace.md)和[验收记录](validation/2026-10-25-final-delivery.md)为准。
+[文档目录](README.md) · [开发指南](development.md)
+
+本文对应 2026-10-25 的代码实现。产品规则见[工作区规格](product-workspace.md)，各轮实测范围见[验收记录](validation/README.md)；原始设计过程保留在 [v3 设计草案](architecture.md)。
 
 ## 产品与部署
 
-Ai of Cage 是本地智能体工作区。用户保存多个供应商配置，在每个沙箱中为 Codex、Claude Code、DeepSeek Harness 分别选择供应商；智能体处理被挂载的项目，通过受控出口调用模型和 MCP。首期由用户手动选择供应商。
+Ai of Cage 是本地智能体工作区。用户保存多个供应商配置，在每个沙箱中为 Codex、Claude Code、DeepSeek Harness 分别选择供应商；智能体处理被挂载的项目，通过受控出口调用模型和 MCP。桌面会话由用户手动选择供应商，本机 MCP 控制任务可显式配置备用供应商。
 
 宿主运行一个 Go/Wails 桌面进程，不增加常驻宿主服务。容器运行在专用 Colima profile `aiofcage`，所有 Docker 命令显式指定 context `colima-aiofcage`。默认 VM 为 4 核、6 GiB 内存、40 GiB 磁盘，可在设置中调整；仅共享 `~/CageWorkspace`。
 
@@ -144,8 +146,6 @@ sequenceDiagram
 
 前端使用随包固定的 Preact、htm 和 xterm.js，没有新增构建链。每个沙箱需要 Agent、门卫，按启用服务增加连接器；主要资源开销来自 VM、实际智能体任务和镜像。本文不把容器资源上限当作实际占用量。
 
-本次恢复改动没有增加后台进程、外部服务、数据库或第三方依赖，也没有修改运行中容器的配置协议。
-
 ## 当前限制与后续方向
 
 - 审计由桌面监视器采集。桌面关闭期间，门卫只有有界内存补发能力；本机 AI 控制模式尚未拥有独立的持久审计采集器，不能承诺离开桌面仍有完整的逐请求明细。
@@ -155,4 +155,4 @@ sequenceDiagram
 
 安全诊断中的四项边界是配置说明，不能当作实际探针通过结果；最近隔离检查保存在当前应用进程的内存中。审计时间线导出复用 `RecentEvents`，最多包含该沙箱最近 300 条事件，写入用户私有的 JSON 快照并覆盖同名文件；完整历史仍使用原始 JSONL。
 
-本次恢复链路的可复现检查见[审计恢复验证](validation/2026-10-25-audit-recovery.md)。
+恢复链路的可复现检查见[审计恢复验证](validation/2026-10-25-audit-recovery.md)，其他专题见[验收记录索引](validation/README.md)。
