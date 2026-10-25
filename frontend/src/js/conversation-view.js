@@ -45,6 +45,8 @@ export function ConversationView({ session, changed }) {
     <div class="conversation-messages" ref=${viewport} role="region" aria-label="会话消息" tabindex="0"
       onScroll=${() => { const element = viewport.current; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100; }}>
       ${session.error && html`<div class="conversation-notice error" role="alert">${session.error}</div>`}
+      ${session.diagnostics && html`<div class="conversation-diagnostics" role="status"><strong>链路诊断${session.diagnostics.ready ? "通过" : "未通过"}</strong>
+        ${session.diagnostics.checks.map((check) => html`<div class="conversation-check"><span class=${`pill ${check.status === "passed" ? "ok" : "bad"}`}>${check.status === "passed" ? "通过" : "需处理"}</span><span><strong>${check.name}</strong> · ${check.detail}</span></div>`)}</div>`}
       ${!session.messages.length && !session.error && html`<div class="conversation-welcome"><span class="conversation-mark"><${Icon} name="sparkles" size=${28} /></span>
         <h3>${agentName(session.agent)}</h3><p>描述任务，或添加图片开始会话。</p><small>智能体可在当前沙箱权限范围内执行工具；模型与思考强度由供应商支持情况决定。</small></div>`}
       ${session.messages.map((item, index) => html`<article key=${index} class=${`conversation-message ${item.role}`} aria-label=${item.role === "user" ? "你的消息" : `${agentName(session.agent)} 回复`}>

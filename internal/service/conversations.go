@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/shaoxier/AIofCage/internal/oauth"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
@@ -267,11 +268,8 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 		if scanner.Err() != nil {
 			a.emit("conversation:event", map[string]string{"id": id, "type": "error", "text": "智能体输出过大或中断，请重试"})
 		} else if runErr != nil && !stopped {
-			message := "任务未完成，请检查模型、供应商和沙箱状态"
-			if detail := strings.TrimSpace(string(diagnostics.data)); detail != "" {
-				message += "：" + detail
-			}
-			a.emit("conversation:event", map[string]string{"id": id, "type": "error", "text": message})
+			detail := a.redactConversationDiagnostic(ctx, c, string(diagnostics.data))
+			a.emit("conversation:event", map[string]string{"id": id, "type": "error", "text": classifyConversationFailure(detail)})
 		}
 		state := "done"
 		if stopped {
@@ -288,6 +286,33 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 type tailBuffer struct {
 	data  []byte
 	limit int
+}
+
+func (a *App) redactConversationDiagnostic(ctx context.Context, c *conversation, detail string) string {
+	readCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	secrets, _ := a.realSecrets(readCtx, c.sandbox)
+	for _, id := range c.sandbox.MCP {
+		service, err := a.store.MCPService(id)
+		if err != nil || !service.IsOAuth() {
+			continue
+		}
+		raw, err := a.vault.Read(readCtx, service.KeyRef)
+		if err != nil {
+			continue
+		}
+		creds, err := oauth.Parse(raw)
+		clear(raw)
+		if err == nil {
+			secrets = append(secrets, creds.AccessToken, creds.RefreshToken)
+		}
+	}
+	for _, secret := range secrets {
+		if len(secret) >= 8 {
+			detail = strings.ReplaceAll(detail, secret, "[已脱敏]")
+		}
+	}
+	return strings.TrimSpace(detail)
 }
 
 func (b *tailBuffer) Write(data []byte) (int, error) {
