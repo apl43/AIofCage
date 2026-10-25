@@ -90,6 +90,16 @@ func TestOnboardingDoesNotRequireAnAlreadyRunningVM(t *testing.T) {
 	}
 }
 
+func TestOnboardingAllowsOnlyMissingDockerContext(t *testing.T) {
+	for _, status := range []string{"missing", "ready", "error", "unknown"} {
+		report := runtime.Report{Checks: []runtime.Check{{ID: "vm", Status: "ready"}, {ID: "docker_context", Status: status}}}
+		got := onboardingEnvironmentReport(OnboardingEnvironment{}, report)
+		if got.CanContinue != (status == "missing" || status == "ready") {
+			t.Fatalf("Docker connection %s: %+v", status, got)
+		}
+	}
+}
+
 func TestOnboardingReadErrorsNeverBecomeFirstLaunch(t *testing.T) {
 	for _, file := range []string{"settings.json", "providers.json", "sandboxes.json", "mcp.json"} {
 		t.Run(file, func(t *testing.T) {

@@ -150,7 +150,9 @@ func onboardingEnvironmentReport(result OnboardingEnvironment, report runtime.Re
 			continue
 		}
 		result.Checks = append(result.Checks, check)
-		if check.Status != "ready" && !(check.ID == "vm" && (check.Status == "missing" || check.Status == "stopped")) {
+		preparedOnStart := check.ID == "vm" && (check.Status == "missing" || check.Status == "stopped") ||
+			check.ID == "docker_context" && check.Status == "missing"
+		if check.Status != "ready" && !preparedOnStart {
 			result.CanContinue = false
 		}
 	}
