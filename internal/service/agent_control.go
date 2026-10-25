@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/shaoxier/AIofCage/internal/control"
 	"github.com/shaoxier/AIofCage/internal/runtime"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
+	"github.com/shaoxier/AIofCage/internal/session"
 	"github.com/shaoxier/AIofCage/internal/store"
 	"github.com/shaoxier/AIofCage/internal/vault"
 )
@@ -47,14 +49,25 @@ func RunAgentControl(ctx context.Context, input io.Reader, output io.Writer) err
 }
 
 type controlTask struct {
-	ID        string   `json:"id"`
-	SandboxID string   `json:"sandbox_id"`
-	State     string   `json:"state"`
-	Text      string   `json:"text"`
-	Tools     []string `json:"tools"`
-	Error     string   `json:"error,omitempty"`
-	Truncated bool     `json:"truncated"`
-	cancel    context.CancelFunc
+	ID            string        `json:"id"`
+	SandboxID     string        `json:"sandbox_id"`
+	SandboxName   string        `json:"sandbox_name,omitempty"`
+	Agent         session.Agent `json:"agent,omitempty"`
+	ProviderName  string        `json:"provider_name,omitempty"`
+	Model         string        `json:"model,omitempty"`
+	Effort        string        `json:"effort,omitempty"`
+	State         string        `json:"state"`
+	Text          string        `json:"text"`
+	OutputSummary string        `json:"output_summary,omitempty"`
+	Tools         []string      `json:"tools"`
+	Error         string        `json:"error,omitempty"`
+	Truncated     bool          `json:"truncated"`
+	StartedAt     time.Time     `json:"started_at,omitempty"`
+	FinishedAt    time.Time     `json:"finished_at,omitempty"`
+	DurationMS    int64         `json:"duration_ms,omitempty"`
+	Requests      uint64        `json:"requests,omitempty"`
+	Tokens        uint64        `json:"tokens,omitempty"`
+	cancel        context.CancelFunc
 }
 
 type agentController struct {
@@ -83,7 +96,7 @@ func (*agentController) Tools() []any {
 		tool("list_sandboxes", "只列出本次控制会话创建的沙箱", map[string]any{}, []string{}, true),
 		tool("create_sandbox", "在新项目中创建停止的沙箱，按供应商确定智能体。每会话最多8个；默认100次请求/100000 token，可调低。可选合成案例 sales/incident/release", map[string]any{"name": str("简短任务名，最多40字"), "provider_id": str("list_providers 返回的 ID"), "case_id": map[string]any{"type": "string", "enum": []string{"sales", "incident", "release"}}, "max_requests": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "max_tokens": map[string]any{"type": "integer", "minimum": 1, "maximum": 100000}}, []string{"name", "provider_id"}, false),
 		tool("run_task", "异步启动沙箱并执行官方 CLI 任务，返回 task_id；每会话最多2个并发、16个任务，不复用订阅或其他沙箱凭据。可用 get_task 查询，cancel_task 取消", map[string]any{"sandbox_id": str("本会话创建的沙箱 ID"), "text": str("任务内容，最多32000字节"), "model": str("可选，覆盖该供应商默认模型"), "effort": map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 600}}, []string{"sandbox_id", "text"}, false),
-		tool("get_task", "查询任务状态、最终文本、工具名称与错误；最多保留256KiB答案，超出时标记 truncated", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, true),
+		tool("get_task", "查询任务状态、最终文本、工具名称与错误；最多保留256KiB答案，超出时标记 truncated", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, true), tool("compare_tasks", "比较本控制会话中多个已完成或进行中的任务，返回 Agent、供应商、模型、耗时、用量、状态和输出摘要；不跨控制会话", map[string]any{"task_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}}, []string{}, true),
 		tool("cancel_task", "取消本控制会话的任务", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, false),
 		tool("sandbox_usage", "查询本会话沙箱的实时模型用量", map[string]any{"sandbox_id": str("沙箱 ID")}, []string{"sandbox_id"}, true),
 		tool("stop_sandbox", "停止本会话的空闲沙箱。先取消仍在运行的任务；项目保留", map[string]any{"sandbox_id": str("沙箱 ID")}, []string{"sandbox_id"}, false),
@@ -168,6 +181,48 @@ func (c *agentController) Call(ctx context.Context, name string, raw json.RawMes
 		snapshot.Tools = append([]string{}, task.Tools...)
 		c.mu.Unlock()
 		return snapshot, nil
+	case "compare_tasks":
+		var args struct {
+			IDs []string `json:"task_ids"`
+		}
+		if err := controlArgs(raw, &args); err != nil {
+			return nil, err
+		}
+		if len(args.IDs) > 16 {
+			return nil, errors.New("一次最多比较16个任务")
+		}
+		c.mu.Lock()
+		seen := map[string]bool{}
+		var selected []*controlTask
+		if len(args.IDs) == 0 {
+			for _, task := range c.tasks {
+				selected = append(selected, task)
+			}
+		} else {
+			for _, id := range args.IDs {
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+				task := c.tasks[id]
+				if task == nil {
+					c.mu.Unlock()
+					return nil, errors.New("本控制会话中没有该任务")
+				}
+				selected = append(selected, task)
+			}
+		}
+		rows := make([]controlTask, 0, len(selected))
+		for _, task := range selected {
+			row := *task
+			row.Text = ""
+			row.Tools = append([]string(nil), task.Tools...)
+			rows = append(rows, row)
+		}
+		c.mu.Unlock()
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].StartedAt.Before(rows[j].StartedAt) })
+		return map[string]any{"tasks": rows}, nil
+
 	case "sandbox_usage", "stop_sandbox":
 		var args struct {
 			ID string `json:"sandbox_id"`
@@ -320,7 +375,8 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 		return nil, errors.New("每会话最多2个并发、16个任务，每个沙箱仅一个运行任务")
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, time.Duration(args.Timeout)*time.Second)
-	task := &controlTask{ID: "job-" + rand.Text(), SandboxID: s.ID, State: "starting", Tools: []string{}, cancel: cancel}
+	task := &controlTask{ID: "job-" + rand.Text(), SandboxID: s.ID, SandboxName: s.Name, Agent: p.Agent, ProviderName: p.Name, Model: args.Model, Effort: args.Effort,
+		State: "starting", Tools: []string{}, StartedAt: time.Now().UTC(), cancel: cancel}
 	c.tasks[task.ID] = task
 	c.wg.Add(1)
 	go c.execute(ctx, task, s, args.Text, args.Model, args.Effort)
@@ -330,6 +386,19 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 func (c *agentController) execute(ctx context.Context, task *controlTask, s sandbox.Sandbox, text, model, effort string) {
 	defer c.wg.Done()
 	defer task.cancel()
+	defer func() {
+		c.mu.Lock()
+		if task.FinishedAt.IsZero() {
+			task.FinishedAt = time.Now().UTC()
+		}
+		if !task.StartedAt.IsZero() {
+			task.DurationMS = task.FinishedAt.Sub(task.StartedAt).Milliseconds()
+		}
+		if task.OutputSummary == "" {
+			task.OutputSummary = outputSummary(task.Text)
+		}
+		c.mu.Unlock()
+	}()
 	fail := func(message string) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -347,6 +416,7 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 		fail("任务已取消")
 		return
 	}
+	initialUsage, _ := c.app.manager.Usage(context.Background(), s.ID)
 	s, err := c.app.store.Sandbox(s.ID)
 	if err != nil {
 		fail("读取沙箱失败")
@@ -429,8 +499,16 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 	err = cmd.Wait()
 	close(finished)
 	<-killerDone
+	finalUsage, usageErr := c.app.manager.Usage(context.Background(), s.ID)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if usageErr == nil {
+		task.Requests = deltaCounter(finalUsage.QuotaRequests, initialUsage.QuotaRequests)
+		task.Tokens = deltaCounter(finalUsage.QuotaTokens, initialUsage.QuotaTokens)
+	}
+	task.FinishedAt = time.Now().UTC()
+	task.DurationMS = task.FinishedAt.Sub(task.StartedAt).Milliseconds()
+	task.OutputSummary = outputSummary(task.Text)
 	task.State = "done"
 	if ctx.Err() != nil {
 		task.State = "cancelled"
@@ -443,6 +521,21 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 			task.Error = "任务未完成，请检查模型、供应商与沙箱"
 		}
 	}
+}
+
+func deltaCounter(current, previous uint64) uint64 {
+	if current < previous {
+		return current
+	}
+	return current - previous
+}
+
+func outputSummary(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 500 {
+		return text[:500] + "…"
+	}
+	return text
 }
 
 func (c *agentController) Close() {
