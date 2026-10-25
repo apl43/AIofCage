@@ -41,6 +41,17 @@ func TestAuditLogAndRecentEvents(t *testing.T) {
 	if info, _ := os.Stat(app.auditPath("sbx-a")); info.Mode().Perm() != 0o600 {
 		t.Fatalf("audit file mode %v", info.Mode())
 	}
+	exportPath, err := app.ExportAuditTimeline("sbx-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := os.ReadFile(exportPath)
+	if err != nil || !strings.Contains(string(exported), "xapi.qiniu.io") || strings.Contains(string(exported), "request-body") {
+		t.Fatalf("unexpected exported timeline: %q %v", exported, err)
+	}
+	if info, _ := os.Stat(exportPath); info.Mode().Perm() != 0o600 {
+		t.Fatalf("export mode %v", info.Mode())
+	}
 	fresh := NewApp(st, memoryVault{}, nil, nil, nil)
 	if cursor, err := fresh.cursor("sbx-a"); err != nil || cursor != "run-1:1" {
 		t.Fatalf("cursor %q %v", cursor, err)
