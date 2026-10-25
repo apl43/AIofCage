@@ -50,6 +50,7 @@ type Sandbox struct {
 	ID                   string                   `json:"id"`
 	Name                 string                   `json:"name"`
 	ProjectPath          string                   `json:"project_path"`
+	DemoCase             string                   `json:"demo_case,omitempty"`
 	Bindings             []Binding                `json:"bindings"`
 	AgentVersions        map[session.Agent]string `json:"agent_versions,omitempty"`
 	AppliedAgentVersions map[session.Agent]string `json:"applied_agent_versions,omitempty"`

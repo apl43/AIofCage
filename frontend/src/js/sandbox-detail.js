@@ -8,6 +8,7 @@ import { LogsPage } from "./logs.js";
 import { TerminalView, openTerminal, closeTerminal, useTerminals, updateTerminalDraft, addTerminalImages, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
 import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
 import { SandboxAgentUpdates } from "./agent-versions.js";
+import { DemoTask } from "./demo-cases.js";
 
 const activeTerminals = new Map();
 
@@ -49,6 +50,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
       <button class="link mono" onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}
         title="在访达中打开">${sandbox.project_path}</button>
       ${busy && progress && html`<p class="progress" role="status">${progress}</p>`}
+      ${sandbox.demo_case && tab === "overview" && html`<${DemoTask} caseID=${sandbox.demo_case} notify=${notify} />`}
       <div class="tabs" role="tablist">
         ${TABS.map((t) => html`<button role="tab" aria-selected=${t.id === tab} tabindex=${t.id === tab ? 0 : -1} class=${t.id === tab ? "tab active" : "tab"}
           onClick=${() => setDetail({ ...detail, tab: t.id, open: undefined })}><${Icon} name=${t.icon} size=${18} />${t.label}</button>`)}

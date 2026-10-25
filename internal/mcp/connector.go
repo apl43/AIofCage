@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/shaoxier/AIofCage/internal/democases"
 )
 
 type Kind string
@@ -19,6 +21,7 @@ const (
 	// KindOAuth is a remote HTTP service whose token comes from an OAuth login on the host.
 	KindOAuth    Kind = "oauth"
 	KindPostgres Kind = "postgres"
+	KindDemo     Kind = "demo"
 )
 
 // ConnectorSpec pins the stdio MCP server a connector runs. Packages are installed into the
@@ -39,6 +42,7 @@ type ConnectorSpec struct {
 }
 
 var connectorCatalog = []ConnectorSpec{
+	{Kind: KindDemo, Name: "合成业务案例", Command: "/usr/local/bin/aiofcage-connector", Tools: democases.ToolNames, CheckTool: "case_overview", CheckArguments: map[string]any{}},
 	// The reference PostgreSQL server: one read-only "query" tool (each query runs in a READ ONLY
 	// transaction) plus table schemas as resources.
 	{Kind: KindPostgres, Name: "PostgreSQL", Package: "@modelcontextprotocol/server-postgres", Version: "0.6.2",
@@ -100,7 +104,7 @@ var (
 // password when one was pasted in, so that it can go to the Keychain instead.
 func SplitDatabaseURL(kind Kind, raw string) (string, string, error) {
 	spec, ok := ConnectorFor(kind)
-	if !ok {
+	if !ok || spec.DefaultPort == "" {
 		return "", "", errors.New("不支持的数据库类型")
 	}
 	example := spec.Schemes[0] + "://用户名@主机:" + spec.DefaultPort + "/数据库"
@@ -143,7 +147,7 @@ func SplitDatabaseURL(kind Kind, raw string) (string, string, error) {
 // reaches as LocalHost.
 func (s Service) Address() (string, error) {
 	spec, ok := ConnectorFor(s.Kind)
-	if !ok || !s.IsConnector() {
+	if !ok || spec.DefaultPort == "" || !s.IsConnector() {
 		return "", errors.New("不是连接器服务")
 	}
 	u, err := url.Parse(s.URL)
@@ -163,6 +167,12 @@ func (s Service) Address() (string, error) {
 // Launch returns the command line that starts the service's MCP server with its secret, and the
 // strings to redact from that server's logs. It is only ever sent to the connector container.
 func (s Service) Launch(secret string) ([]string, []string, error) {
+	if s.IsBuiltin() {
+		if err := s.Validate(); err != nil {
+			return nil, nil, err
+		}
+		return []string{"/usr/local/bin/aiofcage-connector", "demo-stdio", strings.TrimPrefix(s.URL, "builtin://")}, nil, nil
+	}
 	address, err := s.Address()
 	if err != nil {
 		return nil, nil, err

@@ -49,8 +49,12 @@ func (a *App) mcpView(s mcp.Service) (MCPServiceView, error) {
 	view := MCPServiceView{Service: s, UsedBy: []string{}}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	data, err := a.vault.Read(ctx, s.KeyRef)
-	view.KeySaved = err == nil
+	var data []byte
+	var err error
+	if !s.IsBuiltin() {
+		data, err = a.vault.Read(ctx, s.KeyRef)
+		view.KeySaved = err == nil
+	}
 	if s.IsOAuth() && err == nil {
 		creds, err := oauth.Parse(data)
 		view.KeySaved = err == nil && creds.Usable(a.now())
@@ -99,12 +103,15 @@ func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, err
 		// The kind is fixed at creation: switching between HTTP and connector services would leave
 		// sandboxes configured for the other one.
 		service = mcp.Service{ID: id, Kind: mcp.Kind(request.Kind), KeyRef: mcp.KeyRefFor(id), CreatedAt: a.now().UTC()}
+		if service.IsBuiltin() {
+			service.KeyRef = ""
+		}
 	}
 	service.Name, service.URL, service.Preset = request.Name, request.URL, request.Preset
 	service.Normalize()
 	token := strings.TrimSpace(request.Token)
 	missing := "请填写访问令牌"
-	if service.IsConnector() {
+	if service.IsConnector() && !service.IsBuiltin() {
 		clean, password, err := mcp.SplitDatabaseURL(service.Kind, service.URL)
 		if err != nil {
 			return MCPServiceView{}, err
@@ -119,6 +126,10 @@ func (a *App) SaveMCPService(request SaveMCPServiceRequest) (MCPServiceView, err
 		return MCPServiceView{}, err
 	}
 	switch {
+	case service.IsBuiltin():
+		if request.Token != "" {
+			return MCPServiceView{}, errors.New("内置案例无需凭据")
+		}
 	case service.IsOAuth():
 		// Credentials come only from AuthorizeMCPService; a pasted token is ignored.
 	case token != "":
@@ -179,6 +190,9 @@ func (a *App) DeleteMCPService(id string) error {
 	if err := a.store.DeleteMCPService(id); err != nil {
 		return err
 	}
+	if service.IsBuiltin() {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return a.vault.Delete(ctx, service.KeyRef)
@@ -192,6 +206,21 @@ func (a *App) TestMCPService(id string) (TestResult, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	if service.IsBuiltin() {
+		if a.manager == nil {
+			return TestResult{Message: "请先安装并启动运行环境"}, nil
+		}
+		checkCtx, stop := context.WithTimeout(context.Background(), 90*time.Second)
+		defer stop()
+		ok, message, err := a.manager.CheckConnector(checkCtx, service, "")
+		if err != nil {
+			return TestResult{Message: "案例连接检查未完成：" + err.Error()}, nil
+		}
+		if ok {
+			message = "连接成功，合成业务案例的只读工具已响应"
+		}
+		return TestResult{OK: ok, Message: message}, nil
+	}
 	var token []byte
 	if service.IsOAuth() {
 		creds, _, err := a.oauth.AccessToken(ctx, a.vault, service.KeyRef, time.Minute)

@@ -164,6 +164,9 @@ func run(args []string) error {
 		if err := st.DeleteMCPService(service.ID); err != nil {
 			return err
 		}
+		if service.IsBuiltin() {
+			return nil
+		}
 		return keychain.Delete(ctx, service.KeyRef)
 	}
 	if args[0] != "sandbox" {

@@ -23,11 +23,14 @@ import (
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/connector"
+	"github.com/shaoxier/AIofCage/internal/democases"
 )
 
 func main() {
 	var err error
 	switch {
+	case len(os.Args) == 3 && os.Args[1] == "demo-stdio":
+		err = democases.Serve(os.Args[2], os.Stdin, os.Stdout)
 	case len(os.Args) > 1 && os.Args[1] == "serve":
 		err = serve(os.Args[2:])
 	case len(os.Args) == 3 && os.Args[1] == "deliver":

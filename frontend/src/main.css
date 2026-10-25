@@ -430,3 +430,12 @@ details.advanced label:first-of-type { margin-top: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
 @media (forced-colors: active) { :focus-visible { outline-color: Highlight; } .nav-item.active { outline: 1px solid Highlight; } select { appearance: auto; background-image: none; } }
+.demo-library { margin-top: 32px; }
+.demo-case-card { display: flex; flex-direction: column; gap: 16px; padding: 24px; }
+.demo-case-card p { flex: 1; margin: 0; color: var(--muted); }
+.demo-case-card small, .demo-task small { color: var(--muted); }
+.demo-case-card h3 { margin-top: 3px; }
+.demo-task { margin-top: 20px; padding: 24px; }
+.demo-task p, .demo-task-preview p { line-height: 1.8; white-space: pre-wrap; }
+.demo-task .section-heading { margin-bottom: 12px; }
+.demo-task-preview { margin-top: 16px; }

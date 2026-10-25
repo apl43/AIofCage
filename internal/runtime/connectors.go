@@ -94,11 +94,15 @@ func (m *Manager) syncConnectors(ctx context.Context, sbx sandbox.Sandbox, servi
 		if err := m.ensureConnector(ctx, sbx.ID, name, build.tag, n.egress); err != nil {
 			return nil, err
 		}
-		secret, err := m.vault.Read(ctx, service.KeyRef)
-		if err != nil {
-			return nil, fmt.Errorf("MCP 服务「%s」的密码不可用：%w", service.Name, err)
+		var secret []byte
+		if !service.IsBuiltin() {
+			secret, err = m.vault.Read(ctx, service.KeyRef)
+			if err != nil {
+				return nil, fmt.Errorf("MCP 服务「%s」的密码不可用：%w", service.Name, err)
+			}
 		}
 		command, redact, err := service.Launch(string(secret))
+		clear(secret)
 		if err != nil {
 			return nil, err
 		}
