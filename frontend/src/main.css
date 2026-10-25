@@ -219,6 +219,9 @@ input[type="radio"], input[type="checkbox"] { width: 16px; height: 16px; min-hei
 .input-row input { min-width: 0; }
 .input-row button { flex-shrink: 0; }
 .agent-pick { display: grid; gap: 10px; }
+.mcp-choice { display: grid; gap: 5px; }
+.mcp-tool-list { display: grid; gap: 4px; margin: 0 0 4px 28px; padding: 8px 10px; border-left: 2px solid var(--line); color: var(--faint); }
+.mcp-tool-list label.check { min-height: 24px; font-size: var(--text-sm); color: var(--ink); }
 .agent-line { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 12px; align-items: center; }
 .agent-line label.check { margin: 0; }
 details { margin-top: 18px; }

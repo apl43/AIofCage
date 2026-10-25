@@ -393,17 +393,18 @@ func networkReason(err error) string {
 
 // SandboxView is what the sandbox list shows.
 type SandboxView struct {
-	DemoCase    string         `json:"demo_case,omitempty"`
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	ProjectPath string         `json:"project_path"`
-	State       string         `json:"state"`
-	Bindings    []BindingView  `json:"bindings"`
-	Limits      sandbox.Limits `json:"limits"`
-	Usage       sandbox.Usage  `json:"usage"`
-	MCP         []string       `json:"mcp"`
-	Filesystem  bool           `json:"filesystem_mcp"`
-	CreatedAt   time.Time      `json:"created_at"`
+	DemoCase       string              `json:"demo_case,omitempty"`
+	ID             string              `json:"id"`
+	Name           string              `json:"name"`
+	ProjectPath    string              `json:"project_path"`
+	State          string              `json:"state"`
+	Bindings       []BindingView       `json:"bindings"`
+	Limits         sandbox.Limits      `json:"limits"`
+	Usage          sandbox.Usage       `json:"usage"`
+	MCP            []string            `json:"mcp"`
+	MCPPermissions map[string][]string `json:"mcp_permissions,omitempty"`
+	Filesystem     bool                `json:"filesystem_mcp"`
+	CreatedAt      time.Time           `json:"created_at"`
 	// Operation is the lifecycle operation in progress (启动、停止、删除) and Progress its latest step.
 	Operation     string `json:"operation,omitempty"`
 	Progress      string `json:"progress,omitempty"`
@@ -419,6 +420,17 @@ type BindingView struct {
 	DefaultVersion     string        `json:"default_version"`
 	ActiveProviderID   string        `json:"active_provider_id"`
 	ActiveProviderName string        `json:"active_provider_name"`
+}
+
+func cloneMCPPermissions(input map[string][]string) map[string][]string {
+	if len(input) == 0 {
+		return nil
+	}
+	output := make(map[string][]string, len(input))
+	for id, tools := range input {
+		output[id] = append([]string(nil), tools...)
+	}
+	return output
 }
 
 func (a *App) ListSandboxes() ([]SandboxView, error) {
@@ -444,7 +456,7 @@ func (a *App) ListSandboxes() ([]SandboxView, error) {
 	for _, s := range sandboxes {
 		view := SandboxView{ID: s.ID, Name: s.Name, ProjectPath: s.ProjectPath, DemoCase: s.DemoCase, State: "unknown",
 			Limits: s.Limits, Usage: s.Usage, CreatedAt: s.CreatedAt, Bindings: []BindingView{},
-			MCP: append([]string{}, s.MCP...), Filesystem: s.FilesystemMCP}
+			MCP: append([]string{}, s.MCP...), MCPPermissions: cloneMCPPermissions(s.MCPPermissions), Filesystem: s.FilesystemMCP}
 		if a.manager != nil {
 			view.State = a.manager.Status(ctx, s.ID).State
 		}

@@ -92,6 +92,26 @@ func (s Service) Tools() []string {
 	return nil
 }
 
+// ValidateTools ensures a connector grant only names tools from its fixed catalog. An empty
+// grant is valid and means that the service is enabled but no tool may be called.
+func ValidateTools(s Service, tools []string) error {
+	allowed := s.Tools()
+	if !s.IsConnector() {
+		if len(tools) > 0 {
+			return fmt.Errorf("远程 MCP 服务「%s」不支持本地工具权限列表", s.Name)
+		}
+		return nil
+	}
+	seen := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		if seen[tool] || !slices.Contains(allowed, tool) {
+			return fmt.Errorf("MCP 服务「%s」不支持工具「%s」", s.Name, tool)
+		}
+		seen[tool] = true
+	}
+	return nil
+}
+
 var (
 	dbHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$`)
 	// Parameters that name files, other hosts or options are refused.

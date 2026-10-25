@@ -30,8 +30,11 @@ type Connector struct {
 	Placeholder string `json:"placeholder"`
 	Upstream    string `json:"upstream"`
 	Token       string `json:"token"`
-	// Tools lists the tools the agent may call; empty allows every tool the server offers.
-	Tools []string `json:"tools,omitempty"`
+	// Tools lists the tools the agent may call. When ToolsRestricted is true, an empty
+	// list denies every tool; this keeps an explicit empty grant distinct from legacy
+	// connectors that did not carry a tool policy.
+	Tools           []string `json:"tools,omitempty"`
+	ToolsRestricted bool     `json:"tools_restricted,omitempty"`
 }
 
 // Secret maps a placeholder visible inside the sandbox to the real credential for one provider.

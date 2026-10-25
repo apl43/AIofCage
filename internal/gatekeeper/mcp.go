@@ -122,7 +122,7 @@ func (g *Gate) serveMCP(w http.ResponseWriter, r *http.Request) {
 			g.denyRPC(w, msg, event, started, "mcp_method_denied", "AIofCage 门卫不允许这个 MCP 方法")
 			return
 		}
-		if msg.Method == "tools/call" && len(connector.Tools) > 0 && !slices.Contains(connector.Tools, msg.Params.Name) {
+		if msg.Method == "tools/call" && (connector.ToolsRestricted || len(connector.Tools) > 0) && !slices.Contains(connector.Tools, msg.Params.Name) {
 			g.denyRPC(w, msg, event, started, "mcp_tool_denied",
 				"AIofCage 门卫拒绝了这个工具调用：该服务只开放 "+strings.Join(connector.Tools, "、"))
 			return

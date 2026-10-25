@@ -168,6 +168,26 @@ func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
 	if len(saved.MCP) != 1 || !saved.FilesystemMCP || !strings.HasPrefix(saved.Placeholders["mcp:github"], "cage-") {
 		t.Fatalf("%+v", saved)
 	}
+	postgres := mcp.Service{ID: "shop", Name: "Shop", Kind: mcp.KindPostgres, URL: "postgresql://app@localhost/shop", KeyRef: mcp.KeyRefFor("shop")}
+	if err := st.SaveMCPService(postgres); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetMCPPermissions(context.Background(), sbx.ID, []string{"shop"}, false, map[string][]string{"shop": {}}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = st.Sandbox(sbx.ID)
+	if len(saved.MCP) != 1 || saved.MCP[0] != "shop" || saved.FilesystemMCP || saved.MCPPermissions == nil {
+		t.Fatalf("MCP permissions were not persisted: %+v", saved)
+	}
+	if tools, ok := saved.MCPPermissions["shop"]; !ok || len(tools) != 0 {
+		t.Fatalf("explicit empty tool grant was not preserved: %#v", saved.MCPPermissions)
+	}
+	if err := m.SetMCPPermissions(context.Background(), sbx.ID, []string{"shop"}, false, map[string][]string{"shop": {"drop_table"}}); err == nil {
+		t.Fatal("unknown connector tools must be rejected")
+	}
+	if err := m.SetMCPPermissions(context.Background(), sbx.ID, []string{"github"}, false, map[string][]string{"shop": {}}); err == nil {
+		t.Fatal("permissions for disabled services must be rejected")
+	}
 	if err := m.SetMCP(context.Background(), sbx.ID, []string{"missing"}, false); err == nil {
 		t.Fatal("unknown services must be rejected")
 	}

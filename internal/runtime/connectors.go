@@ -31,6 +31,15 @@ func connectorName(sandboxID, serviceID string) string {
 	return "aiofcage-" + sandboxID + "-mcp-" + serviceID
 }
 
+func connectorTools(sbx sandbox.Sandbox, service mcp.Service) []string {
+	if tools, ok := sbx.MCPPermissions[service.ID]; ok {
+		return append([]string(nil), tools...)
+	}
+	// Sandboxes created before per-service grants keep the catalog-defined tools until
+	// their MCP settings are saved again.
+	return service.Tools()
+}
+
 func connectorServices(services map[string]mcp.Service) []mcp.Service {
 	var result []mcp.Service
 	for _, id := range sortedKeys(services) {
@@ -129,7 +138,7 @@ func (m *Manager) syncConnectors(ctx context.Context, sbx sandbox.Sandbox, servi
 			return nil, fmt.Errorf("MCP 服务「%s」缺少占位符", service.Name)
 		}
 		routes = append(routes, gatekeeper.Connector{ID: service.ID, Placeholder: placeholder,
-			Upstream: "http://" + ip + ":" + connectorPort, Token: token, Tools: service.Tools()})
+			Upstream: "http://" + ip + ":" + connectorPort, Token: token, Tools: connectorTools(sbx, service), ToolsRestricted: true})
 	}
 	return routes, nil
 }
