@@ -4,39 +4,6 @@ Ai of Cage，寓意“笼中 AI”，是结合独立沙箱的桌面智能体工�
 
 Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silicon。
 
-## 从源码安装
-
-支持 **macOS 13+、Apple Silicon（M 系列芯片）**。
-
-**1. 安装依赖**
-
-需要先安装 [Homebrew](https://brew.sh/) 和 Xcode Command Line Tools：
-
-```bash
-xcode-select --install
-```
-
-通过 Homebrew 安装 Go（1.26.4+）、Colima 和 Docker CLI：
-
-```bash
-brew install go colima docker
-```
-
-已安装的依赖可跳过。
-
-**2. 获取源码并启动**
-
-```bash
-git clone https://github.com/shaoxier/AIofCage.git
-cd AIofCage
-make app
-open "bin/Ai of Cage.app"
-```
-
-也可以将生成的 `bin/Ai of Cage.app` 拖入「应用程序」文件夹，之后双击打开。
-
-首次启动沙箱时会自动下载运行环境和所选智能体，请保持联网。
-
 ## 如何使用
 
 1. 在“模型供应商”中为智能体添加配置。一个智能体可以保存多个供应商，密钥保存在 macOS 钥匙串。
@@ -93,7 +60,7 @@ PR #50—#59 的权限、诊断、恢复、任务对比和故障切换，以及�
 
 ## 构建与检查
 
-环境准备见上方[从源码安装](#从源码安装)。Wails 固定为 v2.17.0。前端使用固定版本的 Preact、htm、xterm.js，直接嵌入应用，无 npm 构建步骤。
+需要 Go 1.26.4 或更高版本、Xcode Command Line Tools、Docker CLI 与 Colima（可通过 `brew install colima docker` 安装）。Wails 固定为 v2.17.0。前端使用固定版本的 Preact、htm、xterm.js，直接嵌入应用，无 npm 构建步骤。
 
 ```bash
 make app                 # "bin/Ai of Cage.app"
