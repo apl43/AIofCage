@@ -44,6 +44,8 @@ type App struct {
 	conversations conversationSessions
 	usageMu       sync.Mutex
 	demos         demoLog
+	securityMu    sync.Mutex
+	isolationRuns map[string]SecurityIsolationRun
 	prices        pricingCatalog
 	updatesMu     sync.Mutex
 }
@@ -55,7 +57,7 @@ func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, mana
 	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 8 * time.Second}}
 	a := &App{store: st, vault: secrets, manager: manager, managerErr: managerErr, picker: picker, now: time.Now,
 		emit: func(string, any) {}, terminal: openInTerminal, monitor: newMonitor(), explain: explainCache{items: map[string]Explanation{}},
-		client: client, oauth: oauth.NewClient(client, openURL),
+		client: client, oauth: oauth.NewClient(client, openURL), isolationRuns: map[string]SecurityIsolationRun{},
 		explainClient: &http.Client{Transport: &http.Transport{Proxy: nil, TLSHandshakeTimeout: 10 * time.Second}}}
 	if manager != nil {
 		manager.BeforeReplace = a.closeSandboxConversations

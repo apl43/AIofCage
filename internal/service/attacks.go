@@ -89,6 +89,7 @@ func (a *App) RunIsolationChecks(id string) ([]AttackResult, error) {
 		}
 		results = append(results, r)
 	}
+	a.rememberIsolation(id, results)
 	return results, nil
 }
 

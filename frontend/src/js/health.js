@@ -8,6 +8,7 @@ const bytes = (value) => value ? formatBytes(value) : "0 B";
 
 export function HealthPanel({ sandbox, vm, events = [] }) {
   const [report, setReport] = useState(null);
+  const [security, setSecurity] = useState(null);
   const [error, setError] = useState("");
   const [now, setNow] = useState(Date.now());
   const [refresh, setRefresh] = useState(0);
@@ -22,7 +23,9 @@ export function HealthPanel({ sandbox, vm, events = [] }) {
       finally { pending = false; }
     };
     setReport(null);
+    setSecurity(null);
     load();
+    call("SecurityDiagnostics", sandbox.id).then((value) => active && setSecurity(value)).catch(() => {});
     const off = window.runtime?.EventsOn?.("sandbox:stats", load);
     const timer = setInterval(load, 5000);
     return () => { active = false; clearInterval(timer); off?.(); };
@@ -39,6 +42,14 @@ export function HealthPanel({ sandbox, vm, events = [] }) {
     ${!h ? html`<div class="panel empty">正在读取运行状态…</div>` : html`
       <p class="caption health-stamp">${stale ? "样本已过期 · " : ""}采集于 ${date(h.collected_at)} · 耗时 ${(h.duration_ms/1000).toFixed(1)} 秒 · 约每 5 秒更新</p>
       ${(h.error || stale || s.error) && html`<p class="feedback ${h.state === "stopped" || h.state === "not_created" ? "" : "error"}" role="status">${h.error || (stale ? "暂未收到新样本，以下资源值不可用。" : s.error)}</p>`}
+      ${security && html`<div class="panel security-diagnostics" aria-label="安全诊断中心">
+        <div class="card-top"><h3>安全诊断中心</h3><span class=${`pill ${security.gatekeeper_ready ? "ok" : security.gatekeeper_running ? "warn" : "idle"}`}>${security.gatekeeper_ready ? "门卫已就绪" : security.gatekeeper_running ? "门卫未确认" : "门卫未运行"}</span></div>
+        ${security.gatekeeper_error && html`<p class="caption">${security.gatekeeper_error}</p>`}
+        <div class="security-grid">${security.controls.map((item) => html`<div class="security-item"><strong>${item.name}</strong><span class="pill ok">已执行</span><small>${item.detail}</small></div>`)}</div>
+        <div class="section-heading compact"><h4>MCP 权限</h4><span class="caption">最近拒绝 ${security.recent_denied} 次</span></div>
+        ${security.mcp.length ? html`<div class="security-mcp">${security.mcp.map((item) => html`<div class="security-item"><strong>${item.name}</strong><small>${item.connector ? `连接器工具 ${item.granted_tools.length}/${item.catalog_tools.length}${item.explicit_grant ? "（沙箱专属）" : "（默认目录）"}` : "远程服务级授权"} · ${item.key_saved ? "凭据可用" : "需要登录或配置"}</small></div>`)}</div>` : html`<p class="caption">当前沙箱未启用 MCP 服务。</p>`}
+        ${security.last_isolation && html`<p class="caption">最近一次隔离检查：${new Date(security.last_isolation.finished_at).toLocaleString()}，${security.last_isolation.results.filter((item) => item.status === "passed").length}/${security.last_isolation.results.length} 项通过。</p>`}
+      </div>`}
       <div class="metric-grid">
         <div class="panel metric"><span><${Icon} name="cpu" />CPU</span><strong>${valid ? `${s.cpu_percent.toFixed(1)}%` : "—"}</strong><small>100% = 1 个核心</small></div>
         <div class="panel metric"><span><${Icon} name="memory" />内存</span><strong>${valid ? bytes(s.memory_bytes) : "—"}</strong><small>所有运行组件之和</small></div>
