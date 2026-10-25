@@ -49,25 +49,30 @@ func RunAgentControl(ctx context.Context, input io.Reader, output io.Writer) err
 }
 
 type controlTask struct {
-	ID            string        `json:"id"`
-	SandboxID     string        `json:"sandbox_id"`
-	SandboxName   string        `json:"sandbox_name,omitempty"`
-	Agent         session.Agent `json:"agent,omitempty"`
-	ProviderName  string        `json:"provider_name,omitempty"`
-	Model         string        `json:"model,omitempty"`
-	Effort        string        `json:"effort,omitempty"`
-	State         string        `json:"state"`
-	Text          string        `json:"text"`
-	OutputSummary string        `json:"output_summary,omitempty"`
-	Tools         []string      `json:"tools"`
-	Error         string        `json:"error,omitempty"`
-	Truncated     bool          `json:"truncated"`
-	StartedAt     time.Time     `json:"started_at,omitempty"`
-	FinishedAt    time.Time     `json:"finished_at,omitempty"`
-	DurationMS    int64         `json:"duration_ms,omitempty"`
-	Requests      uint64        `json:"requests,omitempty"`
-	Tokens        uint64        `json:"tokens,omitempty"`
-	cancel        context.CancelFunc
+	ID             string        `json:"id"`
+	SandboxID      string        `json:"sandbox_id"`
+	SandboxName    string        `json:"sandbox_name,omitempty"`
+	Agent          session.Agent `json:"agent,omitempty"`
+	ProviderID     string        `json:"provider_id,omitempty"`
+	ProviderName   string        `json:"provider_name,omitempty"`
+	Model          string        `json:"model,omitempty"`
+	Effort         string        `json:"effort,omitempty"`
+	State          string        `json:"state"`
+	Text           string        `json:"text"`
+	OutputSummary  string        `json:"output_summary,omitempty"`
+	Tools          []string      `json:"tools"`
+	Error          string        `json:"error,omitempty"`
+	Truncated      bool          `json:"truncated"`
+	StartedAt      time.Time     `json:"started_at,omitempty"`
+	FinishedAt     time.Time     `json:"finished_at,omitempty"`
+	DurationMS     int64         `json:"duration_ms,omitempty"`
+	Requests       uint64        `json:"requests,omitempty"`
+	Tokens         uint64        `json:"tokens,omitempty"`
+	FallbackUsed   bool          `json:"fallback_used,omitempty"`
+	FallbackReason string        `json:"fallback_reason,omitempty"`
+	cancel         context.CancelFunc
+	providerChain  []string
+	modelOverride  bool
 }
 
 type agentController struct {
@@ -95,7 +100,7 @@ func (*agentController) Tools() []any {
 		tool("list_providers", "列出供应商的 ID、名称、智能体与模型；不返回密钥、钥匙串引用或接口地址", map[string]any{}, []string{}, true),
 		tool("list_sandboxes", "只列出本次控制会话创建的沙箱", map[string]any{}, []string{}, true),
 		tool("create_sandbox", "在新项目中创建停止的沙箱，按供应商确定智能体。每会话最多8个；默认100次请求/100000 token，可调低。可选合成案例 sales/incident/release", map[string]any{"name": str("简短任务名，最多40字"), "provider_id": str("list_providers 返回的 ID"), "case_id": map[string]any{"type": "string", "enum": []string{"sales", "incident", "release"}}, "max_requests": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "max_tokens": map[string]any{"type": "integer", "minimum": 1, "maximum": 100000}}, []string{"name", "provider_id"}, false),
-		tool("run_task", "异步启动沙箱并执行官方 CLI 任务，返回 task_id；每会话最多2个并发、16个任务，不复用订阅或其他沙箱凭据。可用 get_task 查询，cancel_task 取消", map[string]any{"sandbox_id": str("本会话创建的沙箱 ID"), "text": str("任务内容，最多32000字节"), "model": str("可选，覆盖该供应商默认模型"), "effort": map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 600}}, []string{"sandbox_id", "text"}, false),
+		tool("run_task", "异步启动沙箱并执行官方 CLI 任务，返回 task_id；每会话最多2个并发、16个任务，不复用订阅或其他沙箱凭据。可选传入同一 Agent 的备用供应商顺序；仅认证、限流、超时或网络失败时切换。可用 get_task 查询，cancel_task 取消", map[string]any{"sandbox_id": str("本会话创建的沙箱 ID"), "text": str("任务内容，最多32000字节"), "model": str("可选，覆盖该供应商默认模型"), "effort": map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 600}, "fallback_provider_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 3}}, []string{"sandbox_id", "text"}, false),
 		tool("get_task", "查询任务状态、最终文本、工具名称与错误；最多保留256KiB答案，超出时标记 truncated", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, true), tool("compare_tasks", "比较本控制会话中多个已完成或进行中的任务，返回 Agent、供应商、模型、耗时、用量、状态和输出摘要；不跨控制会话", map[string]any{"task_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}}, []string{}, true),
 		tool("cancel_task", "取消本控制会话的任务", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, false),
 		tool("sandbox_usage", "查询本会话沙箱的实时模型用量", map[string]any{"sandbox_id": str("沙箱 ID")}, []string{"sandbox_id"}, true),
@@ -325,11 +330,12 @@ func (c *agentController) activeIn(id string) bool {
 
 func (c *agentController) run(raw json.RawMessage) (any, error) {
 	var args struct {
-		ID      string `json:"sandbox_id"`
-		Text    string `json:"text"`
-		Model   string `json:"model"`
-		Effort  string `json:"effort"`
-		Timeout int    `json:"timeout_seconds"`
+		ID          string   `json:"sandbox_id"`
+		Text        string   `json:"text"`
+		Model       string   `json:"model"`
+		Effort      string   `json:"effort"`
+		Timeout     int      `json:"timeout_seconds"`
+		FallbackIDs []string `json:"fallback_provider_ids"`
 	}
 	if err := controlArgs(raw, &args); err != nil {
 		return nil, err
@@ -357,6 +363,26 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	providerChain := []string{p.ID}
+	seenProviders := map[string]bool{p.ID: true}
+	if len(args.FallbackIDs) > 3 {
+		return nil, errors.New("最多配置3个备用供应商")
+	}
+	for _, providerID := range args.FallbackIDs {
+		if providerID == "" || seenProviders[providerID] {
+			continue
+		}
+		fallback, fallbackErr := c.app.store.Provider(providerID)
+		if fallbackErr != nil {
+			return nil, fallbackErr
+		}
+		if fallback.Agent != p.Agent {
+			return nil, errors.New("备用供应商必须属于同一个 Agent")
+		}
+		seenProviders[providerID] = true
+		providerChain = append(providerChain, providerID)
+	}
+	modelOverride := args.Model != ""
 	if args.Model == "" {
 		args.Model = p.Model
 	}
@@ -375,8 +401,8 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 		return nil, errors.New("每会话最多2个并发、16个任务，每个沙箱仅一个运行任务")
 	}
 	ctx, cancel := context.WithTimeout(c.ctx, time.Duration(args.Timeout)*time.Second)
-	task := &controlTask{ID: "job-" + rand.Text(), SandboxID: s.ID, SandboxName: s.Name, Agent: p.Agent, ProviderName: p.Name, Model: args.Model, Effort: args.Effort,
-		State: "starting", Tools: []string{}, StartedAt: time.Now().UTC(), cancel: cancel}
+	task := &controlTask{ID: "job-" + rand.Text(), SandboxID: s.ID, SandboxName: s.Name, Agent: p.Agent, ProviderID: p.ID, ProviderName: p.Name, Model: args.Model, Effort: args.Effort,
+		State: "starting", Tools: []string{}, StartedAt: time.Now().UTC(), cancel: cancel, providerChain: providerChain, modelOverride: modelOverride}
 	c.tasks[task.ID] = task
 	c.wg.Add(1)
 	go c.execute(ctx, task, s, args.Text, args.Model, args.Effort)
@@ -399,56 +425,89 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 		}
 		c.mu.Unlock()
 	}()
-	fail := func(message string) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		task.State = "failed"
-		task.Error = message
-		if ctx.Err() != nil {
-			task.State = "cancelled"
-		}
+	if len(task.providerChain) == 0 {
+		task.providerChain = []string{s.ProviderFor(task.Agent)}
 	}
+	for index, providerID := range task.providerChain {
+		if index > 0 {
+			if err := c.app.manager.Stop(ctx, s.ID); err != nil {
+				c.failTask(task, "切换备用供应商前停止沙箱失败："+err.Error(), ctx)
+				return
+			}
+			if err := c.app.manager.Bind(ctx, s.ID, task.Agent, providerID); err != nil {
+				c.failTask(task, "切换备用供应商失败："+err.Error(), ctx)
+				return
+			}
+			c.mu.Lock()
+			task.FallbackUsed = true
+			c.mu.Unlock()
+		}
+		attemptModel := model
+		if !task.modelOverride {
+			if fallback, err := c.app.store.Provider(providerID); err == nil {
+				attemptModel = fallback.Model
+			}
+		}
+		result := c.executeAttempt(ctx, task, s, text, attemptModel, effort)
+		if result.err == nil {
+			return
+		}
+		if ctx.Err() != nil || !result.retryable || index == len(task.providerChain)-1 {
+			c.failTask(task, result.reason, ctx)
+			return
+		}
+		c.mu.Lock()
+		task.FallbackReason = result.reason
+		task.Text = ""
+		task.Tools = nil
+		task.Error = ""
+		c.mu.Unlock()
+	}
+}
+
+type taskAttemptResult struct {
+	err       error
+	retryable bool
+	reason    string
+}
+
+func (c *agentController) executeAttempt(ctx context.Context, task *controlTask, s sandbox.Sandbox, text, model, effort string) taskAttemptResult {
 	if err := c.app.manager.Start(ctx, s.ID); err != nil {
-		fail("启动沙箱失败：" + err.Error())
-		return
+		return taskAttemptResult{err: err, retryable: retryableProviderFailure(err.Error()), reason: "启动沙箱失败：" + err.Error()}
 	}
 	if ctx.Err() != nil {
-		fail("任务已取消")
-		return
+		return taskAttemptResult{err: ctx.Err(), reason: "任务已取消"}
 	}
 	initialUsage, _ := c.app.manager.Usage(context.Background(), s.ID)
-	s, err := c.app.store.Sandbox(s.ID)
+	current, err := c.app.store.Sandbox(s.ID)
 	if err != nil {
-		fail("读取沙箱失败")
-		return
+		return taskAttemptResult{err: err, reason: "读取沙箱失败"}
 	}
-	if len(s.AppliedBindings) != 1 {
-		fail("沙箱运行配置已变化，请重新运行任务")
-		return
+	if len(current.AppliedBindings) != 1 {
+		return taskAttemptResult{err: errors.New("运行配置变化"), reason: "沙箱运行配置已变化，请重新运行任务"}
 	}
-	binding := s.AppliedBindings[0]
-	p := s.AppliedProviders[binding.ProviderID]
+	binding := current.AppliedBindings[0]
+	p := current.AppliedProviders[binding.ProviderID]
 	if p.ID == "" {
-		fail("沙箱运行供应商不可用")
-		return
-	}
-	payload, _ := json.Marshal(map[string]any{"agent": binding.Agent, "text": text, "images": []string{}, "model": model, "effort": effort, "dsh_patch": runtime.DSHConversationPatch(p, model, effort)})
-	marker := "t-control-" + task.ID
-	cmd := c.app.manager.ConversationCommand(ctx, s, marker)
-	cmd.Stdin = bytes.NewReader(payload)
-	cmd.Stderr = io.Discard
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		fail("无法读取智能体输出")
-		return
-	}
-	if err := cmd.Start(); err != nil {
-		fail("无法启动智能体")
-		return
+		return taskAttemptResult{err: errors.New("供应商不可用"), reason: "沙箱运行供应商不可用"}
 	}
 	c.mu.Lock()
+	task.ProviderID, task.ProviderName, task.Model = p.ID, p.Name, model
 	task.State = "running"
 	c.mu.Unlock()
+	payload, _ := json.Marshal(map[string]any{"agent": binding.Agent, "text": text, "images": []string{}, "model": model, "effort": effort, "dsh_patch": runtime.DSHConversationPatch(p, model, effort)})
+	marker := "t-control-" + task.ID
+	cmd := c.app.manager.ConversationCommand(ctx, current, marker)
+	cmd.Stdin = bytes.NewReader(payload)
+	diagnostics := &tailBuffer{limit: 2048}
+	cmd.Stderr = diagnostics
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return taskAttemptResult{err: err, reason: "无法读取智能体输出"}
+	}
+	if err := cmd.Start(); err != nil {
+		return taskAttemptResult{err: err, retryable: retryableProviderFailure(err.Error()), reason: "无法启动智能体"}
+	}
 	finished := make(chan struct{})
 	killerDone := make(chan struct{})
 	go func() {
@@ -496,31 +555,48 @@ func (c *agentController) execute(ctx context.Context, task *controlTask, s sand
 	if scanner.Err() != nil {
 		task.cancel()
 	}
-	err = cmd.Wait()
+	runErr := cmd.Wait()
 	close(finished)
 	<-killerDone
 	finalUsage, usageErr := c.app.manager.Usage(context.Background(), s.ID)
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	if usageErr == nil {
+		c.mu.Lock()
 		task.Requests = deltaCounter(finalUsage.QuotaRequests, initialUsage.QuotaRequests)
 		task.Tokens = deltaCounter(finalUsage.QuotaTokens, initialUsage.QuotaTokens)
+		c.mu.Unlock()
 	}
-	task.FinishedAt = time.Now().UTC()
-	task.DurationMS = task.FinishedAt.Sub(task.StartedAt).Milliseconds()
-	task.OutputSummary = outputSummary(task.Text)
-	task.State = "done"
+	if ctx.Err() != nil {
+		return taskAttemptResult{err: ctx.Err(), reason: "任务已取消"}
+	}
+	if scanner.Err() != nil || runErr != nil || task.Error != "" {
+		detail := strings.ToLower(strings.TrimSpace(string(diagnostics.data)))
+		reason := classifyConversationFailure(detail)
+		if task.Error != "" && reason == "请求失败，请检查模型、供应商和网络" {
+			reason = task.Error
+		}
+		return taskAttemptResult{err: errors.New(reason), retryable: retryableProviderFailure(detail), reason: reason}
+	}
+	return taskAttemptResult{}
+}
+
+func (c *agentController) failTask(task *controlTask, message string, ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	task.State = "failed"
+	task.Error = message
 	if ctx.Err() != nil {
 		task.State = "cancelled"
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			task.Error = "任务超过时间限制"
-		}
-	} else if err != nil || scanner.Err() != nil || task.Error != "" {
-		task.State = "failed"
-		if task.Error == "" {
-			task.Error = "任务未完成，请检查模型、供应商与沙箱"
+	}
+}
+
+func retryableProviderFailure(detail string) bool {
+	detail = strings.ToLower(detail)
+	for _, marker := range []string{"401", "403", "unauthorized", "forbidden", "429", "rate limit", "timeout", "deadline", "connection refused", "no route", "network is unreachable", "dns"} {
+		if strings.Contains(detail, marker) {
+			return true
 		}
 	}
+	return false
 }
 
 func deltaCounter(current, previous uint64) uint64 {

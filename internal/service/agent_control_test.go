@@ -105,3 +105,16 @@ func TestAgentControlComparesTaskMetadata(t *testing.T) {
 		t.Fatal("comparison returned full task output")
 	}
 }
+
+func TestProviderFallbackFailureClassification(t *testing.T) {
+	for _, detail := range []string{"401 unauthorized", "429 rate limit", "deadline exceeded", "connection refused", "DNS lookup failed"} {
+		if !retryableProviderFailure(detail) {
+			t.Fatalf("应触发备用供应商：%q", detail)
+		}
+	}
+	for _, detail := range []string{"invalid request", "模型输出格式错误"} {
+		if retryableProviderFailure(detail) {
+			t.Fatalf("不应因非供应商故障切换：%q", detail)
+		}
+	}
+}
