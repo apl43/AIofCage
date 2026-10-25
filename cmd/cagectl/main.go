@@ -84,7 +84,7 @@ func run(args []string) error {
 	keychain := vault.NewKeychain()
 	switch args[0] + " " + args[1] {
 	case "env check", "env up":
-		env, err := runtime.NewEnvironment()
+		env, err := runtime.NewEnvironment(st)
 		if err != nil {
 			return err
 		}

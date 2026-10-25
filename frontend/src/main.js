@@ -144,7 +144,8 @@ function App() {
     usage: html`<${UsagePage} sandboxes=${sandboxes} providers=${providers} />`,
     logs: html`<${LogsPage} events=${events} sandboxes=${sandboxes} providers=${providers} notify=${notify} initialFilter=${logFilter}
       sandboxFilter=${logSandbox} setSandboxFilter=${setLogSandbox} />`,
-    settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify} />`,
+    settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify}
+      onEnvironmentChanged=${async () => setOverview(await call("GetOverview"))} />`,
   }[page];
 
   return html`

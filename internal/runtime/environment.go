@@ -11,10 +11,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/sandbox"
+	"github.com/shaoxier/AIofCage/internal/store"
 )
 
 // Environment manages the dedicated Colima VM. It never touches the user's default profile or
@@ -23,6 +25,7 @@ type Environment struct {
 	colima  runner
 	limactl string
 	docker  runner
+	store   *store.Store
 }
 
 type VMInfo struct {
@@ -34,7 +37,7 @@ type VMInfo struct {
 	Disk   int64  `json:"disk"`
 }
 
-func NewEnvironment() (*Environment, error) {
+func NewEnvironment(stores ...*store.Store) (*Environment, error) {
 	colima, err := findTool("colima")
 	if err != nil {
 		return nil, err
@@ -47,11 +50,15 @@ func NewEnvironment() (*Environment, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Environment{
+	e := &Environment{
 		colima:  runner{path: colima},
 		limactl: limactl,
 		docker:  runner{path: docker, args: []string{"--context", DockerContext}},
-	}, nil
+	}
+	if len(stores) > 0 {
+		e.store = stores[0]
+	}
+	return e, nil
 }
 
 func (e *Environment) vm(ctx context.Context) (*VMInfo, error) {
@@ -85,17 +92,22 @@ func (e *Environment) Ensure(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	resources, err := e.resources(vm)
+	if err != nil {
+		return err
+	}
 	switch {
 	case vm == nil:
 		// Same flags as the validation package: no user template, no SSH config or agent
 		// forwarding, no context switch, only the workspace shared.
 		_, err = e.colima.run(ctx, 20*time.Minute, nil, "start", ColimaProfile,
 			"--arch", "aarch64", "--vm-type", "vz", "--mount-type", "virtiofs",
-			"--cpu", "4", "--memory", "6", "--disk", "40", "--mount", workspace+":w",
+			"--cpu", strconv.Itoa(resources.CPUs), "--memory", strconv.Itoa(resources.MemoryGiB), "--disk", strconv.Itoa(resources.DiskGiB), "--mount", workspace+":w",
 			"--activate=false", "--ssh-config=false", "--ssh-agent=false", "--template=false",
 			"--kubernetes=false", "--runtime", "docker", "--binfmt=false")
 	case vm.Status != "Running":
-		_, err = e.colima.run(ctx, 10*time.Minute, nil, "start", ColimaProfile, "--activate=false", "--ssh-config=false")
+		_, err = e.colima.run(ctx, 10*time.Minute, nil, "start", ColimaProfile, "--activate=false", "--ssh-config=false",
+			"--cpu", strconv.Itoa(resources.CPUs), "--memory", strconv.Itoa(resources.MemoryGiB), "--disk", strconv.Itoa(resources.DiskGiB))
 	}
 	if err != nil {
 		return fmt.Errorf("启动专用虚拟机失败：%w", err)

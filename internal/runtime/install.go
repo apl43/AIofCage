@@ -34,6 +34,8 @@ func addedBindings(current []sandbox.Binding, agents []session.Agent) ([]sandbox
 
 // AddAgents 在镜像准备完成后才中断运行；失败时恢复配置和原运行状态。
 func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Agent) error {
+	m.environmentMu.RLock()
+	defer m.environmentMu.RUnlock()
 	defer m.lock(id)()
 	original, err := m.store.Sandbox(id)
 	if err != nil {
@@ -63,6 +65,8 @@ func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Age
 
 // UpgradeAgents 只更新用户选择的智能体到当前新沙箱默认版本；其他沙箱不受影响。
 func (m *Manager) UpgradeAgents(ctx context.Context, id string, agents []session.Agent) error {
+	m.environmentMu.RLock()
+	defer m.environmentMu.RUnlock()
 	defer m.lock(id)()
 	original, err := m.store.Sandbox(id)
 	if err != nil {
