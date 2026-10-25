@@ -67,7 +67,7 @@ func TestConnectorService(t *testing.T) {
 		t.Fatalf("rules %v url %s tools %v", s.Rules(), s.AgentURL(), s.Tools())
 	}
 	command, redact, err := s.Launch("p@ss word")
-	if err != nil || len(command) != 2 || command[0] != "mcp-server-postgres" ||
+	if err != nil || len(command) != 2 || command[0] != "/opt/aiofcage-postgres/server.mjs" ||
 		command[1] != "postgresql://app:p%40ss%20word@host.lima.internal:5432/shop?sslmode=disable" {
 		t.Fatalf("%v %v", command, err)
 	}

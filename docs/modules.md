@@ -99,6 +99,20 @@ make cagectl
 ./bin/cagectl sandbox stop demo
 ```
 
+PostgreSQL 必须使用专用只读账号。连接器会拒绝超级用户、可切换到管理角色、可创建数据库/表或可写业务表的账号；不是仅检查工具名称或事务模式。仅接受单条 SELECT、只读 CTE 与允许的内置函数，拒绝 COPY、文件函数、程序执行、写入与事务切换。未知语法默认拒绝，复杂查询可能需要改写。密码仍由可信连接器持有，Agent 中的占位凭据只代表该沙箱获准调用的服务。
+
+由数据库管理员在目标库中创建账号，例如下列 SQL（密码通过安全渠道设置，不要提交仓库）。只为需要访问的表授权，禁止直接把管理员账号用于 MCP：
+
+```sql
+CREATE ROLE cage_reader LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT CONNECT ON DATABASE shop TO cage_reader;
+GRANT USAGE ON SCHEMA public TO cage_reader;
+GRANT SELECT ON TABLE public.products, public.orders TO cage_reader;
+ALTER ROLE cage_reader SET default_transaction_read_only = on;
+```
+
+账号若经 PUBLIC 或其他角色继承了写入/建表权限，也需要管理员先收回相应权限。连接器每次实际读取前重新检查有效权限；不得向该账号授权不可信的安全定义者函数或视图。SQL 策略测试在连接器镜像构建中执行；真实网关、数据库权限与越权回归可运行 `AIOFCAGE_E2E=1 go test ./internal/service -run '^TestEndToEndDatabaseMCP$' -count=1 -v`。
+
 一个沙箱对应的 Docker 对象（都带标签 `io.aiofcage.sandbox=<ID>`）：
 
 | 对象 | 名称 | 要点 |

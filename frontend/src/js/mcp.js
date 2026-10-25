@@ -134,7 +134,7 @@ function ServiceDialog({ presets, initial, onClose, onSaved }) {
                   <input id="m-token" type="password" autocomplete="off" spellcheck="false" class="mono"
                     placeholder=${editing ? "留空则保持原密码不变" : "连接串里已带密码可留空"} value=${form.token} onInput=${set("token")} />
                   <p class="caption">密码直接写入 macOS 钥匙串（连接串里带的密码也会自动移过去），只交给沙箱外的可信连接器；${""
-                    }Agent 只能经门卫调用只读的 query 工具。本机数据库填 localhost 即可，建议使用只读数据库账号。</p>`
+                    }必须使用专用只读账号，管理账号或带写权限的账号无法查询。本机数据库填 localhost 即可。</p>`
                 : html`<label for="m-url">地址（streamable HTTP）</label>
                   <input id="m-url" required class="mono" placeholder="https://" value=${form.url} onInput=${set("url")} />
                   <label for="m-token">访问令牌</label>

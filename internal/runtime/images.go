@@ -100,7 +100,17 @@ func connectorContext() (buildContext, error) {
 		return buildContext{}, err
 	}
 	files := map[string][]byte{"Dockerfile": dockerfile.Bytes(), "connector": binary}
-	return buildContext{tag: "aiofcage/connector:" + digest(files, "Dockerfile", "connector"), files: files}, nil
+	inputs := []string{"Dockerfile", "connector"}
+	for _, name := range []string{"package.json", "package-lock.json", "policy.mjs", "server.mjs", "policy.test.mjs"} {
+		data, err := assets.ReadFile("assets/connector/postgres/" + name)
+		if err != nil {
+			return buildContext{}, err
+		}
+		key := "postgres-" + name
+		files[key] = data
+		inputs = append(inputs, key)
+	}
+	return buildContext{tag: "aiofcage/connector:" + digest(files, inputs...), files: files}, nil
 }
 
 func agentContext(agents []session.Agent) (buildContext, error) {
