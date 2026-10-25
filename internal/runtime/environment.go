@@ -37,6 +37,8 @@ type VMInfo struct {
 	Disk   int64  `json:"disk"`
 }
 
+var errDockerContextMissing = errors.New("Docker 连接尚未配置，启动沙箱时会自动创建")
+
 func NewEnvironment(stores ...*store.Store) (*Environment, error) {
 	colima, err := findTool("colima")
 	if err != nil {
@@ -119,11 +121,15 @@ func (e *Environment) Ensure(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("启动专用虚拟机失败：%w", err)
 	}
-	return e.Verify(ctx)
+	return e.verify(ctx, true)
 }
 
 // Verify checks the actual VM configuration and mounts rather than trusting our own flags.
 func (e *Environment) Verify(ctx context.Context) error {
+	return e.verify(ctx, false)
+}
+
+func (e *Environment) verify(ctx context.Context, createContext bool) error {
 	vm, err := e.vm(ctx)
 	if err != nil {
 		return err
@@ -182,9 +188,40 @@ func (e *Environment) Verify(ctx context.Context) error {
 	if len(shared) != 1 || shared[0] != workspace {
 		return errors.New("虚拟机中实际挂载的共享目录与白名单不一致")
 	}
-	out, err = e.docker.run(ctx, 15*time.Second, nil, "context", "inspect", DockerContext)
+	return e.verifyDockerContext(ctx, home, createContext)
+}
+
+// Only Ensure may register a missing connection, after the VM sharing boundary is verified.
+// Never switch the user's active context or overwrite an existing connection.
+func (e *Environment) verifyDockerContext(ctx context.Context, home string, create bool) error {
+	// Docker context ls synthesizes the selected name even if its metadata is missing.
+	// Use the built-in default for metadata commands; the target is always explicit.
+	docker := runner{path: e.docker.path, args: []string{"--context", "default"}}
+	expected := "unix://" + filepath.Join(home, ".colima", ColimaProfile, "docker.sock")
+	out, err := docker.run(ctx, 15*time.Second, nil, "context", "inspect", DockerContext)
 	if err != nil {
-		return fmt.Errorf("Docker context %s 不存在", DockerContext)
+		names, listErr := docker.run(ctx, 15*time.Second, nil, "context", "ls", "--format", "{{.Name}}")
+		if listErr != nil {
+			return fmt.Errorf("无法读取 Docker 连接列表：%w", listErr)
+		}
+		for _, name := range strings.Fields(string(names)) {
+			if name == DockerContext {
+				return fmt.Errorf("无法读取 Docker context %s：%w", DockerContext, err)
+			}
+		}
+		if !create {
+			return errDockerContextMissing
+		}
+		_, createErr := docker.run(ctx, 15*time.Second, nil, "context", "create", DockerContext,
+			"--docker", "host="+expected)
+		// Re-read even after a creation error: another process may have created it.
+		out, err = docker.run(ctx, 15*time.Second, nil, "context", "inspect", DockerContext)
+		if err != nil {
+			if createErr != nil {
+				return fmt.Errorf("创建 Docker context %s 失败：%w", DockerContext, createErr)
+			}
+			return fmt.Errorf("无法验证 Docker context %s：%w", DockerContext, err)
+		}
 	}
 	var contexts []struct {
 		Endpoints struct {
@@ -193,7 +230,6 @@ func (e *Environment) Verify(ctx context.Context) error {
 			} `json:"docker"`
 		} `json:"Endpoints"`
 	}
-	expected := "unix://" + filepath.Join(home, ".colima", ColimaProfile, "docker.sock")
 	if json.Unmarshal(out, &contexts) != nil || len(contexts) != 1 || contexts[0].Endpoints.Docker.Host != expected {
 		return errors.New("同名 Docker context 没有指向专用虚拟机")
 	}
@@ -227,10 +263,14 @@ func (e *Environment) Inspect(ctx context.Context) Report {
 		checks = append(checks, Check{ID: "vm", Name: "专用虚拟机", Status: "stopped", Detail: "已创建，启动沙箱时自动启动"})
 	default:
 		status, detail := "ready", "运行中，只共享 ~/CageWorkspace"
-		if err := e.Verify(ctx); err != nil {
-			status, detail = "error", err.Error()
+		verifyErr := e.Verify(ctx)
+		if verifyErr != nil && !errors.Is(verifyErr, errDockerContextMissing) {
+			status, detail = "error", verifyErr.Error()
 		}
 		checks = append(checks, Check{ID: "vm", Name: "专用虚拟机", Status: status, Detail: detail})
+		if errors.Is(verifyErr, errDockerContextMissing) {
+			checks = append(checks, Check{ID: "docker_context", Name: "Docker 连接", Status: "missing", Detail: verifyErr.Error()})
+		}
 	}
 	ready := true
 	for _, check := range checks {
