@@ -52,6 +52,29 @@ func (a *App) AuthorizeMCPService(id string) (MCPServiceView, error) {
 	return view, a.refreshSandboxesUsing(ctx, service.ID)
 }
 
+// DisconnectMCPService removes the locally stored OAuth credentials and refreshes every running
+// sandbox that used the service. Provider-side grants are not revoked unless the provider exposes
+// a revocation endpoint; the local credential is always removed.
+func (a *App) DisconnectMCPService(id string) (MCPServiceView, error) {
+	service, err := a.store.MCPService(id)
+	if err != nil {
+		return MCPServiceView{}, err
+	}
+	if !service.IsOAuth() {
+		return MCPServiceView{}, errors.New("只有 OAuth 服务支持断开授权")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := a.vault.Delete(ctx, service.KeyRef); err != nil {
+		return MCPServiceView{}, err
+	}
+	view, err := a.mcpView(service)
+	if err != nil {
+		return view, err
+	}
+	return view, a.refreshSandboxesUsing(ctx, service.ID)
+}
+
 // refreshSandboxesUsing re-delivers configuration to running sandboxes that use a service.
 func (a *App) refreshSandboxesUsing(ctx context.Context, serviceID string) error {
 	if a.manager == nil {

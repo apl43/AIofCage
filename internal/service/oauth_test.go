@@ -78,3 +78,29 @@ func TestOAuthServiceRefreshesBeforeUse(t *testing.T) {
 		t.Fatal("token services have no OAuth login")
 	}
 }
+
+func TestDisconnectOAuthServiceRemovesLocalCredentials(t *testing.T) {
+	app, secrets, _ := newApp(t)
+	view, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "Notion", Kind: "oauth", URL: "https://example.com/mcp", Preset: "notion"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets[view.KeyRef] = []byte(`{"access_token":"access-1","refresh_token":"refresh-1"}`)
+	if _, err := app.DisconnectMCPService(view.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := secrets[view.KeyRef]; ok {
+		t.Fatal("OAuth credentials remain after disconnect")
+	}
+	updated, err := app.ListMCPServices()
+	if err != nil || len(updated) != 1 || updated[0].KeySaved {
+		t.Fatalf("disconnected service still appears authorized: %+v %v", updated, err)
+	}
+	github, err := app.SaveMCPService(SaveMCPServiceRequest{Name: "GitHub", URL: "https://api.githubcopilot.com/mcp/", Preset: "github", Token: "token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.DisconnectMCPService(github.ID); err == nil || !strings.Contains(err.Error(), "OAuth") {
+		t.Fatalf("token service accepted OAuth disconnect: %v", err)
+	}
+}
