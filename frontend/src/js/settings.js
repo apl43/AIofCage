@@ -1,5 +1,5 @@
 // 设置页：运行资源、智能体版本与应用信息。
-import { html, PageTitle, Icon } from "./core.js";
+import { html, PageTitle } from "./core.js";
 import { EnvironmentPanel } from "./sandboxes.js";
 import { ExplainerSettings } from "./ai.js";
 import { AgentUpdateSettings } from "./agent-versions.js";
@@ -18,12 +18,6 @@ export function SettingsPage({ overview, providers, notify, onEnvironmentChanged
         <div><dt>Docker context</dt><dd class="mono">colima-aiofcage（不会改动你的默认 context）</dd></div>
         <${ExplainerSettings} providers=${providers} notify=${notify} />
         <div><dt>版本</dt><dd class="mono">${overview.version}</dd></div>
-        <div><dt>窗口</dt><dd><button onClick=${async () => {
-          const runtime = window.runtime;
-          if (!runtime?.WindowIsFullscreen) return;
-          if (await runtime.WindowIsFullscreen()) runtime.WindowUnfullscreen();
-          else runtime.WindowFullscreen();
-        }}><${Icon} name="expand" />切换全屏</button></dd></div>
       </dl>
       <${EnvironmentResources} notify=${notify} onChanged=${onEnvironmentChanged} />
       <${AgentUpdateSettings} notify=${notify} />
