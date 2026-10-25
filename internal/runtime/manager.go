@@ -19,6 +19,7 @@ import (
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
 	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/oauth"
+	"github.com/shaoxier/AIofCage/internal/policy"
 	"github.com/shaoxier/AIofCage/internal/provider"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 	"github.com/shaoxier/AIofCage/internal/session"
@@ -843,7 +844,8 @@ func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
 	return m.writeAgentFiles(ctx, client, sbx, providers)
 }
 
-// Stop saves cumulative usage so quotas survive restarts, then stops both containers.
+// Stop saves cumulative usage so quotas survive restarts, revokes the live gatekeeper policy,
+// removes connector containers that may still hold secrets, then stops both containers.
 func (m *Manager) Stop(ctx context.Context, id string) error {
 	unlock, lockErr := m.lock(ctx, id)
 	if lockErr != nil {
@@ -855,13 +857,52 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 		return err
 	}
 	m.saveUsage(ctx, sbx)
+	var errs []error
+	if err := m.revokeRuntime(ctx, sbx); err != nil {
+		errs = append(errs, err)
+	}
+	if err := m.stopContainers(ctx, names(sbx.ID)); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error { s.AppliedBindings = nil; s.AppliedProviders = nil; return nil })
+}
+
+// revokeRuntime invalidates the in-memory gatekeeper policy before stopping the sandbox and
+// removes connector containers so database passwords and connector launch state do not survive a
+// stop. The next start creates fresh connector tokens and delivers secrets again.
+func (m *Manager) revokeRuntime(ctx context.Context, sbx sandbox.Sandbox) error {
+	var errs []error
+	client, err := m.client(ctx, sbx.ID)
+	if err == nil {
+		config := gatekeeper.Config{Policy: policy.Snapshot{Version: uint64(time.Now().UnixMilli()), SessionID: sbx.ID}}
+		if err := client.putConfig(ctx, config); err != nil {
+			errs = append(errs, fmt.Errorf("清空沙箱「%s」的门卫授权失败：%w", sbx.Name, err))
+		}
+	} else if m.Status(ctx, sbx.ID).State == stateRunning {
+		errs = append(errs, fmt.Errorf("读取沙箱「%s」的门卫连接失败：%w", sbx.Name, err))
+	}
+	if err := m.removeConnectors(ctx, sbx.ID); err != nil {
+		errs = append(errs, fmt.Errorf("清理沙箱「%s」的 MCP 连接器失败：%w", sbx.Name, err))
+	}
 	m.mu.Lock()
 	delete(m.gates, sbx.ID)
 	m.mu.Unlock()
-	if err := m.stopContainers(ctx, names(sbx.ID)); err != nil {
-		return err
+	m.revokeRuntimeTokens(sbx.ID)
+	return errors.Join(errs...)
+}
+
+func (m *Manager) revokeRuntimeTokens(sandboxID string) {
+	prefix := "aiofcage-" + sandboxID + "-mcp-"
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for name := range m.connectorTokens {
+		if strings.HasPrefix(name, prefix) {
+			delete(m.connectorTokens, name)
+		}
 	}
-	return m.store.UpdateSandbox(id, func(s *sandbox.Sandbox) error { s.AppliedBindings = nil; s.AppliedProviders = nil; return nil })
 }
 
 func (m *Manager) saveUsage(ctx context.Context, sbx sandbox.Sandbox) {
