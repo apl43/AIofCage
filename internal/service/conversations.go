@@ -7,8 +7,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,11 +24,13 @@ import (
 )
 
 type ConversationInfo struct {
-	ID           string        `json:"id"`
-	Agent        session.Agent `json:"agent"`
-	ProviderName string        `json:"provider_name"`
-	Model        string        `json:"model"`
-	ImageInput   bool          `json:"image_input"`
+	ID              string        `json:"id"`
+	Agent           session.Agent `json:"agent"`
+	ProviderName    string        `json:"provider_name"`
+	Model           string        `json:"model"`
+	ImageInput      bool          `json:"image_input"`
+	Resumed         bool          `json:"resumed"`
+	NativeSessionID string        `json:"native_session_id,omitempty"`
 }
 
 type ConversationOptions struct {
@@ -35,12 +39,14 @@ type ConversationOptions struct {
 }
 
 type conversationSessions struct {
-	mu      sync.Mutex
-	items   map[string]*conversation
-	closing bool
+	mu        sync.Mutex
+	items     map[string]*conversation
+	closing   bool
+	persistMu sync.Mutex
 }
 
 type conversation struct {
+	id       string
 	mu       sync.Mutex
 	sandbox  sandbox.Sandbox
 	provider provider.Provider
@@ -56,6 +62,10 @@ type conversation struct {
 }
 
 func (a *App) StartConversation(id, sandboxID string, agent session.Agent) (ConversationInfo, error) {
+	return a.startConversation(id, sandboxID, agent, nil)
+}
+
+func (a *App) startConversation(id, sandboxID string, agent session.Agent, recovery *conversationRecovery) (ConversationInfo, error) {
 	if err := a.runtimeReady(); err != nil {
 		return ConversationInfo{}, err
 	}
@@ -89,6 +99,9 @@ func (a *App) StartConversation(id, sandboxID string, agent session.Agent) (Conv
 	if err != nil || p.ID == "" {
 		return ConversationInfo{}, errors.New("请先为该智能体选择供应商，并重新启动沙箱应用配置")
 	}
+	if recovery != nil && p.ID != recovery.ProviderID {
+		return ConversationInfo{}, errors.New("供应商配置已变化，不能继续原生会话，请新建会话")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := a.manager.Exec(ctx, sandboxID, false, nil, io.Discard, io.Discard,
@@ -106,9 +119,16 @@ func (a *App) StartConversation(id, sandboxID string, agent session.Agent) (Conv
 	if a.conversations.items[id] != nil || len(a.conversations.items) >= maxTerminals {
 		return ConversationInfo{}, errors.New("会话重复或数量达到上限，请先关闭部分标签")
 	}
-	a.conversations.items[id] = &conversation{sandbox: sbx, provider: p, agent: agent}
-	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, Model: p.Model,
-		ImageInput: agent != session.DSH || p.ImageInput}, nil
+	nativeID, model, effort := "", "", ""
+	if recovery != nil {
+		nativeID, model, effort = recovery.NativeSessionID, recovery.Model, recovery.Effort
+	}
+	a.conversations.items[id] = &conversation{id: id, sandbox: sbx, provider: p, agent: agent, nativeID: nativeID, model: model, effort: effort}
+	if model == "" {
+		model = p.Model
+	}
+	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, Model: model,
+		ImageInput: agent != session.DSH || p.ImageInput, Resumed: recovery != nil, NativeSessionID: nativeID}, nil
 }
 
 func (a *App) conversation(id string) (*conversation, error) {
@@ -250,8 +270,14 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 			}
 			if event.Type == "session" {
 				c.mu.Lock()
+				if c.closed {
+					c.mu.Unlock()
+					continue
+				}
 				c.nativeID = event.Text
+				recovery := a.conversationRecoveryFrom(c)
 				c.mu.Unlock()
+				_ = a.saveConversationRecovery(recovery)
 				continue
 			}
 			switch event.Type {
@@ -339,8 +365,15 @@ func (a *App) StopConversation(id string) error {
 }
 
 func (a *App) CloseConversation(id string) error {
+	return a.closeConversation(id, true)
+}
+
+func (a *App) closeConversation(id string, forget bool) error {
 	c, err := a.conversation(id)
 	if err != nil {
+		if forget {
+			_ = a.removeConversationRecovery(id)
+		}
 		return nil
 	}
 	c.mu.Lock()
@@ -365,6 +398,9 @@ func (a *App) CloseConversation(id string) error {
 	a.conversations.mu.Lock()
 	delete(a.conversations.items, id)
 	a.conversations.mu.Unlock()
+	if forget {
+		_ = a.removeConversationRecovery(id)
+	}
 	return nil
 }
 
@@ -379,7 +415,7 @@ func (a *App) closeConversations() {
 	var closing sync.WaitGroup
 	for _, id := range ids {
 		closing.Add(1)
-		go func(id string) { defer closing.Done(); _ = a.CloseConversation(id) }(id)
+		go func(id string) { defer closing.Done(); _ = a.closeConversation(id, false) }(id)
 	}
 	closing.Wait()
 }
@@ -402,11 +438,175 @@ func (a *App) closeSandboxConversations(id string) {
 		closing.Add(1)
 		go func(key string) {
 			defer closing.Done()
-			_ = a.CloseConversation(key)
+			_ = a.closeConversation(key, false)
 			a.emit("conversation:event", map[string]string{"id": key, "type": "closed"})
 		}(key)
 	}
 	closing.Wait()
+}
+
+const conversationRecoverySetting = "conversation.recovery"
+
+type conversationRecovery struct {
+	ID              string        `json:"id"`
+	SandboxID       string        `json:"sandbox_id"`
+	Agent           session.Agent `json:"agent"`
+	ProviderID      string        `json:"provider_id"`
+	Model           string        `json:"model"`
+	Effort          string        `json:"effort"`
+	NativeSessionID string        `json:"native_session_id"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+}
+
+type ConversationRecoveryView struct {
+	ID              string        `json:"id"`
+	SandboxID       string        `json:"sandbox_id"`
+	SandboxName     string        `json:"sandbox_name"`
+	Agent           session.Agent `json:"agent"`
+	ProviderName    string        `json:"provider_name"`
+	Model           string        `json:"model"`
+	Effort          string        `json:"effort"`
+	NativeSessionID string        `json:"native_session_id"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	Ready           bool          `json:"ready"`
+	Reason          string        `json:"reason,omitempty"`
+}
+
+func (a *App) conversationRecoveryFrom(c *conversation) conversationRecovery {
+	return conversationRecovery{ID: cID(c), SandboxID: c.sandbox.ID, Agent: c.agent, ProviderID: c.provider.ID, Model: c.model, Effort: c.effort, NativeSessionID: c.nativeID, UpdatedAt: a.now().UTC()}
+}
+
+// cID is filled by the map key when recovery is saved; the conversation itself intentionally does
+// not retain the desktop tab ID in its runtime state.
+func cID(c *conversation) string {
+	return c.id
+}
+
+func (a *App) recoveryRecords() (map[string]conversationRecovery, error) {
+	raw := a.store.Setting(conversationRecoverySetting)
+	if raw == "" {
+		return map[string]conversationRecovery{}, nil
+	}
+	items := map[string]conversationRecovery{}
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		return nil, fmt.Errorf("会话恢复记录格式无效：%w", err)
+	}
+	return items, nil
+}
+
+func (a *App) saveConversationRecovery(item conversationRecovery) error {
+	if item.ID == "" || item.NativeSessionID == "" {
+		return nil
+	}
+	a.conversations.persistMu.Lock()
+	defer a.conversations.persistMu.Unlock()
+	items, err := a.recoveryRecords()
+	if err != nil {
+		return err
+	}
+	items[item.ID] = item
+	data, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	return a.store.SetSetting(conversationRecoverySetting, string(data))
+}
+
+func (a *App) removeConversationRecovery(id string) error {
+	a.conversations.persistMu.Lock()
+	defer a.conversations.persistMu.Unlock()
+	items, err := a.recoveryRecords()
+	if err != nil {
+		return err
+	}
+	if _, ok := items[id]; !ok {
+		return nil
+	}
+	delete(items, id)
+	data, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	return a.store.SetSetting(conversationRecoverySetting, string(data))
+}
+
+func (a *App) removeSandboxConversationRecoveries(sandboxID string) error {
+	a.conversations.persistMu.Lock()
+	defer a.conversations.persistMu.Unlock()
+	items, err := a.recoveryRecords()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for id, item := range items {
+		if item.SandboxID == sandboxID {
+			delete(items, id)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	data, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	return a.store.SetSetting(conversationRecoverySetting, string(data))
+}
+
+func (a *App) ListRecoverableConversations() ([]ConversationRecoveryView, error) {
+	items, err := a.recoveryRecords()
+	if err != nil {
+		return nil, err
+	}
+	var result []ConversationRecoveryView
+	for _, item := range items {
+		sbx, err := a.store.Sandbox(item.SandboxID)
+		if err != nil {
+			continue
+		}
+		view := ConversationRecoveryView{ID: item.ID, SandboxID: item.SandboxID, SandboxName: sbx.Name, Agent: item.Agent, Model: item.Model, Effort: item.Effort, NativeSessionID: item.NativeSessionID, UpdatedAt: item.UpdatedAt, Ready: true}
+		binding := sbx.ProviderFor(item.Agent)
+		if sbx.AppliedProviders != nil {
+			binding = ""
+			for _, current := range sbx.AppliedBindings {
+				if current.Agent == item.Agent {
+					binding = current.ProviderID
+					break
+				}
+			}
+		}
+		if binding == "" || binding != item.ProviderID {
+			view.Ready = false
+			view.Reason = "供应商配置已变化，请重新启动沙箱后新建会话"
+		} else if p, providerErr := a.store.Provider(binding); providerErr == nil {
+			view.ProviderName = p.Name
+		} else {
+			view.Ready = false
+			view.Reason = "原供应商配置不可用"
+		}
+		result = append(result, view)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].UpdatedAt.After(result[j].UpdatedAt) })
+	return result, nil
+}
+
+func (a *App) RecoverConversation(id string) (ConversationInfo, error) {
+	if err := a.runtimeReady(); err != nil {
+		return ConversationInfo{}, err
+	}
+	items, err := a.recoveryRecords()
+	if err != nil {
+		return ConversationInfo{}, err
+	}
+	recovery, ok := items[id]
+	if !ok || recovery.NativeSessionID == "" {
+		return ConversationInfo{}, errors.New("找不到可恢复的会话")
+	}
+	if !recovery.Agent.Valid() {
+		return ConversationInfo{}, errors.New("恢复会话的智能体无效")
+	}
+	return a.startConversation(recovery.ID, recovery.SandboxID, recovery.Agent, &recovery)
 }
 
 // ConversationModels 只读取当前会话供应商的模型列表；密钥不会返回前端。

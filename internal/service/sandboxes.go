@@ -168,6 +168,7 @@ func (a *App) DeleteSandbox(id string, keepHome bool) error {
 	if err := a.manager.Delete(ctx, id, keepHome); err != nil {
 		return err
 	}
+	_ = a.removeSandboxConversationRecoveries(sbx.ID)
 	return a.retireUsage(sbx)
 }
 

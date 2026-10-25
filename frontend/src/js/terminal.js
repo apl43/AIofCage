@@ -113,18 +113,22 @@ const THEME = {
 
 const newID = () => "t-" + Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => (b % 36).toString(36)).join("");
 
-export async function openTerminal(sandbox, agent) {
+export async function openTerminal(sandbox, agent, recovery = null) {
   wire();
-  const id = newID();
+  const id = recovery?.id ?? newID();
   if (agent) {
-    const session = { id, sandboxId: sandbox.id, agent, title: agentName(agent), kind: "conversation",
+    const session = { id, sandboxId: sandbox.id, agent, title: agentName(agent), kind: "conversation", resumed: Boolean(recovery),
       draft: createDraft(), messages: [], models: [], model: "", effort: "", busy: false, started: false, status: "" };
     sessions.set(id, session); notifyChange();
     try {
-      session.info = await call("StartConversation", id, sandbox.id, agent);
+      session.info = recovery
+        ? await call("RecoverConversation", id)
+        : await call("StartConversation", id, sandbox.id, agent);
       if (!sessions.has(id)) { await call("CloseConversation", id); return id; }
       session.model = session.info.model;
       session.models = [session.info.model];
+      session.started = Boolean(session.info.resumed);
+      session.status = session.info.resumed ? "已恢复原生会话" : "";
     } catch (error) {
       session.error = error.message;
       session.exited = true;
