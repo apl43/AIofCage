@@ -335,7 +335,7 @@ details.advanced label:first-of-type { margin-top: 12px; }
 .terminal-new-menu { position: relative; }
 .terminal-new-menu summary { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 6px 10px; list-style: none; cursor: pointer; border: 1px solid #506b5d; border-radius: 8px; color: #e3ece6; }
 .terminal-new-menu summary::-webkit-details-marker { display: none; }
-.terminal-menu-choices { position: absolute; top: calc(100% + 8px); right: 0; min-width: 210px; padding: 6px; border: 1px solid #506b5d; border-radius: 12px; background: #1d3027; box-shadow: 0 12px 32px #0005; z-index: 20; }
+.terminal-menu-choices { position: absolute; top: calc(100% + 8px); left: 0; width: 230px; max-width: calc(100vw - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid #506b5d; border-radius: 12px; background: #1d3027; box-shadow: 0 12px 32px #0005; z-index: 20; }
 .terminal-panel .terminal-menu-choices button { width: 100%; justify-content: flex-start; border: 0; border-radius: 6px; padding: 10px; }
 .conversation-container { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .conversation-controls { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; padding: 12px 18px; border-bottom: 1px solid #33493f; color: #c9dcd1; font-size: var(--text-xs); flex-shrink: 0; }
