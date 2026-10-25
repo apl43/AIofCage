@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shaoxier/AIofCage/internal/audit"
+	"github.com/shaoxier/AIofCage/internal/events"
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
 	"github.com/shaoxier/AIofCage/internal/mcp"
 	"github.com/shaoxier/AIofCage/internal/oauth"
@@ -893,8 +893,8 @@ func (m *Manager) Usage(ctx context.Context, id string) (GateUsage, error) {
 	return client.usage(ctx)
 }
 
-// Events streams gatekeeper events for a running sandbox until ctx ends.
-func (m *Manager) Events(ctx context.Context, id, lastID string, handle func(audit.Event)) error {
+// Events 订阅脱敏事件；接收方确认失败时立即中断，以便从已持久化的游标续传。
+func (m *Manager) Events(ctx context.Context, id, lastID string, handle events.Handler) error {
 	client, err := m.client(ctx, id)
 	if err != nil {
 		return err

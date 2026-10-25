@@ -257,9 +257,10 @@ func run(args []string) error {
 		fmt.Println(string(out))
 		return nil
 	case "events":
-		return manager.Events(ctx, sbx.ID, "", func(event audit.Event) {
-			fmt.Printf("%s #%d %-14s %-8s %-22s %s %s %s %s\n", event.Time.Local().Format("15:04:05"), event.Sequence,
+		return manager.Events(ctx, sbx.ID, "", func(event audit.Event) error {
+			_, err := fmt.Printf("%s #%d %-14s %-8s %-22s %s %s %s %s\n", event.Time.Local().Format("15:04:05"), event.Sequence,
 				event.Action, event.Decision, event.ReasonCode, event.Method, event.Host, event.Path, tokens(event))
+			return err
 		})
 	}
 	return errors.New("未知的沙箱命令")

@@ -8,11 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/shaoxier/AIofCage/internal/audit"
+	"github.com/shaoxier/AIofCage/internal/events"
 	"github.com/shaoxier/AIofCage/internal/gatekeeper"
 	"github.com/shaoxier/AIofCage/internal/sandbox"
 )
@@ -158,7 +160,7 @@ func (c *gateClient) usage(ctx context.Context) (GateUsage, error) {
 }
 
 // events streams gatekeeper events until ctx ends. lastID resumes after a known event.
-func (c *gateClient) events(ctx context.Context, lastID string, handle func(audit.Event)) error {
+func (c *gateClient) events(ctx context.Context, lastID string, handle events.Handler) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.base+"/events", nil)
 	if err != nil {
 		return err
@@ -175,6 +177,10 @@ func (c *gateClient) events(ctx context.Context, lastID string, handle func(audi
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("订阅事件失败：%d", resp.StatusCode)
 	}
+	contentType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil || contentType != "text/event-stream" {
+		return errors.New("门卫未返回审计事件流")
+	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64<<10), 1<<20)
 	for scanner.Scan() {
@@ -183,8 +189,12 @@ func (c *gateClient) events(ctx context.Context, lastID string, handle func(audi
 			continue
 		}
 		var event audit.Event
-		if json.Unmarshal([]byte(line[len("data: "):]), &event) == nil {
-			handle(event)
+		if json.Unmarshal([]byte(line[len("data: "):]), &event) != nil || event.ID == "" || event.Action == "" {
+			// 不跳过无效记录，否则下一条成功事件会使续传游标越过它。
+			return errors.New("审计事件格式无效，已中断订阅")
+		}
+		if err := handle(event); err != nil {
+			return fmt.Errorf("审计事件未确认：%w", err)
 		}
 	}
 	if ctx.Err() != nil {

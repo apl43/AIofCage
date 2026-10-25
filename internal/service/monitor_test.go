@@ -42,8 +42,8 @@ func TestAuditLogAndRecentEvents(t *testing.T) {
 		t.Fatalf("audit file mode %v", info.Mode())
 	}
 	fresh := NewApp(st, memoryVault{}, nil, nil, nil)
-	if cursor := fresh.cursor("sbx-a"); cursor != "run-1:1" {
-		t.Fatalf("cursor %q", cursor)
+	if cursor, err := fresh.cursor("sbx-a"); err != nil || cursor != "run-1:1" {
+		t.Fatalf("cursor %q %v", cursor, err)
 	}
 	if events, _ := fresh.RecentEvents("sbx-a"); len(events) != 2 {
 		t.Fatalf("reloaded %d events", len(events))
