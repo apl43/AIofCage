@@ -18,6 +18,8 @@
 
 如果打开 App 时缺少运行依赖，安装后重新检测会提示退出并重新打开 App，以加载新的运行环境。升级前已经使用过 App 的用户，可主动点击教程入口。
 
+Colima 和 Lima 需要 Apple Silicon（arm64）版本，Intel 版本会显示架构不匹配。App 支持从 ARM Homebrew 或 `~/.local/bin` 查找工具；手动安装 Lima 时需保留发行包中的 `bin`、`share` 和 `libexec` 目录结构。
+
 ## 实现与验证
 
 - 教程复用供应商表单、沙箱创建与启动、智能体会话，执行结果来自这些现有操作。
