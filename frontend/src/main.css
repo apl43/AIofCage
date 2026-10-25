@@ -222,6 +222,10 @@ input[type="radio"], input[type="checkbox"] { width: 16px; height: 16px; min-hei
 .mcp-choice { display: grid; gap: 5px; }
 .mcp-tool-list { display: grid; gap: 4px; margin: 0 0 4px 28px; padding: 8px 10px; border-left: 2px solid var(--line); color: var(--faint); }
 .mcp-tool-list label.check { min-height: 24px; font-size: var(--text-sm); color: var(--ink); }
+.security-diagnostics { display: grid; gap: 12px; margin-bottom: 18px; }
+.security-grid, .security-mcp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.security-item { display: grid; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.security-item small { color: var(--faint); line-height: 1.45; }
 .agent-line { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 12px; align-items: center; }
 .agent-line label.check { margin: 0; }
 details { margin-top: 18px; }
