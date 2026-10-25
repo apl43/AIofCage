@@ -4,6 +4,10 @@ Ai of Cage，寓意“笼中 AI”，是结合独立沙箱的桌面智能体工�
 
 Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silicon。
 
+## 演示视频
+
+[观看 Ai of Cage 产品演示](docs/demo/demo.mp4)（约 4 分 26 秒，MP4，24 MiB）。
+
 ## 从源码安装
 
 支持 **macOS 13+、Apple Silicon（M 系列芯片）**。
