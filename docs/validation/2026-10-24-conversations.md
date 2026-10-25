@@ -15,6 +15,8 @@ DeepSeek 采用官方 `deepseek-ai/deepseek-harness` 的 `dsh --profile headless
 - Chrome 中用明确的 `review-` 合成供应商及消息验证：创建 DeepSeek 会话、思考选择、消息分角色、代码块、统一新建菜单、Shell 仅有终端输入。观察到深色正文及按钮样式冲突，已修正并复查。此项证明界面行为，未用模拟响应冒充真实模型。
 - 独立无网络容器，对三种真实官方 CLI 提供本地合成 SSE 上游：三者均退出 0、返回预期文本、提供原生会话 ID；捕获请求确认 Codex 的 `reasoning.effort=high`、Claude 的 `output_config.effort=high`、DSH 的启用思考与 16384 token 预算。模型字段与所选值一致。该测试验证协议适配，不证明供应商接受全部档位。
 - 独立临时沙箱复用现有非敏感供应商配置及钥匙串引用：DeepSeek 两轮真实请求、暗号记忆、原生会话 ID 通过。Codex（七牛 xapi）、Claude Code（DeepSeek-CC）在 120 秒内未完成，主动停止；两项真实上游验收未通过，不将其归为成功或直接断言根因。新增显式启用的 `AIOFCAGE_CONVERSATION_E2E=1` 回归入口，方便复测。
+- 2026-10-25 复测发现测试共用 15 次额度，Codex 网络重试耗尽额度会连带阻断后续 Claude。已改为每种 Agent 独立沙箱、各自 8 次请求额度，并仅在失败时输出脱敏审计元数据。Claude 两轮续聊随后在 6.79 秒通过，DSH 独立回归在 5.25 秒通过。Codex 的门卫事件仍为七牛 `/v1/responses` 连接层 `upstream_failed` / 502，宿主无凭据直连同域名也超时，未将该供应商的真实调用标为通过。
+- 最新原生应用中创建独立 DeepSeek 案例，选择 `deepseek-flash` 和“高”思考强度，从唯一输入框发送多行任务。真实调用案例 MCP 并写出 report.md，随后原生会话续聊核算一致；用户与回复分区清楚，思考和工具活动可折叠。Shell 只显示原生终端输入，统一新建下拉和停止关闭会话通过。
 - 所有测试沙箱、项目和 CLI 测试容器已清理。未启停、替换或修改用户已有沙箱。
 
 ## 实现复查

@@ -102,6 +102,8 @@ for dataset in overview['datasets']:
  result=call('tools/call',{'name':'read_data','arguments':{'dataset':dataset}})['result']['structuredContent']
  assert result['matched']>0
 if sys.argv[1].endswith('sales'):
+ result=call('tools/call',{'name':'read_data','arguments':{'dataset':'orders','contains':'2026-10-20'}})['result']['structuredContent']
+ assert result['matched']==10 and all(x['order_date']=='2026-10-20' for x in result['records'])
  result=call('tools/call',{'name':'summarize_data','arguments':{'dataset':'orders','group_by':'channel'}})['result']['structuredContent']
  campaign=next(x for x in result['groups'] if x['key']=='campaign')
  assert campaign['rows']==4 and campaign['sums']['paid_cny']==3000 and campaign['sums']['refund_cny']==2000

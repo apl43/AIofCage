@@ -14,3 +14,5 @@ DeepSeek Harness 的固定官方包已包含 `dsh-mcp-client`。根据其随包 
 - 真实测试只使用本轮新建的项目和容器，均已清理；用户原沙箱未变更。
 
 运行方式：`AIOFCAGE_DEMO_E2E=1 go test ./internal/service -run '^TestDemoCasesEndToEnd$' -v`。额外设置 `AIOFCAGE_DEMO_AGENT_E2E=1` 才会使用已配置 DeepSeek 供应商进行真实模型任务。
+
+2026-10-25 原生验收中，DeepSeek 选择“高”思考强度完成退款案例，7 次工具活动后写出报告并正确续聊。模型指出任务引用了日期但订单数据没有日期字段；已为十条订单补齐 `order_date: 2026-10-20`，增加按日期读取的单元与真实 MCP 断言。重建连接器后，三案例握手、列工具、取数、越权拒绝和关闭再次通过；真实 DeepSeek 再生成报告、核对指标及记录 ID，通过，整组 40.03 秒。该修正不改变原金额与比例。

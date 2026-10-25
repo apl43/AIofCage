@@ -16,6 +16,8 @@ Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silic
 
 最新范围与验收标准见[桌面工作区产品规格](docs/product-workspace.md)，本次改造的实测、限制和 PR 对应关系见[交付验收记录](outputs/workspace-acceptance/report.md)。
 
+2026-10-25 的安全修复、会话改造、版本/资源设置、业务 MCP 与本机 AI 调用，见[本轮交付与验收记录](docs/validation/2026-10-25-final-delivery.md)。
+
 ## 功能清单
 
 - [x] 按三款智能体分类管理多个供应商，支持预设、自定义接口、复制和连接测试。

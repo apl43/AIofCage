@@ -13,6 +13,11 @@ func TestBusinessMetricsAndReadOnlyBoundary(t *testing.T) {
 	if err != nil || !strings.Contains(string(raw), `"paid_cny":3000`) || !strings.Contains(string(raw), `"refund_cny":2000`) || !strings.Contains(string(raw), `"rows":4`) {
 		t.Fatalf("统计错误: %v %s", err, raw)
 	}
+	dated, err := Call("sales", "read_data", json.RawMessage(`{"dataset":"orders","contains":"2026-10-20"}`))
+	dateData, _ := json.Marshal(dated)
+	if err != nil || !strings.Contains(string(dateData), `"matched":10`) || !strings.Contains(string(dateData), `"order_date":"2026-10-20"`) {
+		t.Fatalf("任务日期没有对应的订单证据: %v %s", err, dateData)
+	}
 	filtered, err := Call("sales", "read_data", json.RawMessage(`{"dataset":"orders","contains":"重复扣款"}`))
 	data, _ := json.Marshal(filtered)
 	if err != nil || !strings.Contains(string(data), `"matched":2`) {

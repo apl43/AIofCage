@@ -7,16 +7,16 @@
     "task": "请使用案例 MCP 分析 2026-10-20 的订单。先读取 case_overview，再用 summarize_data 按 channel 汇总 orders，计算退款金额占比、退款订单比例与净收入。追查异常订单及原因，引用 order_id，不要把相关性当成因果。将分析、计算口径和建议写入 report.md。全部数据为合成演示数据，不能用作真实经营结论。",
     "datasets": {
       "orders": [
-        {"order_id":"O-101","channel":"campaign","paid_cny":1000,"refund_cny":1000,"status":"refunded","reason":"重复扣款"},
-        {"order_id":"O-102","channel":"campaign","paid_cny":600,"refund_cny":600,"status":"refunded","reason":"重复扣款"},
-        {"order_id":"O-103","channel":"campaign","paid_cny":400,"refund_cny":400,"status":"refunded","reason":"活动说明不清"},
-        {"order_id":"O-104","channel":"campaign","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-105","channel":"organic","paid_cny":800,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-106","channel":"organic","paid_cny":600,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-107","channel":"organic","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-108","channel":"partner","paid_cny":300,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-109","channel":"partner","paid_cny":500,"refund_cny":0,"status":"paid","reason":""},
-        {"order_id":"O-110","channel":"partner","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""}
+        {"order_date":"2026-10-20","order_id":"O-101","channel":"campaign","paid_cny":1000,"refund_cny":1000,"status":"refunded","reason":"重复扣款"},
+        {"order_date":"2026-10-20","order_id":"O-102","channel":"campaign","paid_cny":600,"refund_cny":600,"status":"refunded","reason":"重复扣款"},
+        {"order_date":"2026-10-20","order_id":"O-103","channel":"campaign","paid_cny":400,"refund_cny":400,"status":"refunded","reason":"活动说明不清"},
+        {"order_date":"2026-10-20","order_id":"O-104","channel":"campaign","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-105","channel":"organic","paid_cny":800,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-106","channel":"organic","paid_cny":600,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-107","channel":"organic","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-108","channel":"partner","paid_cny":300,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-109","channel":"partner","paid_cny":500,"refund_cny":0,"status":"paid","reason":""},
+        {"order_date":"2026-10-20","order_id":"O-110","channel":"partner","paid_cny":1000,"refund_cny":0,"status":"paid","reason":""}
       ]
     }
   },
