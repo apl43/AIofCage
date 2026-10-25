@@ -23,7 +23,7 @@ const TABS = [
 ];
 
 export function SandboxDetail({ sandbox, detail, setDetail, providers, services, events, usage, vm, busy, progress, run, notify,
-  onAddAgents, onEditMCP, onAttack, onDelete, onLogs, dialogs }) {
+  onAddAgents, onEditMCP, onAttack, onReset, onDelete, onLogs, dialogs }) {
   const [restartConfirm, setRestartConfirm] = useState(false);
   const tab = detail.tab ?? "overview";
   const state = STATES[sandbox.state] ?? STATES.unknown;
@@ -44,6 +44,7 @@ export function SandboxDetail({ sandbox, detail, setDetail, providers, services,
           ${sandbox.config_pending && html`<button class="primary" disabled=${Boolean(busy)} onClick=${() => setRestartConfirm(true)}>重启以应用</button>`}
           <details class="action-menu"><summary aria-label="更多沙箱操作"><${Icon} name="more" /></summary><div class="menu-items">
             <button onClick=${onAttack} disabled=${!running || Boolean(busy)}>隔离检查</button>
+            <button onClick=${onReset} disabled=${Boolean(busy)}>重置运行环境…</button>
             <button class="danger" onClick=${onDelete} disabled=${Boolean(busy)}>删除沙箱…</button>
           </div></details>
         </div>

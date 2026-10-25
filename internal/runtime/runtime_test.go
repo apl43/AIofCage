@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -234,5 +236,51 @@ func TestDSHCustomProviderConfig(t *testing.T) {
 	p.ImageInput = true
 	if !strings.Contains(dshConfig(p), "input: [text, image]") {
 		t.Fatal("图片能力没有传递给 DSH 模型路由")
+	}
+}
+
+func TestResetKeepsSandboxConfigurationAndHonorsHomeChoice(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "docker.log")
+	docker := filepath.Join(dir, "docker")
+	if err := os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$AIOFCAGE_TEST_LOG\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AIOFCAGE_TEST_LOG", logPath)
+	st, err := store.Open(filepath.Join(dir, "store"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sbx := sandbox.Sandbox{ID: "sbx-reset0001", Name: "reset", ProjectPath: "/Users/u/CageWorkspace/reset",
+		Bindings:             []sandbox.Binding{{Agent: session.Codex, ProviderID: "provider"}},
+		AppliedBindings:      []sandbox.Binding{{Agent: session.Codex, ProviderID: "provider"}},
+		AppliedProviders:     map[string]provider.Provider{"provider": {ID: "provider", Name: "Provider"}},
+		AppliedAgentVersions: map[session.Agent]string{session.Codex: "old"},
+		Placeholders:         map[string]string{"provider": "cage-placeholder"}}
+	if err := st.SaveSandbox(sbx); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{store: st, docker: runner{path: docker}, gates: map[string]*gateClient{}, locks: map[string]*sync.Mutex{}, connectorTokens: map[string]string{
+		"aiofcage-sbx-reset0001-mcp-shop": "secret",
+	}}
+	if err := m.Reset(context.Background(), sbx.ID, true, false); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := st.Sandbox(sbx.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.ProjectPath != sbx.ProjectPath || saved.Name != sbx.Name || len(saved.Bindings) != 1 || saved.AppliedBindings != nil || saved.AppliedProviders != nil || saved.AppliedAgentVersions != nil {
+		t.Fatalf("reset changed stored configuration: %+v", saved)
+	}
+	if _, ok := m.connectorTokens["aiofcage-sbx-reset0001-mcp-shop"]; ok {
+		t.Fatal("reset left connector token in memory")
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "volume rm aiofcage-sbx-reset0001-home") {
+		t.Fatal("keepHome reset removed the Agent home volume")
 	}
 }

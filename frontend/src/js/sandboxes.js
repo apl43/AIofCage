@@ -16,6 +16,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
   const [busy, setBusy] = useState({}); // id → 正在进行的操作
   const [progress, setProgress] = useState({}); // id → 最近一条进度
   const [deleting, setDeleting] = useState(null);
+  const [resetting, setResetting] = useState(null);
 
   useEffect(() => {
     const off = window.runtime?.EventsOn?.("sandbox:progress", (event) =>
@@ -59,6 +60,13 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
           setDetail({ id: created.id, tab: start ? "terminal" : "overview" });
           if (start && await run(created, "启动", "StartSandbox", created.id)) setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
         }} />`}
+      ${resetting && html`<${ResetDialog} sandbox=${resetting} onClose=${() => setResetting(null)} onConfirm=${async (keepHome, restart) => {
+          const target = resetting;
+          setResetting(null);
+          if (await run(target, "重置", "ResetSandbox", target.id, keepHome, restart)) {
+            notify(restart ? `已重置并恢复运行「${target.name}」` : `已重置「${target.name}」，项目文件夹保留`);
+          }
+        }} />`}
       ${deleting && html`<${DeleteDialog} sandbox=${deleting} onClose=${() => setDeleting(null)} onConfirm=${async (keepHome) => {
           const target = deleting;
           setDeleting(null);
@@ -73,8 +81,8 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
     return html`<${SandboxDetail} sandbox=${current} detail=${detail} setDetail=${setDetail} providers=${providers}
       services=${services} events=${events} vm=${overview?.environment?.vm} usage=${summary?.sandboxes?.find((u) => u.id === current.id)}
       busy=${busy[current.id] ?? current.operation} progress=${progress[current.id] || current.progress} run=${run} notify=${notify}
-      onAddAgents=${() => setAddingAgents(current)} onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)} onDelete=${() => setDeleting(current)}
-      onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
+      onAddAgents=${() => setAddingAgents(current)} onEditMCP=${() => setEditingMCP(current)} onAttack=${() => setAttacking(current)}
+      onReset=${() => setResetting(current)} onDelete=${() => setDeleting(current)} onLogs=${(filter) => onLogs(current.id, filter)} dialogs=${dialogs} />`;
   }
 
   const visible = sandboxes.filter((s) => `${s.name} ${s.project_path}`.toLowerCase().includes(query.toLowerCase()) && (filter === "all" || (filter === "running" ? s.state === "running" : s.state !== "running")));
@@ -101,7 +109,7 @@ export function SandboxesPage({ sandboxes, providers, services, overview, summar
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id] ?? s.operation} progress=${progress[s.id] || s.progress} run=${run} notify=${notify}
-              onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
+              onReset=${() => setResetting(s)} onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
             ${!visible.length && html`<div class="panel empty"><span class="empty-icon"><${Icon} name="search" size=${40} /></span><h3>没有匹配的沙箱</h3><p>试试其他名称或状态。</p><button onClick=${() => { setQuery(""); setFilter("all"); }}>重置筛选</button></div>`}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
@@ -154,7 +162,7 @@ export function UsageStats({ sandbox, usage, onLogs }) {
   </div>`;
 }
 
-function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, onDelete, onOpen }) {
+function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, onReset, onDelete, onOpen }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
   const openTerminals = useTerminals(sandbox.id).filter((t) => !t.exited);
@@ -180,6 +188,7 @@ function SandboxRow({ sandbox, providers, usage, busy, progress, run, notify, on
         <button onClick=${() => onOpen({ tab: "overview" })}><${Icon} name="box" size=${18} />沙箱详情</button>
         <button onClick=${() => call("OpenProjectFolder", sandbox.id).catch((e) => notify(e.message, true))}><${Icon} name="folder" size=${18} />在访达中打开</button>
         ${running && html`<button disabled=${Boolean(busy)} onClick=${() => run(sandbox, "停止", "StopSandbox", sandbox.id)}><${Icon} name="stop" size=${18} />停止沙箱</button>`}
+        <button disabled=${Boolean(busy)} onClick=${onReset}>重置运行环境…</button>
         <button class="danger" disabled=${Boolean(busy)} onClick=${onDelete}><${Icon} name="trash" size=${18} />删除沙箱…</button>
       </div></details>
     </div></article>`;
@@ -296,6 +305,27 @@ function CreateSandboxDialog({ providers, services, overview, onClose, onCreated
             <button class="primary" type="submit" disabled=${saving}>${saving ? "处理中…" : "创建并启动"}</button>
           </div>
         </form>
+      </div>
+    </div>`;
+}
+
+function ResetDialog({ sandbox, onClose, onConfirm }) {
+  const [keepHome, setKeepHome] = useState(true);
+  const [restart, setRestart] = useState(sandbox.state === "running");
+  return html`
+    <div class="overlay" onClick=${(e) => e.target === e.currentTarget && onClose()}>
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-label="重置运行环境">
+        <div class="dialog-heading"><h2>重置「${sandbox.name}」的运行环境？</h2></div>
+        <p>会重建 Agent、门卫、连接器和网络。<strong>项目文件夹不会被删除：</strong><span class="mono">${sandbox.project_path}</span></p>
+        <label class="check"><input type="checkbox" checked=${keepHome} onChange=${(e) => setKeepHome(e.target.checked)} />
+          保留 Agent 的配置和会话记录</label>
+        <label class="check"><input type="checkbox" checked=${restart} onChange=${(e) => setRestart(e.target.checked)} />
+          重置完成后恢复运行${sandbox.state === "running" ? "（当前沙箱正在运行）" : ""}</label>
+        <p class="caption">配置、供应商绑定、MCP 权限和项目文件会保留。重置失败时会保留这些配置，并显示失败原因。</p>
+        <div class="dialog-actions">
+          <button data-dismiss onClick=${onClose}>取消</button>
+          <button class="primary" onClick=${() => onConfirm(keepHome, restart)}>重置</button>
+        </div>
       </div>
     </div>`;
 }
