@@ -1,6 +1,6 @@
-# 工程骨架与模块说明
+# 早期工程骨架与模块实施记录
 
-> 这是早期阶段的接口与实施记录，部分版本、状态和接入方式已被后续 PR 替换。当前模块职责与实现边界见[当前架构](architecture-current.md)，产品接口请结合 `internal/service` 代码及[工作区规格](product-workspace.md)阅读。
+> 历史记录：部分版本、命令、状态和接入方式已被后续 PR 替换。当前模块职责见[当前架构](architecture-current.md)，构建与检查见[开发指南](development.md)。产品接口请结合 `internal/service` 代码及[工作区规格](product-workspace.md)阅读，不按本文的早期状态判断当前完成度。
 
 当前交付的是桌面入口、内存会话、模块接口，以及可配置、可转发的门卫（S2）。目的是让队友可以在同一工程里分模块开发；隔离、Keychain、模型、MCP 和审计采集仍未实现，G0—G5 也没有因此变成已验证。
 

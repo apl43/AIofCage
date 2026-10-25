@@ -1,6 +1,6 @@
-# 产品形态与开发计划
+# 早期产品形态与开发计划
 
-> 2026-10-23 团队讨论确定。产品形态以本文为准；安全机制沿用[架构设计](architecture.md)与[产品目标与验收](requirements-and-acceptance.md)，它们是这个产品背后的引擎。
+> 历史记录：保留 2026-10-23 的产品方案、S0—S10 排期与当时分工。当前行为以[工作区规格](product-workspace.md)为准，构建与贡献见[开发指南](development.md)，实际结果见[验收记录](validation/README.md)。本文中的“已确认”“待实现”和时间点均指当时状态。
 
 ## 1. 产品形态：CC Switch + Docker Desktop
 
