@@ -85,3 +85,23 @@ func TestAgentControlCapsAndCancellation(t *testing.T) {
 	}
 	c.Close()
 }
+
+func TestAgentControlComparesTaskMetadata(t *testing.T) {
+	a, _, _ := newApp(t)
+	c := newAgentController(context.Background(), a)
+	defer c.Close()
+	first := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	c.tasks["job-1"] = &controlTask{ID: "job-1", SandboxID: "sbx-1", SandboxName: "一个", Agent: "codex", ProviderName: "供应商一", Model: "model-a", State: "done", Text: "第一份很长的结果", OutputSummary: "第一份很长的结果", StartedAt: first, FinishedAt: first.Add(2 * time.Second), DurationMS: 2000, Requests: 1, Tokens: 120}
+	c.tasks["job-2"] = &controlTask{ID: "job-2", SandboxID: "sbx-2", SandboxName: "两个", Agent: "claude-code", ProviderName: "供应商二", Model: "model-b", State: "failed", OutputSummary: "失败摘要", StartedAt: first.Add(time.Second), FinishedAt: first.Add(4 * time.Second), DurationMS: 3000, Error: "失败"}
+	value, err := c.Call(context.Background(), "compare_tasks", json.RawMessage(`{"task_ids":["job-2","job-1"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, ok := value.(map[string]any)["tasks"].([]controlTask)
+	if !ok || len(rows) != 2 || rows[0].ID != "job-1" || rows[1].ID != "job-2" || rows[0].Tokens != 120 || rows[1].OutputSummary != "失败摘要" {
+		t.Fatalf("unexpected comparison: %#v", value)
+	}
+	if rows[0].Text != "" {
+		t.Fatal("comparison returned full task output")
+	}
+}

@@ -50,7 +50,7 @@ Qiniu Builder Day 2026 · 赛道一参赛项目，当前面向 macOS Apple Silic
 - [x] 从公开价格目录查找同名模型、填入参考单价，支持自定义中转价及来源日期；历史费用保留当时快照。
 - [x] 三个可创建的 MCP 业务案例：渠道退款复盘、发布故障排查、交付风险复核；DeepSeek Harness 使用官方 MCP 插件。[录屏说明](docs/demo-cases.md)
 - [x] 显示实际虚拟机资源，设置 CPU/内存/磁盘，空闲时可停止运行环境；保存后下次环境启动应用。
-- [x] 本机 stdio MCP：外部 AI 可按供应商创建隔离沙箱、并发执行任务、查结果/用量和取消；按控制会话限定操作范围。[调用说明](docs/local-agent-control.md)
+- [x] 本机 stdio MCP：外部 AI 可按供应商创建隔离沙箱、并发执行任务、查结果/用量、取消并比较多 Agent 任务；按控制会话限定操作范围。[调用说明](docs/local-agent-control.md)
 - [x] OAuth 账号连接、刷新、过期提示和本机断开授权；第三方 MCP 兼容性矩阵仍需按服务逐项验证。
 
 ## 构建与检查
