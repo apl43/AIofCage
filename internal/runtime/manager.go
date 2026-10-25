@@ -81,8 +81,8 @@ func (m *Manager) progress(id, message string) {
 	}
 }
 
-// lock serializes lifecycle operations per sandbox.
-func (m *Manager) lock(id string) func() {
+// lock 按沙箱串行化生命周期操作；同进程与跨进程的等待都响应取消。
+func (m *Manager) lock(ctx context.Context, id string) (func(), error) {
 	m.mu.Lock()
 	l := m.locks[id]
 	if l == nil {
@@ -90,8 +90,27 @@ func (m *Manager) lock(id string) func() {
 		m.locks[id] = l
 	}
 	m.mu.Unlock()
-	l.Lock()
-	return l.Unlock
+	for !l.TryLock() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	unlock, err := m.store.LockOperation(ctx, "sandbox:"+id, true)
+	if err != nil {
+		l.Unlock()
+		return nil, err
+	}
+	return func() { unlock(); l.Unlock() }, nil
+}
+
+// 环境共享锁覆盖整个启动或镜像替换，避免另一进程在检查空闲后同时停止虚拟机。
+func (m *Manager) useEnvironment(ctx context.Context, exclusive bool) (func(), error) {
+	if m.store == nil {
+		return func() {}, nil
+	}
+	return m.store.LockOperation(ctx, "environment", exclusive)
 }
 
 type objectNames struct{ id, gate, agent, internal, egress, home string }
@@ -168,7 +187,11 @@ func applyMCP(sbx *sandbox.Sandbox, ids []string) {
 
 // SetMCP changes which MCP services a sandbox can use; a running sandbox is updated at once.
 func (m *Manager) SetMCP(ctx context.Context, id string, ids []string, filesystem bool) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	if err := m.checkServices(ids); err != nil {
 		return err
 	}
@@ -280,7 +303,16 @@ func (m *Manager) providersFor(sbx sandbox.Sandbox) (map[string]provider.Provide
 func (m *Manager) Start(ctx context.Context, id string) error {
 	m.environmentMu.RLock()
 	defer m.environmentMu.RUnlock()
-	defer m.lock(id)()
+	unlockEnvironment, environmentErr := m.useEnvironment(ctx, false)
+	if environmentErr != nil {
+		return environmentErr
+	}
+	defer unlockEnvironment()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	return m.start(ctx, id)
 }
 
@@ -645,7 +677,11 @@ func (m *Manager) writeAgentFiles(ctx context.Context, client *gateClient, sbx s
 
 // Bind 只保存选择；当前容器的配置保留到下次重启。
 func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, providerID string) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	if err := m.captureApplied(ctx, id); err != nil {
 		return err
 	}
@@ -677,7 +713,11 @@ func (m *Manager) Bind(ctx context.Context, id string, agent session.Agent, prov
 
 // Refresh 刷新策略与 Agent 设置，但继续使用已生效的供应商快照；新选择在启动时应用。
 func (m *Manager) Refresh(ctx context.Context, id string) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	sbx, err := m.store.Sandbox(id)
 	if err != nil {
 		return err
@@ -707,7 +747,11 @@ func (m *Manager) captureApplied(ctx context.Context, id string) error {
 
 // CaptureApplied 供供应商编辑在保存新配置前记录现有配置。
 func (m *Manager) CaptureApplied(ctx context.Context, id string) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	return m.captureApplied(ctx, id)
 }
 
@@ -745,7 +789,11 @@ func (m *Manager) refresh(ctx context.Context, sbx sandbox.Sandbox) error {
 
 // Stop saves cumulative usage so quotas survive restarts, then stops both containers.
 func (m *Manager) Stop(ctx context.Context, id string) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	sbx, err := m.store.Sandbox(id)
 	if err != nil {
 		return err
@@ -800,7 +848,11 @@ func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
 // Delete removes containers, networks and (unless keepHome) the agent home volume. The project
 // directory is never touched.
 func (m *Manager) Delete(ctx context.Context, id string, keepHome bool) error {
-	defer m.lock(id)()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	sbx, err := m.store.Sandbox(id)
 	if err != nil {
 		return err

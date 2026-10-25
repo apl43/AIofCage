@@ -36,7 +36,16 @@ func addedBindings(current []sandbox.Binding, agents []session.Agent) ([]sandbox
 func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Agent) error {
 	m.environmentMu.RLock()
 	defer m.environmentMu.RUnlock()
-	defer m.lock(id)()
+	unlockEnvironment, environmentErr := m.useEnvironment(ctx, false)
+	if environmentErr != nil {
+		return environmentErr
+	}
+	defer unlockEnvironment()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	original, err := m.store.Sandbox(id)
 	if err != nil {
 		return err
@@ -67,7 +76,16 @@ func (m *Manager) AddAgents(ctx context.Context, id string, agents []session.Age
 func (m *Manager) UpgradeAgents(ctx context.Context, id string, agents []session.Agent) error {
 	m.environmentMu.RLock()
 	defer m.environmentMu.RUnlock()
-	defer m.lock(id)()
+	unlockEnvironment, environmentErr := m.useEnvironment(ctx, false)
+	if environmentErr != nil {
+		return environmentErr
+	}
+	defer unlockEnvironment()
+	unlock, lockErr := m.lock(ctx, id)
+	if lockErr != nil {
+		return lockErr
+	}
+	defer unlock()
 	original, err := m.store.Sandbox(id)
 	if err != nil {
 		return err

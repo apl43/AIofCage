@@ -119,6 +119,11 @@ func (e *Environment) SaveResources(ctx context.Context, c ResourceConfig) error
 func (m *Manager) SuspendEnvironment(ctx context.Context) error {
 	m.environmentMu.Lock()
 	defer m.environmentMu.Unlock()
+	unlockEnvironment, err := m.useEnvironment(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlockEnvironment()
 	vm, err := m.env.vm(ctx)
 	if err != nil {
 		return err
