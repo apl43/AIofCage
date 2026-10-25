@@ -26,7 +26,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 |---|---|---|
 | `service` | 环境概览；供应商增删改、预设、连通性测试（宿主直连，不经沙箱）；沙箱创建（含项目导入）、启停、终端、切换供应商、删除；进度事件；事件订阅、JSONL 审计、用量与资源监视 | `existing_key_ref` 只允许 AIofCage 自己的条目和预设列出的条目，防止界面被用来指向任意钥匙串秘密 |
 | `session` | Agent 枚举（codex / claude-code / dsh） | 原“会话草稿”已由 `sandbox` 取代 |
-| `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量 | 桌面应用尚未接入（S5）；永不回退宿主执行 |
+| `runtime` | `Environment`：创建/启动专用 Colima 实例并核对实际共享与 context；`Manager`：每个沙箱独立的内部网络、出网网络、门卫与 Agent 容器，镜像按内容摘要构建并缓存，门卫先配置再启动 Agent，切换供应商热更新，停止时保存累计用量，重置时销毁并重建运行对象 | 永不回退宿主执行；重置不删除项目目录，Agent home 是否保留由用户选择 |
 | `provider` | 供应商元数据（接口、协议、模型、认证方式、钥匙串条目）、协议兼容性、按协议生成最小放行规则 | Codex 只支持 Responses API |
 | `sandbox` | 沙箱元数据、Agent→供应商绑定、每个沙箱+供应商一个占位符、项目必须位于 `~/CageWorkspace` 且无符号链接 | 改变已装 Agent 需重建 Agent 容器（home 数据卷保留） |
 | `store` | 供应商与沙箱的 JSON 持久化（`~/Library/Application Support/AIofCage`，0600，原子写入） | 不存任何密钥 |
@@ -59,6 +59,7 @@ cmd/gatekeeper（Linux 版嵌入运行时，在每个沙箱里运行）
 | `OpenTerminal(id, agent)` | 在“终端”里以 Agent 用户进入项目目录，运行该 Agent（`agent` 为空时开 Shell）；第一次会请求“自动化”权限 |
 | `StartTerminal(termID, id, agent, cols, rows)` / `WriteTerminal(termID, data)` / `ResizeTerminal(termID, cols, rows)` / `CloseTerminal(termID)` | 应用内置终端（沙箱详情页的“终端”标签）：后端用 PTY 运行 `docker exec -it`，与系统终端的权限相同（Agent 用户、项目目录）；输出以 `terminal:data` 事件（base64）推给 xterm.js，进程结束发 `terminal:exit`；终端 ID 由窗口生成，避免启动输出丢失；最多同时 12 个，退出应用时全部关闭。切换页面时终端继续运行，回来时原样显示 |
 | `OpenProjectFolder(id)` | 在访达中打开项目文件夹 |
+| `ResetSandbox(id, keepHome, restart)` | 清空门卫授权，删除连接器、Agent、门卫和网络，再按选项重建；项目与沙箱配置保留，`keepHome` 决定是否保留 Agent home，`restart` 决定是否自动恢复运行 |
 | `DeleteSandbox(id, keepHome)` | 删除容器与网络；项目文件夹永远保留，`keepHome` 决定是否保留 Agent 的 home 数据卷 |
 | `SelectProject()` | 系统目录选择框 |
 | `RecentEvents(id)` | 最近的门卫事件（`id` 为空表示全部沙箱，最多 300 条），附沙箱名称 |
@@ -126,7 +127,7 @@ ALTER ROLE cage_reader SET default_transaction_read_only = on;
 | 连接器容器 | `aiofcage-<ID>-mcp-<服务ID>` | 每个启用的数据库 MCP 一个；标签 `io.aiofcage.role=connector`；UID 1000、只读根、无特权；只接入出网网络；启动配置（含密码）写在只有连接器能读的 tmpfs，读后即删 |
 | home 数据卷 | `aiofcage-<ID>-home` | Agent 的配置与会话记录，跨重启保留 |
 
-启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 启动连接器并投递密码（如有）→ 下发策略、密钥与连接器路由（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉所有容器，不留下“Agent 在跑、门卫没配置”的状态。停止时先停 Agent，再停连接器，最后停门卫。
+启动顺序：校验虚拟机 → 构建/复用镜像 → 网络与容器 → 启动门卫 → 启动连接器并投递密码（如有）→ 下发策略、密钥与连接器路由（从钥匙串读取）→ 启动 Agent → 写入 CA 与 Agent 配置（`~/.aiofcage/env` 里只有占位符）。任何一步失败都会停掉所有容器，不留下“Agent 在跑、门卫没配置”的状态。停止时先停 Agent，再停连接器，最后停门卫。重置沿用停止前的授权撤销顺序，销毁容器、网络和可选的 Agent home，然后复用同一启动顺序；沙箱元数据和项目目录始终保留，重建失败会返回错误而不删除配置。
 
 ## 各 Agent 的接入方式
 
