@@ -193,6 +193,20 @@ func TestSetMCPUpdatesStoppedSandbox(t *testing.T) {
 	}
 }
 
+func TestRevokeRuntimeClearsConnectorTokens(t *testing.T) {
+	m := &Manager{gates: map[string]*gateClient{}, connectorTokens: map[string]string{
+		"aiofcage-sbx-test0001-mcp-shop": "connector-secret",
+		"aiofcage-sbx-other-mcp-shop":    "keep",
+	}}
+	m.revokeRuntimeTokens("sbx-test0001")
+	if _, ok := m.connectorTokens["aiofcage-sbx-test0001-mcp-shop"]; ok {
+		t.Fatal("sandbox connector token survived revocation")
+	}
+	if got := m.connectorTokens["aiofcage-sbx-other-mcp-shop"]; got != "keep" {
+		t.Fatalf("revocation touched another sandbox token: %q", got)
+	}
+}
+
 func TestDSHCustomProviderConfig(t *testing.T) {
 	p := provider.Provider{ID: "custom", Agent: session.DSH, Protocol: provider.OpenAIResponses, BaseURL: "https://gateway.example/v1", Model: "custom-model"}
 	sbx := sandbox.Sandbox{Bindings: []sandbox.Binding{{Agent: session.DSH, ProviderID: p.ID}}, Placeholders: map[string]string{p.ID: "cage-placeholder"}}
