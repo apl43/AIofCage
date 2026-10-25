@@ -36,7 +36,11 @@ func (a *App) DiagnoseConversation(sandboxID string, agent session.Agent) (Conve
 		return view, errors.New("智能体无效")
 	}
 	if a.manager == nil {
-		add("runtime", "运行环境", "problem", "Docker / Colima 不可用："+a.managerErr.Error())
+		detail := "Docker / Colima 不可用"
+		if a.managerErr != nil {
+			detail += "：" + a.managerErr.Error()
+		}
+		add("runtime", "运行环境", "problem", detail)
 		return view, nil
 	}
 	sbx, err := a.store.Sandbox(sandboxID)
