@@ -57,6 +57,9 @@ type Manager struct {
 	Progress func(sandboxID string, update Update)
 	// BeforeReplace 仅在候选镜像就绪、即将中断旧容器时关闭桌面会话。
 	BeforeReplace func(sandboxID string)
+	// BeforeGateStop runs after the agent and connectors have stopped and just before a running
+	// gatekeeper is stopped, so the app can collect the run's last events while the gate still serves them.
+	BeforeGateStop func(ctx context.Context, sandboxID string)
 	// OAuth refreshes tokens of OAuth MCP services before they are handed to a gatekeeper.
 	OAuth *oauth.Client
 	// http lists the tools of remote MCP services from the host; nil skips that.
@@ -1251,6 +1254,10 @@ func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
 	// Agent first: it must never outlive its gatekeeper. Connectors stop before the gatekeeper too.
 	for _, name := range append(append([]string{n.agent}, connectors...), n.gate) {
 		if info := m.container(ctx, name); info.running {
+			// Nothing else produces events once the agent and connectors are down.
+			if name == n.gate && len(errs) == 0 && m.BeforeGateStop != nil {
+				m.BeforeGateStop(ctx, n.id)
+			}
 			if _, err := m.docker.run(ctx, 30*time.Second, nil, "stop", "--time", "5", name); err != nil {
 				errs = append(errs, err)
 			}
@@ -1433,12 +1440,25 @@ func sortedKeys[V any](values map[string]V) []string {
 
 // RunID returns the current gatekeeper run of a running sandbox (it changes on every restart).
 func (m *Manager) RunID(ctx context.Context, id string) (string, error) {
+	run, _, err := m.GateCursor(ctx, id)
+	return run, err
+}
+
+// GateCursor returns the current gatekeeper run and the sequence of its latest event.
+func (m *Manager) GateCursor(ctx context.Context, id string) (string, uint64, error) {
 	client, err := m.client(ctx, id)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	health, err := client.health(ctx)
-	return health.RunID, err
+	return health.RunID, health.LastEvent, err
+}
+
+// GateRunning reports whether the sandbox's gatekeeper container runs; an error means Docker could
+// not tell.
+func (m *Manager) GateRunning(ctx context.Context, id string) (bool, error) {
+	gate, err := m.inspect(ctx, names(id).gate)
+	return gate.running, err
 }
 
 func (m *Manager) removeConnectors(ctx context.Context, sandboxID string) error {

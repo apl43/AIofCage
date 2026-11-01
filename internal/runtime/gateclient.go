@@ -68,6 +68,7 @@ type gateHealth struct {
 	Reason        string `json:"reason"`
 	RunID         string `json:"run_id"`
 	PolicyVersion uint64 `json:"policy_version"`
+	LastEvent     uint64 `json:"last_event"`
 }
 
 func (c *gateClient) health(ctx context.Context) (gateHealth, error) {
