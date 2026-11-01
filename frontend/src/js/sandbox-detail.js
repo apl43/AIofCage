@@ -109,8 +109,8 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
   };
   const closeFiles = useCallback(() => showFiles(false), []);
   const menu = useRef(null);
-  // macOS 的 WebKit 点按钮时不把焦点给按钮，而是给外层可聚焦的 <main>；菜单的 focusout 会先收起菜单，
-  // 选项的 click 就落空了。所以在选项上按下鼠标时不移动焦点，方向键选择不受影响。
+  // macOS 的 WebKit 点按钮时不把焦点给按钮，而是给外层可聚焦的元素（这里是 <main>，没有就直接失去焦点）；
+  // 菜单的 focusout 会先收起菜单，选项的 click 就落空了。所以在选项上按下鼠标时不移动焦点，方向键选择不受影响。
   const keepMenuFocus = (event) => event.preventDefault();
   useEffect(() => {
     const dismiss = (event) => { if (menu.current && !menu.current.contains(event.target)) menu.current.open = false; };
