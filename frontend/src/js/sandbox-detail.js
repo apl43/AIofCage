@@ -109,6 +109,9 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
   };
   const closeFiles = useCallback(() => showFiles(false), []);
   const menu = useRef(null);
+  // macOS 的 WebKit 点按钮时不把焦点给按钮，而是给外层可聚焦的元素（这里是 <main>，没有就直接失去焦点）；
+  // 菜单的 focusout 会先收起菜单，选项的 click 就落空了。所以在选项上按下鼠标时不移动焦点，方向键选择不受影响。
+  const keepMenuFocus = (event) => event.preventDefault();
   useEffect(() => {
     const dismiss = (event) => { if (menu.current && !menu.current.contains(event.target)) menu.current.open = false; };
     const reposition = () => placeTerminalMenu(menu.current);
@@ -217,7 +220,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
         <details class="terminal-new-menu" ref=${menu} onKeyDown=${terminalMenuKey} onToggle=${(event) => placeTerminalMenu(event.currentTarget)}
           onFocusOut=${(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}>
           <summary aria-label="新建会话" data-guide="new-conversation"><${Icon} name="plus" size=${18} /><span>新建</span><${Icon} name="chevronDown" size=${15} /></summary>
-          <div class="terminal-menu-choices">${choices.map((choice) => html`<button onClick=${() => open(choice.agent)} disabled=${!running || creating}><${Icon} name=${agentIcon(choice.agent)} size=${18} />${choice.label}</button>`)}</div>
+          <div class="terminal-menu-choices" onMouseDown=${keepMenuFocus}>${choices.map((choice) => html`<button onClick=${() => open(choice.agent)} disabled=${!running || creating}><${Icon} name=${agentIcon(choice.agent)} size=${18} />${choice.label}</button>`)}</div>
         </details>
       </div>
       <button class="link system-terminal" disabled=${!running} title="用 macOS 自带的“终端”打开"
