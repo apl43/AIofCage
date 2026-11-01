@@ -24,6 +24,9 @@ const (
 	monitorInterval = 5 * time.Second
 	ringCapacity    = 500
 	recentLimit     = 300
+	// gateStopWindow bounds how long a stop the app started counts as expected; a gatekeeper started
+	// elsewhere meanwhile (cagectl) is followed again after it.
+	gateStopWindow = time.Minute
 )
 
 // monitor follows every running sandbox: it subscribes to the gatekeeper event stream, appends
@@ -32,11 +35,13 @@ type monitor struct {
 	health  map[string]runtime.SandboxHealth
 	history map[string][]runtime.ContainerStats
 	mu      sync.Mutex
-	subs    map[string]context.CancelFunc
-	rings   map[string][]audit.Event
-	lastID  map[string]string
-	live    map[string]runtime.GateUsage
-	stats   map[string]runtime.ContainerStats
+	subs    map[string]*subscription
+	// stopping holds sandboxes whose gatekeeper the app is stopping, and since when.
+	stopping map[string]time.Time
+	rings    map[string][]audit.Event
+	lastID   map[string]string
+	live     map[string]runtime.GateUsage
+	stats    map[string]runtime.ContainerStats
 	// oauthAlerted remembers services whose expired login was already reported.
 	oauthAlerted map[string]bool
 	// oauthPending remembers services whose renewed token did not reach every sandbox yet.
@@ -46,7 +51,7 @@ type monitor struct {
 }
 
 func newMonitor() *monitor {
-	return &monitor{health: map[string]runtime.SandboxHealth{}, history: map[string][]runtime.ContainerStats{}, subs: map[string]context.CancelFunc{}, rings: map[string][]audit.Event{},
+	return &monitor{health: map[string]runtime.SandboxHealth{}, history: map[string][]runtime.ContainerStats{}, subs: map[string]*subscription{}, stopping: map[string]time.Time{}, rings: map[string][]audit.Event{},
 		lastID: map[string]string{}, live: map[string]runtime.GateUsage{}, stats: map[string]runtime.ContainerStats{},
 		oauthAlerted: map[string]bool{}, oauthPending: map[string]bool{}, stale: map[string]int{}}
 }
@@ -96,6 +101,7 @@ func (a *App) tick(ctx context.Context) {
 	stats := map[string]runtime.ContainerStats{}
 	for _, s := range sandboxes {
 		if health[s.ID].GateRunning() {
+			a.gateRunningSince(s.ID, gateStartedAt(health[s.ID]))
 			a.subscribe(ctx, s)
 			if usage, err := a.manager.Usage(ctx, s.ID); err == nil {
 				_ = a.manager.RecordUsage(s.ID, usage)
@@ -113,9 +119,26 @@ func (a *App) tick(ctx context.Context) {
 			}
 		} else {
 			a.unsubscribe(s.ID)
+			a.gateStarted(s.ID) // 停止已经完成
 		}
 	}
 	a.monitor.mu.Lock()
+	// 删掉的沙箱（包括用 cagectl 删的）不再跟随。
+	exists := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		exists[id] = true
+	}
+	for id, sub := range a.monitor.subs {
+		if !exists[id] {
+			sub.cancel()
+			delete(a.monitor.subs, id)
+		}
+	}
+	for id := range a.monitor.stopping {
+		if !exists[id] {
+			delete(a.monitor.stopping, id)
+		}
+	}
 	a.monitor.health = health
 	for id, h := range health {
 		stats[id] = h.Stats
@@ -140,27 +163,41 @@ func (a *App) tick(ctx context.Context) {
 	a.emit("sandbox:stats", stats)
 }
 
+// subscription is one follower of a sandbox's event stream.
+type subscription struct{ cancel context.CancelFunc }
+
 func (a *App) subscribe(ctx context.Context, s sandbox.Sandbox) {
 	a.monitor.mu.Lock()
 	defer a.monitor.mu.Unlock()
-	if _, ok := a.monitor.subs[s.ID]; ok {
-		return
+	if _, ok := a.monitor.subs[s.ID]; ok || a.stoppingLocked(s.ID) {
+		return // 正在被应用停掉的门卫不再订阅
 	}
 	subCtx, cancel := context.WithCancel(ctx)
-	a.monitor.subs[s.ID] = cancel
-	go a.follow(subCtx, s, a.manager)
+	sub := &subscription{cancel: cancel}
+	a.monitor.subs[s.ID] = sub
+	go func() {
+		a.follow(subCtx, s, a.manager)
+		// 跟随自己结束时（门卫已停）让出位置，门卫再启动时重新订阅；已被换成新订阅的不动。
+		a.monitor.mu.Lock()
+		if a.monitor.subs[s.ID] == sub {
+			delete(a.monitor.subs, s.ID)
+		}
+		a.monitor.mu.Unlock()
+		cancel()
+	}()
 }
 
 func (a *App) unsubscribe(id string) {
 	a.monitor.mu.Lock()
 	defer a.monitor.mu.Unlock()
-	if cancel, ok := a.monitor.subs[id]; ok {
-		cancel()
+	if sub, ok := a.monitor.subs[id]; ok {
+		sub.cancel()
 		delete(a.monitor.subs, id)
 	}
 }
 
 // follow 只从持久化成功的游标续传；跨运行仍保留旧游标，由门卫声明缺口。
+// 应用自己停掉门卫时（停止、重置、更新智能体、删除），流结束是预期的，跟随直接结束，不提示中断。
 func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Source) {
 	interrupted := false
 	for ctx.Err() == nil {
@@ -180,8 +217,12 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 		if ctx.Err() != nil {
 			return
 		}
+		// 流一结束就看：马上重启时（添加或更新智能体），新门卫一启动这个标记就清掉了。
+		if a.gateStopping(s.ID) {
+			return
+		}
 		if !interrupted {
-			// 不展示上游响应或错误正文；异常时不宣称日志完整。
+			// 先提示再等待：门卫意外停了，监视可能在等待期间取消跟随。不展示上游响应或错误正文；异常时不宣称日志完整。
 			a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计采集中断，正在从已保存的位置重试。日志和用量明细可能不完整。"})
 			interrupted = true
 		}
@@ -191,6 +232,51 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 		case <-time.After(2 * time.Second):
 		}
 	}
+}
+
+// expectGateStop runs just before the app stops or removes a sandbox's gatekeeper.
+func (a *App) expectGateStop(id string) {
+	a.monitor.mu.Lock()
+	a.monitor.stopping[id] = a.now()
+	a.monitor.mu.Unlock()
+}
+
+// gateStarted runs when the app starts the gatekeeper again, and when the monitor sees it stopped.
+func (a *App) gateStarted(id string) {
+	a.monitor.mu.Lock()
+	delete(a.monitor.stopping, id)
+	a.monitor.mu.Unlock()
+}
+
+// gateRunningSince clears the stop mark once the monitor sees a gatekeeper started after it, for
+// example by cagectl, which does not tell the app.
+func (a *App) gateRunningSince(id string, started time.Time) {
+	a.monitor.mu.Lock()
+	defer a.monitor.mu.Unlock()
+	if since, ok := a.monitor.stopping[id]; ok && started.After(since) {
+		delete(a.monitor.stopping, id)
+	}
+}
+
+func gateStartedAt(h runtime.SandboxHealth) time.Time {
+	for _, c := range h.Components {
+		if c.Kind == "gate" {
+			return c.StartedAt
+		}
+	}
+	return time.Time{}
+}
+
+// gateStopping reports whether the app is stopping the sandbox's gatekeeper.
+func (a *App) gateStopping(id string) bool {
+	a.monitor.mu.Lock()
+	defer a.monitor.mu.Unlock()
+	return a.stoppingLocked(id)
+}
+
+func (a *App) stoppingLocked(id string) bool {
+	since, ok := a.monitor.stopping[id]
+	return ok && a.now().Sub(since) < gateStopWindow
 }
 
 func (a *App) cursor(id string) (string, error) {

@@ -86,6 +86,8 @@ func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, mana
 	}
 	if manager != nil {
 		manager.BeforeReplace = a.closeSandboxConversations
+		manager.BeforeGateStop = a.expectGateStop
+		manager.GateStarted = a.gateStarted
 		manager.Progress = a.ops.update
 	}
 	return a

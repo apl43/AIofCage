@@ -45,7 +45,7 @@ func TestAuditRecoveryEndToEnd(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	if err := manager.Start(ctx, s.ID); err != nil {
 		t.Fatal(err)
@@ -60,17 +60,8 @@ func TestAuditRecoveryEndToEnd(t *testing.T) {
 			}
 		}
 	})
-	followCtx, stop := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() { defer close(done); app.follow(followCtx, s, manager) }()
-	t.Cleanup(func() {
-		stop()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Error("事件订阅未退出")
-		}
-	})
+	// 和桌面应用一样由监视循环订阅：门卫停了跟随自己结束，再启动时重新订阅。
+	app.StartMonitor(ctx)
 	probe := func(label string) {
 		t.Helper()
 		var out bytes.Buffer
@@ -139,25 +130,77 @@ func TestAuditRecoveryEndToEnd(t *testing.T) {
 	}
 	waitFor("两条未保存事件补发", denials(3))
 	t.Log("真实写盘失败后，原游标补齐两条被拒请求；没有调用模型")
+	quiet := func(description string) {
+		t.Helper()
+		select {
+		case <-interrupted:
+			t.Fatalf("%s时提示了采集中断", description)
+		default:
+		}
+	}
+	for len(interrupted) > 0 {
+		<-interrupted
+	}
+	crossRunGaps := func() int {
+		tail, err := app.loadTail(s.ID, 500)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gaps := 0
+		for _, event := range tail {
+			if event.Action == audit.ActionGap && event.ReasonCode == "cursor_from_other_run" {
+				gaps++
+			}
+		}
+		return gaps
+	}
+	// 应用里正常停止后马上启动（添加或更新智能体、重置后恢复运行都是这样）：不提示中断。
+	// 门卫照常声明跨运行缺口：它不知道上一轮还有没有没采到的事件。
 	if err := manager.Stop(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.Start(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	waitFor("跨运行缺口", func(tail []audit.Event) bool {
-		for _, event := range tail {
-			if event.Action == audit.ActionGap && event.ReasonCode == "cursor_from_other_run" {
-				return true
-			}
-		}
-		return false
-	})
+	probe("after-quick-restart")
+	waitFor("马上重启后继续记录", denials(4))
+	quiet("马上重启")
+	// 正常停止，等跟随结束后再启动：重新订阅，同样不提示中断。
+	if err := manager.Stop(ctx, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(8 * time.Second)
+	quiet("停止")
+	if err := manager.Start(ctx, s.ID); err != nil {
+		t.Fatal(err)
+	}
 	probe("after-restart")
-	waitFor("重启后继续记录", denials(4))
+	waitFor("停一会儿再启动后继续记录", denials(5))
+	quiet("再启动")
+	if gaps := crossRunGaps(); gaps != 2 {
+		t.Fatalf("两次重启应各有 1 处跨运行缺口，实际 %d 处", gaps)
+	}
+	// 门卫不是应用停的（模拟在应用外停掉）：照常提示中断。
+	manager.BeforeGateStop = nil
+	if err := manager.Stop(ctx, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	manager.BeforeGateStop = app.expectGateStop
+	select {
+	case <-interrupted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("门卫意外停止时没有提示采集中断")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	if err := manager.Start(ctx, s.ID); err != nil {
+		t.Fatal(err)
+	}
+	probe("after-unexpected-stop")
+	waitFor("意外停止后继续记录", denials(6))
 	report, err := app.QueryUsage(UsageQuery{SandboxID: s.ID})
-	if err != nil || report.Gaps != 1 || report.Requests != 0 {
+	if err != nil || report.Gaps != 3 || report.Requests != 0 || crossRunGaps() != 3 {
 		t.Fatalf("缺口统计错误：%+v %v", report, err)
 	}
-	t.Log("一次性沙箱重启后先记录缺口，再继续记录第 4 条拒绝事件；模型请求数为 0")
+	t.Log("一次性沙箱：应用里两次停止和重启都没有提示中断，意外停止照常提示；三次重启各记 1 处跨运行缺口；模型请求数为 0")
 }
