@@ -127,7 +127,7 @@ func (m *Manager) replaceAgents(ctx context.Context, id string, original, candid
 	if err != nil {
 		return err
 	}
-	m.progress(id, "准备智能体镜像，当前沙箱继续运行")
+	m.progress(id, "准备智能体镜像，这一步不会改动沙箱")
 	if err := m.env.Ensure(ctx, func(line string) { m.detail(id, line) }); err != nil {
 		return err
 	}
