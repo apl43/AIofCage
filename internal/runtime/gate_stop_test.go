@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// 停止时先停 Agent 和连接器，再让应用收尾审计，最后才停门卫。门卫没在运行、或者 Agent 没停下来时不收尾：
-// 这时不能保证没有新事件。
-func TestAppFinishesAuditBeforeGateStops(t *testing.T) {
+// 应用停门卫之前先得到通知（这时 Agent 已经停过），事件流结束才不会被当成采集中断；门卫没在运行就不通知。
+func TestAppIsToldBeforeGateStops(t *testing.T) {
 	for _, tc := range []struct {
 		name, gate string
 		agentFails bool
@@ -18,7 +17,7 @@ func TestAppFinishesAuditBeforeGateStops(t *testing.T) {
 	}{
 		{"门卫运行中", "running", false, 1},
 		{"门卫已停", "stopped", false, 0},
-		{"Agent 没停下来", "running", true, 0},
+		{"Agent 没停下来", "running", true, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			docker, log := fakeDocker(t, tc.gate)
@@ -34,16 +33,16 @@ func TestAppFinishesAuditBeforeGateStops(t *testing.T) {
 			}
 			m := &Manager{docker: runner{path: docker}}
 			calls := 0
-			m.BeforeGateStop = func(_ context.Context, id string) {
+			m.BeforeGateStop = func(id string) {
 				calls++
 				data, _ := os.ReadFile(log)
 				if id != "sbx-a" || !strings.Contains(string(data), "stop --time 5 aiofcage-sbx-a-agent") || strings.Contains(string(data), "stop --time 5 aiofcage-sbx-a-gate") {
-					t.Errorf("收尾时机不对：%q\n%s", id, data)
+					t.Errorf("通知时机不对：%q\n%s", id, data)
 				}
 			}
 			err := m.stopContainers(context.Background(), names("sbx-a"))
 			if (err != nil) != tc.agentFails || calls != tc.want {
-				t.Fatalf("err=%v，收尾 %d 次，应为 %d 次", err, calls, tc.want)
+				t.Fatalf("err=%v，通知 %d 次，应为 %d 次", err, calls, tc.want)
 			}
 			data, _ := os.ReadFile(log)
 			if tc.gate == "running" && !strings.Contains(string(data), "stop --time 5 aiofcage-sbx-a-gate") {

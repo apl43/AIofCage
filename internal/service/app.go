@@ -57,9 +57,6 @@ type App struct {
 	onboardingMu  sync.Mutex
 	// nativeSessionExists checks an agent's own session record inside a running sandbox.
 	nativeSessionExists func(ctx context.Context, sandboxID string, agent session.Agent, nativeID string) (bool, error)
-	// gateRunning and gateCursor read a sandbox's gatekeeper for the audit follower; nil without Docker.
-	gateRunning func(ctx context.Context, sandboxID string) (bool, error)
-	gateCursor  func(ctx context.Context, sandboxID string) (string, uint64, error)
 }
 
 // noRedirect keeps credentials on the host they were sent to. Go would carry custom headers such
@@ -89,10 +86,9 @@ func NewApp(st *store.Store, secrets vault.Store, manager *runtime.Manager, mana
 	}
 	if manager != nil {
 		manager.BeforeReplace = a.closeSandboxConversations
-		manager.BeforeGateStop = a.finishAudit
+		manager.BeforeGateStop = a.expectGateStop
+		manager.GateStarted = a.gateStarted
 		manager.Progress = a.ops.update
-		a.gateRunning = manager.GateRunning
-		a.gateCursor = manager.GateCursor
 	}
 	return a
 }

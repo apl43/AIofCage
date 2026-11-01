@@ -6,13 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,8 +24,9 @@ const (
 	monitorInterval = 5 * time.Second
 	ringCapacity    = 500
 	recentLimit     = 300
-	// auditDrainTimeout bounds how long a stop waits for the run's last events to be written.
-	auditDrainTimeout = 3 * time.Second
+	// gateStopWindow bounds how long a stop the app started counts as expected; a gatekeeper started
+	// elsewhere meanwhile (cagectl) is followed again after it.
+	gateStopWindow = time.Minute
 )
 
 // monitor follows every running sandbox: it subscribes to the gatekeeper event stream, appends
@@ -37,10 +36,12 @@ type monitor struct {
 	history map[string][]runtime.ContainerStats
 	mu      sync.Mutex
 	subs    map[string]*subscription
-	rings   map[string][]audit.Event
-	lastID  map[string]string
-	live    map[string]runtime.GateUsage
-	stats   map[string]runtime.ContainerStats
+	// stopping holds sandboxes whose gatekeeper the app is stopping, and since when.
+	stopping map[string]time.Time
+	rings    map[string][]audit.Event
+	lastID   map[string]string
+	live     map[string]runtime.GateUsage
+	stats    map[string]runtime.ContainerStats
 	// oauthAlerted remembers services whose expired login was already reported.
 	oauthAlerted map[string]bool
 	// oauthPending remembers services whose renewed token did not reach every sandbox yet.
@@ -50,7 +51,7 @@ type monitor struct {
 }
 
 func newMonitor() *monitor {
-	return &monitor{health: map[string]runtime.SandboxHealth{}, history: map[string][]runtime.ContainerStats{}, subs: map[string]*subscription{}, rings: map[string][]audit.Event{},
+	return &monitor{health: map[string]runtime.SandboxHealth{}, history: map[string][]runtime.ContainerStats{}, subs: map[string]*subscription{}, stopping: map[string]time.Time{}, rings: map[string][]audit.Event{},
 		lastID: map[string]string{}, live: map[string]runtime.GateUsage{}, stats: map[string]runtime.ContainerStats{},
 		oauthAlerted: map[string]bool{}, oauthPending: map[string]bool{}, stale: map[string]int{}}
 }
@@ -117,9 +118,26 @@ func (a *App) tick(ctx context.Context) {
 			}
 		} else {
 			a.unsubscribe(s.ID)
+			a.gateStarted(s.ID) // 停止已经完成
 		}
 	}
 	a.monitor.mu.Lock()
+	// 删掉的沙箱（包括用 cagectl 删的）不再跟随。
+	exists := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		exists[id] = true
+	}
+	for id, sub := range a.monitor.subs {
+		if !exists[id] {
+			sub.cancel()
+			delete(a.monitor.subs, id)
+		}
+	}
+	for id := range a.monitor.stopping {
+		if !exists[id] {
+			delete(a.monitor.stopping, id)
+		}
+	}
 	a.monitor.health = health
 	for id, h := range health {
 		stats[id] = h.Stats
@@ -150,8 +168,8 @@ type subscription struct{ cancel context.CancelFunc }
 func (a *App) subscribe(ctx context.Context, s sandbox.Sandbox) {
 	a.monitor.mu.Lock()
 	defer a.monitor.mu.Unlock()
-	if _, ok := a.monitor.subs[s.ID]; ok {
-		return
+	if _, ok := a.monitor.subs[s.ID]; ok || a.stoppingLocked(s.ID) {
+		return // 正在被应用停掉的门卫不再订阅
 	}
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &subscription{cancel: cancel}
@@ -177,20 +195,14 @@ func (a *App) unsubscribe(id string) {
 	}
 }
 
-// follow 只从持久化成功的游标续传；跨运行仍保留旧游标，由门卫声明缺口。上一轮在门卫停止前已经
-// 采集完（见 finishAudit）时，新一轮开头的“游标来自另一轮”不是真的缺口，不记录。
-// 门卫停了就结束，不算采集中断。
+// follow 只从持久化成功的游标续传；跨运行仍保留旧游标，由门卫声明缺口。
+// 应用自己停掉门卫时（停止、重置、更新智能体、删除），流结束是预期的，跟随直接结束，不提示中断。
 func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Source) {
 	interrupted := false
-	quiet := "" // 已经在这个“采集完的位置”上静默重连过
 	for ctx.Err() == nil {
 		if cursor, err := a.cursor(s.ID); err == nil {
-			collected := cursor != "" && cursor == a.collectedCursor(s.ID)
 			// 流返回（包括正常 EOF）都需要重连；只显示采集状态，不暴露错误正文。
 			_ = source.Events(ctx, s.ID, cursor, func(event audit.Event) error {
-				if collected && event.Action == audit.ActionGap && event.ReasonCode == "cursor_from_other_run" {
-					return nil
-				}
 				if err := a.record(s, event); err != nil {
 					return err
 				}
@@ -204,21 +216,14 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 		if ctx.Err() != nil {
 			return
 		}
+		// 流一结束就看：马上重启时（添加或更新智能体），新门卫一启动这个标记就清掉了。
+		if a.gateStopping(s.ID) {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
-		}
-		// 停止、重置、更新智能体、删除，或在应用外停掉的门卫都不算采集中断：下次启动时重新订阅，
-		// 没采集到的部分由门卫在新一轮开头声明缺口。
-		if a.gateStopped(ctx, s.ID) {
-			return
-		}
-		// 门卫按计划停止前已经收尾，又马上启动了新一轮（更新智能体、重置后恢复运行）：静默重连一次。
-		// 再结束（比如审计文件写不进去）就照常提示。
-		if cursor, err := a.cursor(s.ID); err == nil && cursor != "" && cursor != quiet && cursor == a.collectedCursor(s.ID) {
-			quiet = cursor
-			continue
 		}
 		if !interrupted {
 			// 不展示上游响应或错误正文；异常时不宣称日志完整。
@@ -228,73 +233,30 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 	}
 }
 
-// gateStopped reports whether the sandbox's gatekeeper is known to have stopped. When Docker cannot
-// tell, it is treated as running, so a real interruption is still reported.
-func (a *App) gateStopped(ctx context.Context, id string) bool {
-	if a.gateRunning == nil {
-		return false
-	}
-	running, err := a.gateRunning(ctx, id)
-	return err == nil && !running
-}
-
-// finishAudit runs just before the app stops a gatekeeper, when the agent and connectors are already
-// down. It waits until the follower has written the run's last event and then remembers that
-// cursor, so the next run is read from its beginning without a cross-run gap. Without a follower,
-// or when the events do not arrive in time, nothing is remembered and the gap stays.
-func (a *App) finishAudit(ctx context.Context, id string) {
+// expectGateStop runs just before the app stops or removes a sandbox's gatekeeper.
+func (a *App) expectGateStop(id string) {
 	a.monitor.mu.Lock()
-	_, following := a.monitor.subs[id]
+	a.monitor.stopping[id] = a.now()
 	a.monitor.mu.Unlock()
-	if !following || a.gateCursor == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(ctx, auditDrainTimeout)
-	defer cancel()
-	run, last, err := a.gateCursor(ctx, id)
-	if err != nil || last == 0 {
-		return // 这一轮没有事件，之前记下的游标仍然有效
-	}
-	want := fmt.Sprintf("%s:%d", run, last)
-	for {
-		a.monitor.mu.Lock()
-		got := a.monitor.lastID[id]
-		a.monitor.mu.Unlock()
-		if got == want {
-			_ = a.markCollected(id, want)
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(50 * time.Millisecond):
-		}
-	}
 }
 
-func (a *App) collectedPath(id string) string {
-	return filepath.Join(a.store.Dir(), "audit", id+".collected")
+// gateStarted runs when the app starts the gatekeeper again, and when the monitor sees it stopped.
+func (a *App) gateStarted(id string) {
+	a.monitor.mu.Lock()
+	delete(a.monitor.stopping, id)
+	a.monitor.mu.Unlock()
 }
 
-// collectedCursor is the last event of a run that was written in full before its gatekeeper stopped.
-func (a *App) collectedCursor(id string) string {
-	data, err := os.ReadFile(a.collectedPath(id))
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
+// gateStopping reports whether the app is stopping the sandbox's gatekeeper.
+func (a *App) gateStopping(id string) bool {
+	a.monitor.mu.Lock()
+	defer a.monitor.mu.Unlock()
+	return a.stoppingLocked(id)
 }
 
-func (a *App) markCollected(id, cursor string) error {
-	path := a.collectedPath(id)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	temp := path + ".tmp"
-	if err := os.WriteFile(temp, []byte(cursor+"\n"), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(temp, path)
+func (a *App) stoppingLocked(id string) bool {
+	since, ok := a.monitor.stopping[id]
+	return ok && a.now().Sub(since) < gateStopWindow
 }
 
 func (a *App) cursor(id string) (string, error) {

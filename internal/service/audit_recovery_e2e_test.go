@@ -154,12 +154,10 @@ func TestAuditRecoveryEndToEnd(t *testing.T) {
 		}
 		return gaps
 	}
-	// 正常停止后马上启动（更新智能体、重置后恢复运行都是这样）：停止前采集完这一轮，重启不记缺口，也不提示中断。
+	// 应用里正常停止后马上启动（添加或更新智能体、重置后恢复运行都是这样）：不提示中断。
+	// 门卫照常声明跨运行缺口：它不知道上一轮还有没有没采到的事件。
 	if err := manager.Stop(ctx, s.ID); err != nil {
 		t.Fatal(err)
-	}
-	if app.collectedCursor(s.ID) == "" {
-		t.Fatal("停止前没有确认这一轮已采集完")
 	}
 	if err := manager.Start(ctx, s.ID); err != nil {
 		t.Fatal(err)
@@ -167,34 +165,42 @@ func TestAuditRecoveryEndToEnd(t *testing.T) {
 	probe("after-quick-restart")
 	waitFor("马上重启后继续记录", denials(4))
 	quiet("马上重启")
-	// 正常停止，等跟随结束后再启动：重新订阅，同样不记缺口。
+	// 正常停止，等跟随结束后再启动：重新订阅，同样不提示中断。
 	if err := manager.Stop(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(8 * time.Second)
+	quiet("停止")
 	if err := manager.Start(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	probe("after-restart")
 	waitFor("停一会儿再启动后继续记录", denials(5))
-	quiet("停止和再启动")
-	if gaps := crossRunGaps(); gaps != 0 {
-		t.Fatalf("正常停止后重启仍记了 %d 处跨运行缺口", gaps)
+	quiet("再启动")
+	if gaps := crossRunGaps(); gaps != 2 {
+		t.Fatalf("两次重启应各有 1 处跨运行缺口，实际 %d 处", gaps)
 	}
-	// 门卫停止前应用没有收尾（比如在应用外被停掉）：可能有事件没采到，重启后照常记缺口。
+	// 门卫不是应用停的（模拟在应用外停掉）：照常提示中断。
 	manager.BeforeGateStop = nil
 	if err := manager.Stop(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	manager.BeforeGateStop = app.finishAudit
+	manager.BeforeGateStop = app.expectGateStop
+	select {
+	case <-interrupted:
+	case <-time.After(15 * time.Second):
+		t.Fatal("门卫意外停止时没有提示采集中断")
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
 	if err := manager.Start(ctx, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	probe("after-unfinished-stop")
-	waitFor("没收尾的停止后继续记录", denials(6))
+	probe("after-unexpected-stop")
+	waitFor("意外停止后继续记录", denials(6))
 	report, err := app.QueryUsage(UsageQuery{SandboxID: s.ID})
-	if err != nil || report.Gaps != 1 || report.Requests != 0 || crossRunGaps() != 1 {
+	if err != nil || report.Gaps != 3 || report.Requests != 0 || crossRunGaps() != 3 {
 		t.Fatalf("缺口统计错误：%+v %v", report, err)
 	}
-	t.Log("一次性沙箱：两次正常停止后重启都没有缺口、没有提示中断；没收尾的停止后记了 1 处缺口；模型请求数为 0")
+	t.Log("一次性沙箱：应用里两次停止和重启都没有提示中断，意外停止照常提示；三次重启各记 1 处跨运行缺口；模型请求数为 0")
 }
