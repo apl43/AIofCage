@@ -9,6 +9,9 @@ import { SandboxDetail } from "./sandbox-detail.js";
 import { OperationProgress } from "./progress.js";
 import { activityRunning } from "./progress-state.js";
 
+// 开着对话框时不切换页面：对话框会随页面重建，已经勾选、填写的内容会被重置。
+const dialogOpen = () => Boolean(document.querySelector('[aria-modal="true"]'));
+
 export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail, currentView, tutorial }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
@@ -65,9 +68,9 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
           if (tutorial) await tutorial.sandboxCreated(created);
           setDetail({ id: created.id, tab: start ? "terminal" : "overview" });
           if (!start || !await run(created, "启动", "StartSandbox", created.id)) return;
-          // 启动期间离开了这个沙箱的终端页，就只提示，不把人带回来
+          // 启动期间离开了这个沙箱的终端页，或开着对话框，就只提示，不把人带回来
           const { page, detail: now } = currentView();
-          if (page === "sandboxes" && now?.id === created.id && now.tab === "terminal") setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
+          if (page === "sandboxes" && now?.id === created.id && now.tab === "terminal" && !dialogOpen()) setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
           else notify(`「${created.name}」已启动`);
         }} />`}
       ${resetting && html`<${ResetDialog} sandbox=${resetting} onClose=${() => setResetting(null)} onConfirm=${async (keepHome, restart) => {
@@ -82,7 +85,7 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
           setDeleting(null);
           if (await run(target, "删除", "DeleteSandbox", target.id, keepHome)) {
             notify(`已删除沙箱「${target.name}」，项目文件夹保留`);
-            if (detail?.id === target.id) setDetail(null);
+            if (currentView().detail?.id === target.id) setDetail(null); // 删除期间可能已经去看别的沙箱了
           }
         }} />`}`;
 
@@ -180,9 +183,10 @@ function SandboxRow({ sandbox, providers, usage, busy, run, notify, onReset, onD
   const enter = async () => {
     if (!running) {
       if (!await run(sandbox, "启动", "StartSandbox", sandbox.id)) return;
-      // 启动期间打开了别的沙箱或页面，就只提示，不跳转
+      // 启动完成时还停在列表或这个沙箱的终端页、没开对话框，才打开终端；否则只提示，不跳转
       const { page, detail } = currentView();
-      if (page !== "sandboxes" || detail) { notify(`「${sandbox.name}」已启动`); return; }
+      const here = page === "sandboxes" && (!detail || (detail.id === sandbox.id && detail.tab === "terminal"));
+      if (!here || dialogOpen()) { notify(`「${sandbox.name}」已启动`); return; }
     }
     onOpen({ tab: "terminal", open: openTerminals.length ? undefined : { agent: sandbox.bindings.find((b) => b.provider_id)?.agent ?? "", nonce: Date.now() } });
   };
