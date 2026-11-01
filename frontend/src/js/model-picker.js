@@ -5,6 +5,7 @@ import { modelOptions } from "./model-list.js";
 // ModelPicker 是可以搜索的模型下拉：输入框可以直接填写，下拉列出供应商返回的模型，
 // 按输入筛选；onRefresh 存在时带一个“获取模型列表”按钮。供应商表单和终端共用。
 // 回车只在用方向键选中某一项后才替换输入，否则保留手填的名称。
+// 列表里按下鼠标（选项、滚动条、底部提示）都不移动焦点，输入框失焦就收起列表，否则滚动条拖不动。
 export function ModelPicker({ id, value, models, onChange, onRefresh, loading, disabled, required, label = "模型" }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
@@ -45,7 +46,7 @@ export function ModelPicker({ id, value, models, onChange, onRefresh, loading, d
       ${onRefresh && html`<button type="button" class="icon-button" aria-label="获取模型列表" title="获取模型列表"
         disabled=${disabled || loading} onClick=${onRefresh}><${Icon} name="refresh" size=${17} /></button>`}
     </div>
-    ${shown && html`<div class=${more > 0 ? "model-options has-more" : "model-options"}>
+    ${shown && html`<div class=${more > 0 ? "model-options has-more" : "model-options"} onMouseDown=${(event) => event.preventDefault()}>
       <ul id=${listId} role="listbox" aria-label="可选模型">
         ${options.map((model, index) => html`<li id=${`${listId}-${index}`} role="option" aria-selected=${index === active}
           class=${index === active ? "active" : ""} onMouseDown=${(event) => { event.preventDefault(); choose(model); }}>${model}</li>`)}
