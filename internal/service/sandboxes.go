@@ -227,7 +227,6 @@ func (a *App) DeleteSandbox(id string, keepHome bool) error {
 		if err != nil {
 			return err
 		}
-		a.expectGateStop(id) // 删除直接移除门卫容器，不经过停止
 		if err := a.manager.Delete(ctx, id, keepHome); err != nil {
 			return err
 		}

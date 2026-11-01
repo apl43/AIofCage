@@ -101,6 +101,7 @@ func (a *App) tick(ctx context.Context) {
 	stats := map[string]runtime.ContainerStats{}
 	for _, s := range sandboxes {
 		if health[s.ID].GateRunning() {
+			a.gateRunningSince(s.ID, gateStartedAt(health[s.ID]))
 			a.subscribe(ctx, s)
 			if usage, err := a.manager.Usage(ctx, s.ID); err == nil {
 				_ = a.manager.RecordUsage(s.ID, usage)
@@ -220,15 +221,15 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 		if a.gateStopping(s.ID) {
 			return
 		}
+		if !interrupted {
+			// 先提示再等待：门卫意外停了，监视可能在等待期间取消跟随。不展示上游响应或错误正文；异常时不宣称日志完整。
+			a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计采集中断，正在从已保存的位置重试。日志和用量明细可能不完整。"})
+			interrupted = true
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(2 * time.Second):
-		}
-		if !interrupted {
-			// 不展示上游响应或错误正文；异常时不宣称日志完整。
-			a.emit("sandbox:alert", map[string]string{"id": s.ID, "message": "审计采集中断，正在从已保存的位置重试。日志和用量明细可能不完整。"})
-			interrupted = true
 		}
 	}
 }
@@ -245,6 +246,25 @@ func (a *App) gateStarted(id string) {
 	a.monitor.mu.Lock()
 	delete(a.monitor.stopping, id)
 	a.monitor.mu.Unlock()
+}
+
+// gateRunningSince clears the stop mark once the monitor sees a gatekeeper started after it, for
+// example by cagectl, which does not tell the app.
+func (a *App) gateRunningSince(id string, started time.Time) {
+	a.monitor.mu.Lock()
+	defer a.monitor.mu.Unlock()
+	if since, ok := a.monitor.stopping[id]; ok && started.After(since) {
+		delete(a.monitor.stopping, id)
+	}
+}
+
+func gateStartedAt(h runtime.SandboxHealth) time.Time {
+	for _, c := range h.Components {
+		if c.Kind == "gate" {
+			return c.StartedAt
+		}
+	}
+	return time.Time{}
 }
 
 // gateStopping reports whether the app is stopping the sandbox's gatekeeper.

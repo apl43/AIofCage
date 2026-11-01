@@ -57,8 +57,9 @@ type Manager struct {
 	Progress func(sandboxID string, update Update)
 	// BeforeReplace 仅在候选镜像就绪、即将中断旧容器时关闭桌面会话。
 	BeforeReplace func(sandboxID string)
-	// BeforeGateStop and GateStarted tell the app when it stops or starts a sandbox's gatekeeper
-	// itself, so the end of the event stream is not reported as an interruption.
+	// BeforeGateStop and GateStarted tell the app when it stops or removes a running gatekeeper
+	// itself, so the end of the event stream is not reported as an interruption, and when the
+	// gatekeeper runs again (also after a stop that failed).
 	BeforeGateStop func(sandboxID string)
 	GateStarted    func(sandboxID string)
 	// OAuth refreshes tokens of OAuth MCP services before they are handed to a gatekeeper.
@@ -637,6 +638,9 @@ func (m *Manager) ensureObjects(ctx context.Context, sbx sandbox.Sandbox, gateIm
 	}
 	gate := m.container(ctx, n.gate)
 	if gate.exists && (createdNetwork || gate.image != gateImage || gate.spec != specVersion) {
+		if gate.running && m.BeforeGateStop != nil {
+			m.BeforeGateStop(sbx.ID)
+		}
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", n.gate); err != nil {
 			return err
 		}
@@ -726,6 +730,9 @@ func (m *Manager) dropInternal(ctx context.Context, sbx sandbox.Sandbox) error {
 	m.saveUsage(ctx, sbx)
 	if err := m.removeProbes(ctx, sbx.ID); err != nil {
 		return err
+	}
+	if m.BeforeGateStop != nil && m.container(ctx, n.gate).running {
+		m.BeforeGateStop(sbx.ID)
 	}
 	for _, name := range []string{n.agent, n.gate} {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, "rm", "--force", name); err != nil && !strings.Contains(err.Error(), "No such") {
@@ -1263,6 +1270,9 @@ func (m *Manager) stopContainers(ctx context.Context, n objectNames) error {
 			}
 			if _, err := m.docker.run(ctx, 30*time.Second, nil, "stop", "--time", "5", name); err != nil {
 				errs = append(errs, err)
+				if name == n.gate && m.GateStarted != nil {
+					m.GateStarted(n.id) // 门卫没停下来，照常跟随
+				}
 			}
 		}
 	}
@@ -1352,11 +1362,17 @@ func (m *Manager) removeRuntimeObjects(ctx context.Context, id string, keepHome 
 	if err := m.removeProbes(ctx, id); err != nil {
 		errs = append(errs, err)
 	}
+	if m.BeforeGateStop != nil && m.container(ctx, n.gate).running {
+		m.BeforeGateStop(id)
+	}
 	for _, args := range [][]string{{"rm", "--force", n.agent}, {"rm", "--force", n.gate},
 		{"network", "rm", "--force", n.internal}, {"network", "rm", "--force", n.egress}} {
 		if _, err := m.docker.run(ctx, 30*time.Second, nil, args...); err != nil && !strings.Contains(err.Error(), "No such") &&
 			!strings.Contains(err.Error(), "not found") {
 			errs = append(errs, err)
+			if args[len(args)-1] == n.gate && m.GateStarted != nil {
+				m.GateStarted(id) // 门卫没删掉，照常跟随
+			}
 		}
 	}
 	if !keepHome {

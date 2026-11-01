@@ -231,6 +231,36 @@ func TestAuditFollowerEndsQuietlyWhenAppStopsGate(t *testing.T) {
 	}
 }
 
+// 门卫意外停止时先提示再等待重试：监视在等待期间看到门卫已停、取消跟随，提示也不能丢。
+func TestAuditUnexpectedStopAlertsBeforeRetryWait(t *testing.T) {
+	a, _, _ := newApp(t)
+	alerts := make(chan string, 4)
+	a.emit = func(name string, data any) {
+		if name == "sandbox:alert" {
+			alerts <- data.(map[string]string)["message"]
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.follow(ctx, sandbox.Sandbox{ID: "sbx-crash"}, auditStreamFunc(func(context.Context, string, string, events.Handler) error {
+			return errors.New("stream closed")
+		}))
+	}()
+	time.Sleep(500 * time.Millisecond) // 监视这一轮看到门卫已停，取消跟随
+	cancel()
+	<-done
+	select {
+	case message := <-alerts:
+		if !strings.Contains(message, "中断") {
+			t.Fatalf("提示不对：%q", message)
+		}
+	default:
+		t.Fatal("门卫意外停止、监视随后取消跟随：没有提示采集中断")
+	}
+}
+
 // “应用在停门卫”这个标记在门卫再启动时清掉，最长一分钟：在应用外启动的门卫过后照常订阅、照常提示中断。
 func TestGateStopExpectationEnds(t *testing.T) {
 	a, _, _ := newApp(t)
@@ -244,6 +274,16 @@ func TestGateStopExpectationEnds(t *testing.T) {
 	a.gateStarted("sbx-a")
 	if a.gateStopping("sbx-a") {
 		t.Fatal("门卫再启动后仍当作在停止")
+	}
+	// 监视看到门卫是在标记之后启动的（比如 cagectl 启动）：清掉；标记之前就在运行的不算。
+	a.expectGateStop("sbx-c")
+	a.gateRunningSince("sbx-c", now.Add(-time.Hour))
+	if !a.gateStopping("sbx-c") {
+		t.Fatal("标记之前就在运行的门卫清掉了标记")
+	}
+	a.gateRunningSince("sbx-c", now.Add(time.Second))
+	if a.gateStopping("sbx-c") {
+		t.Fatal("标记之后启动的门卫没有清掉标记")
 	}
 	now = now.Add(gateStopWindow)
 	if a.gateStopping("sbx-b") {
