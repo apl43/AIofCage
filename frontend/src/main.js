@@ -39,6 +39,10 @@ function App() {
   const [mcpPresets, setMcpPresets] = useState([]);
   const [recoverable, setRecoverable] = useState([]);
   const [dataReady, setDataReady] = useState(false);
+  // 启动这类操作可能要几分钟，完成后先看用户还在不在原来的页面，不在就不跳转。
+  const view = useRef(null);
+  view.current = { page, detail };
+  const currentView = useCallback(() => view.current, []);
   const navigate = useCallback((nextPage, nextDetail = null) => {
     setPage(nextPage); setDetail(nextDetail); location.hash = nextPage;
   }, []);
@@ -165,7 +169,7 @@ function App() {
 
   const content = {
     sandboxes: html`<${SandboxesPage} sandboxes=${sandboxes} providers=${providers} services=${services} recoverable=${recoverable} overview=${overview} summary=${summary}
-      events=${events} detail=${detail} setDetail=${setDetail}
+      events=${events} detail=${detail} setDetail=${setDetail} currentView=${currentView}
       tutorial=${tutorial.active && tutorial.step === 2 ? tutorial : null}
       reload=${async () => { await reload(); refreshSummary(); }} notify=${notify} onAddProvider=${() => setPage("providers")}
       onLogs=${(id, filter = "all") => { setLogSandbox(id); setLogFilter(filter); setPage("logs"); }} />`,
