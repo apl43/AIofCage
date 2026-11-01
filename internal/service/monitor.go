@@ -182,6 +182,7 @@ func (a *App) unsubscribe(id string) {
 // 门卫停了就结束，不算采集中断。
 func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Source) {
 	interrupted := false
+	quiet := "" // 已经在这个“采集完的位置”上静默重连过
 	for ctx.Err() == nil {
 		if cursor, err := a.cursor(s.ID); err == nil {
 			collected := cursor != "" && cursor == a.collectedCursor(s.ID)
@@ -213,8 +214,10 @@ func (a *App) follow(ctx context.Context, s sandbox.Sandbox, source events.Sourc
 		if a.gateStopped(ctx, s.ID) {
 			return
 		}
-		// 门卫按计划停止前已经收尾，又马上启动了新一轮（更新智能体、重置后恢复运行）：直接重连，不提示中断。
-		if cursor, err := a.cursor(s.ID); err == nil && cursor != "" && cursor == a.collectedCursor(s.ID) {
+		// 门卫按计划停止前已经收尾，又马上启动了新一轮（更新智能体、重置后恢复运行）：静默重连一次。
+		// 再结束（比如审计文件写不进去）就照常提示。
+		if cursor, err := a.cursor(s.ID); err == nil && cursor != "" && cursor != quiet && cursor == a.collectedCursor(s.ID) {
+			quiet = cursor
 			continue
 		}
 		if !interrupted {

@@ -338,3 +338,35 @@ func TestAuditCollectedRunReconnectsWithoutAlert(t *testing.T) {
 		t.Fatalf("新一轮记了缺口：%+v %v", report, err)
 	}
 }
+
+// 收尾后的静默重连只有一次：新一轮一开始就写不进审计文件时，第二次结束照常提示中断。
+func TestAuditCollectedRunAlertsWhenReconnectKeepsFailing(t *testing.T) {
+	a, _, _ := newApp(t)
+	s := sandbox.Sandbox{ID: "sbx-failing"}
+	if err := a.record(s, audit.Event{ID: "old:3", Action: audit.ActionRequest}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.markCollected(s.ID, "old:3"); err != nil {
+		t.Fatal(err)
+	}
+	var alerts []string
+	a.emit = func(name string, data any) {
+		if name == "sandbox:alert" {
+			alerts = append(alerts, data.(map[string]string)["message"])
+		}
+	}
+	a.gateRunning = func(context.Context, string) (bool, error) { return true, nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	attempts := 0
+	a.follow(ctx, s, auditStreamFunc(func(context.Context, string, string, events.Handler) error {
+		attempts++
+		if attempts == 3 {
+			cancel()
+		}
+		return errors.New("audit write failed")
+	}))
+	if attempts != 3 || len(alerts) != 1 || !strings.Contains(alerts[0], "中断") {
+		t.Fatalf("静默重连后仍失败却没有提示：重试 %d 次，提示 %v", attempts, alerts)
+	}
+}
