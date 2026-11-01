@@ -9,7 +9,7 @@ import { SandboxDetail } from "./sandbox-detail.js";
 import { OperationProgress } from "./progress.js";
 import { activityRunning } from "./progress-state.js";
 
-export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail, tutorial }) {
+export function SandboxesPage({ sandboxes, providers, services, recoverable, overview, summary, events, reload, notify, onAddProvider, onLogs, detail, setDetail, currentView, tutorial }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [addingAgents, setAddingAgents] = useState(null);
@@ -64,7 +64,11 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
           await reload();
           if (tutorial) await tutorial.sandboxCreated(created);
           setDetail({ id: created.id, tab: start ? "terminal" : "overview" });
-          if (start && await run(created, "启动", "StartSandbox", created.id)) setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
+          if (!start || !await run(created, "启动", "StartSandbox", created.id)) return;
+          // 启动期间离开了这个沙箱的终端页，就只提示，不把人带回来
+          const { page, detail: now } = currentView();
+          if (page === "sandboxes" && now?.id === created.id && now.tab === "terminal") setDetail({ id: created.id, tab: "terminal", open: { agent: created.bindings[0]?.agent ?? "", nonce: Date.now() } });
+          else notify(`「${created.name}」已启动`);
         }} />`}
       ${resetting && html`<${ResetDialog} sandbox=${resetting} onClose=${() => setResetting(null)} onConfirm=${async (keepHome, restart) => {
           const target = resetting;
@@ -116,7 +120,7 @@ export function SandboxesPage({ sandboxes, providers, services, recoverable, ove
               usage=${summary?.sandboxes?.find((u) => u.id === s.id)} onLogs=${() => onLogs(s.id)}
               services=${services} onEditMCP=${() => setEditingMCP(s)} onAttack=${() => setAttacking(s)}
               busy=${busy[s.id] ?? s.operation} run=${run} notify=${notify}
-              onReset=${() => setResetting(s)} onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} />`)}
+              onReset=${() => setResetting(s)} onDelete=${() => setDeleting(s)} onOpen=${(view) => setDetail({ id: s.id, ...view })} currentView=${currentView} />`)}
             ${!visible.length && html`<div class="panel empty"><span class="empty-icon"><${Icon} name="search" size=${40} /></span><h3>没有匹配的沙箱</h3><p>试试其他名称或状态。</p><button onClick=${() => { setQuery(""); setFilter("all"); }}>重置筛选</button></div>`}
           </div>`}
       <${EnvironmentPanel} environment=${overview?.environment} />
@@ -169,12 +173,17 @@ export function UsageStats({ sandbox, usage, onLogs }) {
   </div>`;
 }
 
-function SandboxRow({ sandbox, providers, usage, busy, run, notify, onReset, onDelete, onOpen }) {
+function SandboxRow({ sandbox, providers, usage, busy, run, notify, onReset, onDelete, onOpen, currentView }) {
   const state = STATES[sandbox.state] ?? STATES.unknown;
   const running = sandbox.state === "running";
   const openTerminals = useTerminals(sandbox.id).filter((t) => !t.exited);
   const enter = async () => {
-    if (!running && !await run(sandbox, "启动", "StartSandbox", sandbox.id)) return;
+    if (!running) {
+      if (!await run(sandbox, "启动", "StartSandbox", sandbox.id)) return;
+      // 启动期间打开了别的沙箱或页面，就只提示，不跳转
+      const { page, detail } = currentView();
+      if (page !== "sandboxes" || detail) { notify(`「${sandbox.name}」已启动`); return; }
+    }
     onOpen({ tab: "terminal", open: openTerminals.length ? undefined : { agent: sandbox.bindings.find((b) => b.provider_id)?.agent ?? "", nonce: Date.now() } });
   };
   return html`<article class="panel sandbox-row">
