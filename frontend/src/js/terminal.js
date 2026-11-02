@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-fit";
 import { html, call, agentName } from "./core.js";
-import { addAttachments, createDraft, disposeDraft } from "./terminal-draft.js";
+import { addAttachments, createDraft, disposeDraft, pasteKind } from "./terminal-draft.js";
 import { applyConversationEvent, tabTitle } from "./conversation-state.js";
 import { ConversationView } from "./conversation-view.js";
 
@@ -49,12 +49,10 @@ export function handleTerminalPaste(session, event) {
   if (!data) return;
   const files = Array.from(data.files ?? []);
   // 纯文字保留原生粘贴行为；图片和文件在捕获阶段拦截，避免漏入 xterm 或命令行。
-  // 只有其他格式的图片（例如 TIFF 截图）时，改由后端读剪贴板转成 PNG。
   if (!files.length && data.getData("text/plain")) return;
   event.preventDefault();
   event.stopPropagation();
-  if (files.length && files.every((file) => /^(image\/(png|jpeg|gif|webp))$/.test(file.type))) addTerminalAttachments(session, files);
-  else if (files.length && files.some((file) => !file.type.startsWith("image/"))) addTerminalAttachments(session, files);
+  if (pasteKind(files) === "files") addTerminalAttachments(session, files);
   else pasteTerminalImage(session);
 }
 

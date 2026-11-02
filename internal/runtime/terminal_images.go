@@ -12,6 +12,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // TerminalAttachment 是写入沙箱的一个附件。Extension 非空时是宿主已校验的图片，保存为
@@ -40,7 +42,8 @@ const (
 	defaultAttachmentName = "附件"
 	attachmentDirectory   = "/home/agent/.aiofcage/attachments/"
 	// attachmentNameReplaced 是路径与 shell 中有特殊含义的 ASCII 字符：Agent 常把附件路径直接放进命令行，
-	// 替换后即使没有加引号也不会展开变量或执行命令。
+	// 替换后不会展开变量或执行命令。空格、方括号、花括号、~ 和 # 仍保留，没加引号时会被 shell 拆开或展开，
+	// 所以消息里的路径一律用单引号括起来；单引号本身在这里被替换，不会出现在名称里。
 	attachmentNameReplaced = "/\\:*?\"<>|$`;&'!"
 )
 
@@ -54,6 +57,8 @@ func AttachmentName(raw string) string {
 	if i := strings.LastIndexAny(raw, `/\`); i >= 0 {
 		raw = raw[i+1:]
 	}
+	// macOS 常把文件名存成分解形式（例如 é 是 e 加组合重音）；统一成组合形式，模型重打路径时才对得上。
+	raw = norm.NFC.String(raw)
 	var b strings.Builder
 	for _, r := range raw {
 		switch {

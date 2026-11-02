@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDraft, addAttachments, removeAttachment, disposeDraft, sendDraft, formatSize } from "../src/js/terminal-draft.js";
+import { createDraft, addAttachments, removeAttachment, disposeDraft, sendDraft, formatSize, pasteKind } from "../src/js/terminal-draft.js";
 
 const image = (name = "截图.png", size = 64) => new File([new Uint8Array(size)], name, { type: "image/png" });
 
@@ -92,4 +92,14 @@ test("读取附件时关闭终端，不提交已放弃的草稿", async () => {
   assert.equal(await pending, false);
   assert.equal(calls, 0);
   assert.equal(draft.attachments.length, 0);
+});
+
+test("粘贴：单张 TIFF 截图交给后端读剪贴板，其他文件直接当附件", () => {
+  const file = (name, type) => new File(["x"], name, { type });
+  assert.equal(pasteKind([file("image.tiff", "image/tiff")]), "clipboard");
+  assert.equal(pasteKind([]), "clipboard");
+  assert.equal(pasteKind([file("photo.heic", "image/heic")]), "files");
+  assert.equal(pasteKind([file("logo.svg", "image/svg+xml")]), "files");
+  assert.equal(pasteKind([file("a.png", "image/png"), file("b.heic", "image/heic")]), "files");
+  assert.equal(pasteKind([file("报告.pdf", "application/pdf")]), "files");
 });

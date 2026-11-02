@@ -168,7 +168,9 @@ func conversationPrompt(text string, attachments []runtime.TerminalAttachment, p
 	}
 	prompt = shown
 	if len(files) > 0 {
-		prompt += "\n\n附件（已复制到沙箱，可直接读取）：\n- " + strings.Join(files, "\n- ")
+		// 文件名里可能有空格、方括号等，智能体照抄进命令行时会被 shell 拆开；清理后的名称不含单引号，
+		// 所以每个路径都用单引号括起来。
+		prompt += "\n\n附件（已复制到沙箱，可直接读取）：\n- '" + strings.Join(files, "'\n- '") + "'"
 	}
 	return shown, prompt, images
 }

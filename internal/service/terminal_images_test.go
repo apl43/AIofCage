@@ -189,7 +189,7 @@ func TestConversationAttachments(t *testing.T) {
 func TestConversationPrompt(t *testing.T) {
 	image, file := runtime.TerminalAttachment{Extension: "png"}, runtime.TerminalAttachment{Name: "report.pdf"}
 	dir := "/home/agent/.aiofcage/attachments/ABCDEFGHIJKLMNOPQRSTUVWXYZ/"
-	list := "\n\n附件（已复制到沙箱，可直接读取）：\n- "
+	list := "\n\n附件（已复制到沙箱，可直接读取）：\n- '"
 	for name, tc := range map[string]struct {
 		text          string
 		attachments   []runtime.TerminalAttachment
@@ -199,10 +199,10 @@ func TestConversationPrompt(t *testing.T) {
 	}{
 		"只有文字": {"你好", nil, nil, "你好", "你好", nil},
 		"只有图片": {" ", []runtime.TerminalAttachment{image}, []string{dir + "1.png"}, "请查看这些图片。", "请查看这些图片。", []string{dir + "1.png"}},
-		"只有文件": {"", []runtime.TerminalAttachment{file}, []string{dir + "1-report.pdf"}, "请查看这些文件。", "请查看这些文件。" + list + dir + "1-report.pdf", nil},
+		"只有文件": {"", []runtime.TerminalAttachment{file}, []string{dir + "1-report.pdf"}, "请查看这些文件。", "请查看这些文件。" + list + dir + "1-report.pdf'", nil},
 		"图片和文件": {"", []runtime.TerminalAttachment{file, image, file}, []string{dir + "1-report.pdf", dir + "2.png", dir + "3-report.pdf"},
-			"请查看这些图片和文件。", "请查看这些图片和文件。" + list + dir + "1-report.pdf\n- " + dir + "3-report.pdf", []string{dir + "2.png"}},
-		"文字后附文件列表": {"总结一下\n重点", []runtime.TerminalAttachment{file}, []string{dir + "1-report.pdf"}, "总结一下\n重点", "总结一下\n重点" + list + dir + "1-report.pdf", nil},
+			"请查看这些图片和文件。", "请查看这些图片和文件。" + list + dir + "1-report.pdf'\n- '" + dir + "3-report.pdf'", []string{dir + "2.png"}},
+		"文字后附文件列表": {"总结一下\n重点", []runtime.TerminalAttachment{file}, []string{dir + "1-report.pdf"}, "总结一下\n重点", "总结一下\n重点" + list + dir + "1-report.pdf'", nil},
 	} {
 		shown, prompt, images := conversationPrompt(tc.text, tc.attachments, tc.paths)
 		if shown != tc.shown || prompt != tc.prompt || !slices.Equal(images, tc.images) {

@@ -54,6 +54,12 @@ export function disposeDraft(draft) {
   draft.text = "";
 }
 
+// pasteKind 决定粘贴进来的文件怎么处理：只有一张 TIFF 时多半是截图，交给后端读剪贴板转成 PNG（"clipboard"）；
+// 其他情况都把文件直接当附件（"files"）。从访达复制的 HEIC、SVG 等文件如果也走剪贴板，读到的会是文件图标。
+export function pasteKind(files) {
+  return files.length === 1 && files[0].type === "image/tiff" || !files.length ? "clipboard" : "files";
+}
+
 // formatSize 写附件大小，例如“812 B”“2.4 KB”“3.1 MB”。
 export function formatSize(bytes) {
   if (bytes < 1024) return `${bytes} B`;
