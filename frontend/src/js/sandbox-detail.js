@@ -6,7 +6,7 @@ import { BindingSelects, MCPLine, UsageStats } from "./sandboxes.js";
 import { HealthPanel } from "./health.js";
 import { UsagePage } from "./usage.js";
 import { LogsPage } from "./logs.js";
-import { TerminalView, openTerminal, closeTerminal, useTerminals, recoveryHidden, updateTerminalDraft, addTerminalImages, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
+import { TerminalView, openTerminal, closeTerminal, useTerminals, recoveryHidden, updateTerminalDraft, addTerminalAttachments, handleTerminalPaste, handleTerminalImageKey } from "./terminal.js";
 import { TerminalComposer } from "./composer.js";
 import { SandboxAgentUpdates } from "./agent-versions.js";
 import { OperationProgress } from "./progress.js";
@@ -224,7 +224,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
       <button class="primary" onClick=${() => run(sandbox, "启动", "StartSandbox", sandbox.id)} disabled=${Boolean(busy)}>启动沙箱</button>
     </div></div>`;
   }
-  // 拖进来的文件只有落在左侧终端区才当图片；落在别处也要拦住，否则窗口会跳去显示那个文件。
+  // 拖进来的文件只有落在左侧终端区才当附件；落在别处也要拦住，否则窗口会跳去显示那个文件。
   return html`<div class="terminal-panel"
     onDragOver=${(e) => { if (!e.defaultPrevented && e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "none"; } }}
     onDrop=${(e) => e.preventDefault()}>
@@ -256,7 +256,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
       onKeyDownCapture=${(e) => handleTerminalImageKey(current, e)}
       onDragOver=${(e) => { if (e.dataTransfer.types.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; setDragging(true); } }}
       onDragLeave=${(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
-      onDrop=${(e) => { e.preventDefault(); setDragging(false); if (current?.agent && !current.exited) addTerminalImages(current, e.dataTransfer.files); }}>
+      onDrop=${(e) => { e.preventDefault(); setDragging(false); if (current?.agent && !current.exited) addTerminalAttachments(current, e.dataTransfer.files); }}>
     ${current
       ? html`<${TerminalView} key=${current.id} id=${current.id} />
           ${current.exited && running && html`<div class="terminal-exited">
@@ -266,7 +266,7 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
           <div class="terminal-choices">${choices.map((c) => html`<button class="primary" onClick=${() => open(c.agent)}><${Icon} name=${agentIcon(c.agent)} size=${18} />${c.label}</button>`)}</div>
         </div>`}
     ${current?.agent && current.info && !current.exited && running && html`<${TerminalComposer} key=${current.id} session=${current} onShowFiles=${revealFiles} />`}
-    ${dragging && html`<div class="terminal-drop-hint" aria-hidden="true">松开以添加图片</div>`}
+    ${dragging && html`<div class="terminal-drop-hint" aria-hidden="true">松开以添加附件</div>`}
     </div>
     ${filesOpen && html`<${ProjectFiles} sandboxId=${sandbox.id} busy=${sessions.filter((s) => s.busy).length} canInsert=${canInsert}
       onInsert=${onInsert} onClose=${closeFiles} notify=${notify} />`}

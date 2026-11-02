@@ -31,7 +31,7 @@ export function tutorialHasReply(sessions, state) {
 }
 
 export function fillTutorialDraft(session) {
-  if (!session?.info || session.exited || session.busy || session.draft.busy || session.draft.reading || session.draft.text || session.draft.images.length) return false;
+  if (!session?.info || session.exited || session.busy || session.draft.busy || session.draft.reading || session.draft.text || session.draft.attachments.length) return false;
   session.draft.text = TUTORIAL_EXAMPLE;
   return true;
 }

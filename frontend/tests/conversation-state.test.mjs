@@ -76,3 +76,12 @@ test("沙箱会话中途结束时记下这一轮的结束时间", () => {
   assert.ok(session.messages[1].endedAt > 0);
   assert.equal(session.exited, true);
 });
+
+test("用户消息记下附件里的文件名，旧后端没有 files 时为空", () => {
+  const session = { messages: [] };
+  applyConversationEvent(session, { type: "user", text: "看看", images: 1, files: ["报告.pdf", "数据.csv"] });
+  assert.deepEqual(session.messages[0].files, ["报告.pdf", "数据.csv"]);
+  applyConversationEvent(session, { type: "done" });
+  applyConversationEvent(session, { type: "user", text: "再看", images: 0 });
+  assert.deepEqual(session.messages[2].files, []);
+});

@@ -2,8 +2,8 @@
 // 菜单里按下鼠标都不移动焦点：macOS 的 WebKit 点按钮时会把焦点交给外层，菜单因此收起，选项就点不中。
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { html, call, Icon, agentName } from "./core.js";
-import { IMAGE_ACCEPT, removeImage, sendDraft } from "./terminal-draft.js";
-import { addTerminalImages, updateTerminalDraft } from "./terminal.js";
+import { formatSize, removeAttachment, sendDraft } from "./terminal-draft.js";
+import { addTerminalAttachments, updateTerminalDraft } from "./terminal.js";
 import { effortChoices, effortLabel, effortNote, keepEffort, pickEffort } from "./effort-levels.js";
 import { withModel } from "./model-list.js";
 
@@ -75,15 +75,15 @@ function PlusMenu({ session, onShowFiles }) {
     if (open) moveInMenu(event, root.current);
   };
   return html`<div class="composer-plus" ref=${root} onKeyDown=${onKeyDown} onFocusOut=${(event) => { if (open && leaves(event)) setOpen(false); }}>
-    <input ref=${picker} type="file" accept=${IMAGE_ACCEPT} multiple hidden aria-label="选择图片"
-      onChange=${(event) => { addTerminalImages(session, event.target.files); event.target.value = ""; }} />
-    <button type="button" class="composer-plus-trigger" aria-label="添加图片或引用项目文件" aria-haspopup="menu" aria-expanded=${open}
+    <input ref=${picker} type="file" multiple hidden aria-label="选择照片或文件"
+      onChange=${(event) => { addTerminalAttachments(session, event.target.files); event.target.value = ""; }} />
+    <button type="button" class="composer-plus-trigger" aria-label="添加照片和文件，或引用项目文件" aria-haspopup="menu" aria-expanded=${open}
       data-tip="添加" disabled=${draft.busy || draft.reading} onMouseDown=${keepFocus}
       onClick=${(event) => { setOpen(!open); if (!open && event.detail === 0) focusMenu(root, ".composer-plus-menu"); }}
       onKeyDown=${(event) => { if (!open && arrowOpens(event)) { event.preventDefault(); setOpen(true); focusMenu(root, ".composer-plus-menu"); } }}>
       <${Icon} name="plus" size=${18} /></button>
     ${open && html`<div class="composer-popover composer-plus-menu" role="menu" aria-label="添加" onMouseDown=${keepFocus}>
-      <button type="button" role="menuitem" onClick=${() => { close(false); picker.current?.click(); }}><${Icon} name="image" size=${17} />添加图片</button>
+      <button type="button" role="menuitem" onClick=${() => { close(false); picker.current?.click(); }}><${Icon} name="paperclip" size=${17} />添加照片和文件</button>
       <button type="button" role="menuitem" onClick=${() => { close(false); onShowFiles(); }}><${Icon} name="folder" size=${17} />引用项目文件</button>
     </div>`}
   </div>`;
@@ -215,27 +215,30 @@ export function TerminalComposer({ session, onShowFiles }) {
     draft.text = text; draft.error = ""; updateTerminalDraft();
     requestAnimationFrame(() => { const field = document.getElementById(inputID); field?.focus(); field?.setSelectionRange(text.length, text.length); });
   };
-  const ready = Boolean(draft.text.trim() || draft.images.length);
+  const ready = Boolean(draft.text.trim() || draft.attachments.length);
+  const hasImage = draft.attachments.some((item) => item.image);
   const unpriced = session.info?.priced && session.model && session.model !== session.info.provider_model;
   return html`<form class="composer" onSubmit=${(e) => { e.preventDefault(); send(); }}>
     ${unpriced && !session.started && html`<p class="composer-notice" role="status">换成「${session.model}」后用量照常统计，但不估算费用：单价只配置了「${session.info.provider_model}」。</p>`}
     <div class="composer-card">
-      ${draft.images.length > 0 && html`<ul class="terminal-attachments" aria-label="待发送的图片">
-        ${draft.images.map((item, index) => html`<li key=${item.id}>
-          <img src=${item.url} alt=${`图片 ${index + 1}：${item.file.name}`} />
-          <span title=${item.file.name}>${item.file.name}</span>
-          <button type="button" class="attachment-remove" aria-label=${`移除图片 ${index + 1}：${item.file.name}`} disabled=${draft.busy}
-            onClick=${() => { removeImage(draft, item.id); updateTerminalDraft(); }}><${Icon} name="x" size=${14} /></button>
+      ${draft.attachments.length > 0 && html`<ul class="terminal-attachments" aria-label="待发送的附件">
+        ${draft.attachments.map((item, index) => html`<li key=${item.id}>
+          ${item.image
+            ? html`<img src=${item.url} alt=${`附件 ${index + 1}：${item.file.name}`} />`
+            : html`<span class="attachment-file" aria-hidden="true"><${Icon} name="file" size=${20} /></span>`}
+          <span class="attachment-text"><span title=${item.file.name}>${item.file.name}</span><small>${item.image ? "图片" : "文件"} · ${formatSize(item.file.size)}</small></span>
+          <button type="button" class="attachment-remove" aria-label=${`移除附件 ${index + 1}：${item.file.name}`} disabled=${draft.busy}
+            onClick=${() => { removeAttachment(draft, item.id); updateTerminalDraft(); }}><${Icon} name="x" size=${14} /></button>
         </li>`)}
       </ul>`}
       <label class="sr-only" for=${inputID}>发送给 ${session.title}</label>
-      <textarea id=${inputID} ref=${input} data-guide="message-input" rows="1" value=${draft.text} placeholder="描述任务，或粘贴图片…"
+      <textarea id=${inputID} ref=${input} data-guide="message-input" rows="1" value=${draft.text} placeholder="描述任务，或粘贴图片和文件…"
         disabled=${draft.busy} aria-invalid=${Boolean(draft.error)} aria-describedby=${draft.error ? errorID : undefined}
         onInput=${(e) => { draft.text = e.target.value; draft.error = ""; updateTerminalDraft(); }}
         onKeyDown=${(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); send(); } }}></textarea>
       <div class="composer-actions">
         <${PlusMenu} session=${session} onShowFiles=${onShowFiles} />
-        ${draft.images.length > 0 && html`<span class="composer-hint">${draft.images.length}/4 张 · 所选模型需支持图片</span>`}
+        ${draft.attachments.length > 0 && html`<span class="composer-hint">${draft.attachments.length}/4 个附件${hasImage ? " · 图片需所选模型支持" : ""}</span>`}
         <span class="composer-spacer"></span>
         <${ModelMenu} session=${session} loadModels=${loadModels} />
         ${session.busy
