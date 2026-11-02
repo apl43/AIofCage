@@ -10,17 +10,29 @@ import { withModel } from "./model-list.js";
 const SUGGESTIONS = ["解释这个项目的结构和主要文件", "运行测试，修复失败的用例", "检查代码里有没有安全隐患"];
 const keepFocus = (event) => event.preventDefault();
 
-// 菜单打开时，在菜单外按下鼠标就收起。
+// 菜单打开时，在菜单外按下鼠标或按 Esc 就收起。用鼠标打开时焦点还在输入框里，Esc 不经过菜单，所以在 document 上监听；
+// 焦点在菜单里时，菜单自己先处理 Esc 并停止冒泡，这里收不到。
 function usePopover() {
   const [open, setOpen] = useState(false);
   const root = useRef(null);
   useEffect(() => {
     if (!open) return;
     const dismiss = (event) => { if (root.current && !root.current.contains(event.target)) setOpen(false); };
+    const escape = (event) => { if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); setOpen(false); } };
     document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("pointerdown", dismiss); document.removeEventListener("keydown", escape); };
   }, [open]);
   return [open, setOpen, root];
+}
+
+// 菜单从输入框向上弹出，终端面板会裁掉超出的部分：按按钮上方剩下的高度限制菜单，模型列表跟着变矮。
+function fitAbove(root, selector) {
+  const menu = root.current?.querySelector(selector);
+  const panel = root.current?.closest(".terminal-panel");
+  if (!menu || !panel) return;
+  const room = root.current.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12;
+  menu.style.maxHeight = `${Math.max(120, Math.floor(room))}px`;
 }
 
 // 方向键在当前这一层菜单里移动，Esc 收起并把焦点还给触发按钮。
@@ -82,30 +94,39 @@ function PlusMenu({ session, onShowFiles }) {
 function ModelMenu({ session, loadModels }) {
   const [open, setOpen, root] = usePopover();
   const [effortOpen, setEffortOpen] = useState(false);
+  // 鼠标从“思考强度”斜着移到左边的档位菜单时会经过模型行：离开后稍等再收起，进了档位菜单就取消。
+  const closing = useRef(0);
+  const openEffort = () => { clearTimeout(closing.current); setEffortOpen(true); };
+  const leaveEffort = () => { clearTimeout(closing.current); closing.current = setTimeout(() => setEffortOpen(false), 300); };
+  useEffect(() => { if (!open) { clearTimeout(closing.current); setEffortOpen(false); } }, [open]);
+  useEffect(() => () => clearTimeout(closing.current), []);
   const info = session.info;
   const locked = session.started;
   const model = session.model || info?.provider_model || "";
   const choices = effortChoices(info?.efforts, model);
   const level = session.effort || choices.default || "";
   const models = withModel(withModel(session.models, info?.provider_model), model);
+  useLayoutEffect(() => { if (open) fitAbove(root, ".composer-model-menu"); }, [open, models.length, session.loadingModels, session.modelsError]);
+  useLayoutEffect(() => { if (effortOpen) fitAbove(root, ".composer-effort-menu"); }, [effortOpen]);
   const show = (next) => { setOpen(next); setEffortOpen(false); };
-  const close = () => { show(false); root.current?.querySelector(".composer-model-trigger")?.focus(); };
-  const chooseModel = (next) => {
+  // 只有用键盘选择时才把焦点还给按钮；用鼠标选时焦点留在输入框，接着按回车照常发送。
+  const close = (refocus) => { show(false); if (refocus) root.current?.querySelector(".composer-model-trigger")?.focus(); };
+  const chooseModel = (next, keyboard) => {
     if (next !== session.model) {
       session.model = next;
       session.effort = keepEffort(info?.efforts, next, session.effort);
       updateTerminalDraft();
     }
-    close();
+    close(keyboard);
   };
-  const chooseEffort = (next) => { session.effort = next; updateTerminalDraft(); close(); };
+  const chooseEffort = (next, keyboard) => { session.effort = next; updateTerminalDraft(); close(keyboard); };
   const onKeyDown = (event) => {
     if (!open) return;
     if (event.key === "Escape") {
       event.preventDefault(); event.stopPropagation();
       if (effortOpen && root.current?.querySelector(".composer-effort-menu")?.contains(document.activeElement)) {
         setEffortOpen(false); root.current?.querySelector(".composer-effort-row")?.focus();
-      } else close();
+      } else close(true);
       return;
     }
     if (event.key === "ArrowRight" && event.target.closest?.(".composer-effort-row")) {
@@ -136,20 +157,20 @@ function ModelMenu({ session, loadModels }) {
       ${session.modelsError && html`<p class="composer-menu-note error" role="status">${session.modelsError}</p>`}
       <div class="composer-model-list" role="group" aria-label="模型">
         ${models.map((name) => html`<button type="button" role="menuitemradio" aria-checked=${name === model} key=${name} disabled=${locked}
-          onMouseEnter=${() => setEffortOpen(false)} onClick=${() => chooseModel(name)}>
+          onMouseEnter=${leaveEffort} onClick=${(event) => chooseModel(name, event.detail === 0)}>
           <span class="composer-model-option">${name}</span>${name === model && html`<${Icon} name="check" size=${16} />`}</button>`)}
       </div>
       <div class="composer-menu-divider" role="separator"></div>
       <button type="button" role="menuitem" class="composer-effort-row" aria-haspopup="menu" aria-expanded=${effortOpen}
-        onMouseEnter=${() => setEffortOpen(true)} onClick=${(event) => { setEffortOpen(true); if (event.detail === 0) focusMenu(root, ".composer-effort-menu"); }}>
+        onMouseEnter=${openEffort} onClick=${(event) => { openEffort(); if (event.detail === 0) focusMenu(root, ".composer-effort-menu"); }}>
         <span>思考强度</span><span class="composer-menu-value">${levelText || "默认"}<${Icon} name="chevronRight" size=${15} /></span></button>
       ${locked && html`<p class="composer-menu-note"><${Icon} name="lock" size=${13} />要换模型或思考强度，请新建会话</p>`}
-      ${effortOpen && html`<div class="composer-popover composer-effort-menu" role="menu" aria-label="思考强度">
+      ${effortOpen && html`<div class="composer-popover composer-effort-menu" role="menu" aria-label="思考强度" onMouseEnter=${openEffort}>
         <p class="composer-menu-note">强度越高越周全，但更慢、用量更多</p>
-        ${!choices.default && html`<button type="button" role="menuitemradio" aria-checked=${!session.effort} disabled=${locked} onClick=${() => chooseEffort("")}>
+        ${!choices.default && html`<button type="button" role="menuitemradio" aria-checked=${!session.effort} disabled=${locked} onClick=${(event) => chooseEffort("", event.detail === 0)}>
           <span>默认<small>由供应商决定</small></span>${!session.effort && html`<${Icon} name="check" size=${16} />`}</button>`}
         ${choices.levels.map((value) => html`<button type="button" role="menuitemradio" aria-checked=${value === level} key=${value} disabled=${locked}
-          onClick=${() => chooseEffort(pickEffort(choices, value))}>
+          onClick=${(event) => chooseEffort(pickEffort(choices, value), event.detail === 0)}>
           <span>${effortLabel(value)}${value === choices.default && html`<span class="composer-badge">默认</span>`}${effortNote(value) && html`<small>${effortNote(value)}</small>`}</span>
           ${value === level && html`<${Icon} name="check" size=${16} />`}</button>`)}
       </div>`}

@@ -203,10 +203,16 @@ function TerminalTab({ sandbox, request, recoverable = [], running, busy, run, n
   const insertRef = useRef(insertPath);
   insertRef.current = insertPath;
   const onInsert = useCallback((path) => insertRef.current(path), []);
-  // “+”菜单里的“引用项目文件”：展开文件栏，焦点放到第一项，选好后点“插入”。
+  // “+”菜单里的“引用项目文件”：展开文件栏，等列表读出来后把焦点放到第一项，选好后点“插入”。
   const revealFiles = () => {
     showFiles(true);
-    requestAnimationFrame(() => document.querySelector(".project-files .project-entry")?.focus());
+    let tries = 0;
+    const focusFirst = () => {
+      const entry = document.querySelector(".project-files .project-entry");
+      if (entry) entry.focus();
+      else if (++tries < 40) setTimeout(focusFirst, 50);
+    };
+    setTimeout(focusFirst, 0);
   };
   // 新会话还没有消息时，欢迎语和输入框一起放在中间（参考 ChatGPT、Claude 的新对话页）。
   const emptyChat = conversation && current.info && !current.exited && running && !current.messages.length && !current.started && !current.error;
