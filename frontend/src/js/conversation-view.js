@@ -70,7 +70,9 @@ export function ConversationView({ session }) {
           const working = session.busy && index === session.messages.length - 1;
           return item.role === "user"
             ? html`<article key=${index} class="conversation-message user" aria-label="你的消息">
-                ${item.images > 0 && html`<span class="message-attachments"><${Icon} name="image" size=${15} />${item.images} 张图片</span>`}
+                ${(item.images > 0 || item.files?.length > 0) && html`<div class="message-attachments">
+                  ${item.images > 0 && html`<span><${Icon} name="image" size=${15} />${item.images} 张图片</span>`}
+                  ${item.files?.map((name, i) => html`<span key=${i} title=${name}><${Icon} name="file" size=${15} />${name}</span>`)}</div>`}
                 <${MessageBody} text=${item.text} /></article>`
             : html`<article key=${index} class="conversation-message assistant" aria-label=${`${name} 回复`}>
                 <${Activity} message=${item} busy=${working} />

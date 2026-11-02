@@ -10,7 +10,7 @@ export function applyConversationEvent(session, event) {
   }
   if (event.type === "user") {
     session.messages = session.messages.slice(-198);
-    session.messages.push({ role: "user", text: event.text, images: event.images || 0 });
+    session.messages.push({ role: "user", text: event.text, images: event.images || 0, files: Array.isArray(event.files) ? event.files.slice(0, 4).map(String) : [] });
     session.messages.push({ role: "assistant", text: "", thinking: "", tools: [], error: "", startedAt: Date.now() });
     session.busy = true;
     session.started = true;

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-fit";
 import { html, call, agentName } from "./core.js";
-import { addImages, createDraft, disposeDraft } from "./terminal-draft.js";
+import { addAttachments, createDraft, disposeDraft } from "./terminal-draft.js";
 import { applyConversationEvent, tabTitle } from "./conversation-state.js";
 import { ConversationView } from "./conversation-view.js";
 
@@ -16,11 +16,11 @@ let holder = null;
 const notifyChange = () => listeners.forEach((fn) => fn());
 export const updateTerminalDraft = notifyChange;
 
-export function addTerminalImages(session, files) {
+export function addTerminalAttachments(session, files) {
   if (session.draft.busy || session.draft.reading || session.exited) return;
   try {
-    if (!session.agent) throw new Error("请切换到智能体终端后添加图片");
-    addImages(session.draft, files);
+    if (!session.agent) throw new Error("请切换到智能体终端后添加附件");
+    addAttachments(session.draft, files);
     document.getElementById(`terminal-message-${session.id}`)?.focus();
   } catch (error) { session.draft.error = error.message; }
   notifyChange();
@@ -29,7 +29,7 @@ export function addTerminalImages(session, files) {
 export async function pasteTerminalImage(session) {
   const draft = session.draft;
   if (draft.busy || draft.reading || session.exited) return;
-  if (!session.agent) { draft.error = "请切换到智能体终端后添加图片"; notifyChange(); return; }
+  if (!session.agent) { draft.error = "请切换到智能体终端后添加附件"; notifyChange(); return; }
   draft.reading = true;
   draft.error = "";
   notifyChange();
@@ -37,7 +37,7 @@ export async function pasteTerminalImage(session) {
     const image = await call("ReadClipboardImage");
     if (draft.disposed) return;
     if (!image) throw new Error("剪贴板中没有图片，请先复制图片后再粘贴");
-    addImages(draft, [new File([decode(image.data)], image.name, { type: image.type })]);
+    addAttachments(draft, [new File([decode(image.data)], image.name, { type: image.type })]);
     document.getElementById(`terminal-message-${session.id}`)?.focus();
   } catch (error) { draft.error = error.message; }
   finally { draft.reading = false; if (!draft.disposed) notifyChange(); }
@@ -48,12 +48,13 @@ export function handleTerminalPaste(session, event) {
   const data = event.clipboardData;
   if (!data) return;
   const files = Array.from(data.files ?? []);
-  // 纯文字保留原生粘贴行为；图片在捕获阶段拦截，避免漏入 xterm 或命令行。
+  // 纯文字保留原生粘贴行为；图片和文件在捕获阶段拦截，避免漏入 xterm 或命令行。
+  // 只有其他格式的图片（例如 TIFF 截图）时，改由后端读剪贴板转成 PNG。
   if (!files.length && data.getData("text/plain")) return;
   event.preventDefault();
   event.stopPropagation();
-  if (files.length && files.every((file) => /^(image\/(png|jpeg|gif|webp))$/.test(file.type))) addTerminalImages(session, files);
-  else if (files.length && files.some((file) => !file.type.startsWith("image/"))) addTerminalImages(session, files);
+  if (files.length && files.every((file) => /^(image\/(png|jpeg|gif|webp))$/.test(file.type))) addTerminalAttachments(session, files);
+  else if (files.length && files.some((file) => !file.type.startsWith("image/"))) addTerminalAttachments(session, files);
   else pasteTerminalImage(session);
 }
 

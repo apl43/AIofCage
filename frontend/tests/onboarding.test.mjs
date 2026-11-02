@@ -51,10 +51,10 @@ test("错误、停止、空回复和其他会话不能标记体验完成", () =>
 });
 
 test("填入示例保留已有文字和图片，也不改动发送中的草稿", () => {
-  const session = { info: {}, draft: { text: "", images: [] } };
+  const session = { info: {}, draft: { text: "", attachments: [] } };
   assert.equal(fillTutorialDraft(session), true);
   assert.equal(session.draft.text, TUTORIAL_EXAMPLE);
-  for (const draft of [{ text: "用户草稿", images: [] }, { text: "", images: [{}] }, { text: "", images: [], busy: true }, { text: "", images: [], reading: true }]) {
+  for (const draft of [{ text: "用户草稿", attachments: [] }, { text: "", attachments: [{}] }, { text: "", attachments: [], busy: true }, { text: "", attachments: [], reading: true }]) {
     const before = structuredClone(draft);
     assert.equal(fillTutorialDraft({ info: {}, draft }), false);
     assert.deepEqual(draft, before);
