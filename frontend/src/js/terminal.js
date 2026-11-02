@@ -214,7 +214,7 @@ export function useTerminals(sandboxId) {
 // 把某个会话的终端挂到这里显示，并跟随大小变化。
 export function TerminalView({ id }) {
   const session = sessions.get(id);
-  if (session?.kind === "conversation") return html`<${ConversationView} session=${session} changed=${notifyChange} />`;
+  if (session?.kind === "conversation") return html`<${ConversationView} session=${session} />`;
   return html`<${ShellView} id=${id} />`;
 }
 

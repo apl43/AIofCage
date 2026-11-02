@@ -42,6 +42,12 @@ const paths = {
   file: "M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8l-5-5Zm0 0v5h5",
   link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
   insert: "M4 12h11m-4-4 4 4-4 4M20 5v14",
+  arrowUp: "M12 19V5m-6 6 6-6 6 6",
+  chevronLeft: "m15 6-6 6 6 6",
+  chevronRight: "m9 6 6 6-6 6",
+  paperclip: "m20 11-8 8a5 5 0 0 1-7-7l8.5-8.5a3.5 3.5 0 0 1 5 5L10 17a2 2 0 0 1-3-3l7.5-7.5",
+  lock: "M6 11h12v10H6V11Zm2 0V8a4 4 0 0 1 8 0v3",
+  panelRight: "M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm11 0v16",
 };
 
 export const agentIcon = (agent) => ({ codex: "terminal", "claude-code": "sparkles", dsh: "layers" })[agent] || "terminal";
