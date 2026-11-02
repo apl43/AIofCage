@@ -23,6 +23,29 @@ func TestConversationValidation(t *testing.T) {
 	if err := validateConversationOptions(ConversationOptions{Model: "vendor/model", Effort: "high"}); err != nil {
 		t.Fatal(err)
 	}
+	// 档位再按智能体和实际运行的模型核对；模型为空时用供应商自己的模型。
+	codex := provider.Provider{Model: "deepseek-flash"}
+	for _, tc := range []struct {
+		agent         session.Agent
+		p             provider.Provider
+		model, effort string
+		ok            bool
+	}{
+		{session.Codex, codex, "gpt-6.1-sol", "ultra", true},
+		{session.Codex, codex, "", "xhigh", false},
+		{session.Codex, codex, "", "high", true},
+		{session.Codex, provider.Provider{Model: "gpt-6.1-sol"}, "", "max", true},
+		{session.Codex, codex, "gpt-5.5", "max", false},
+		{session.ClaudeCode, codex, "", "max", true},
+		{session.ClaudeCode, codex, "", "off", false},
+		{session.DSH, codex, "", "off", true},
+		{session.DSH, codex, "", "", true},
+	} {
+		err := validateEffort(tc.agent, tc.p, tc.model, tc.effort)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s %q %q：%v", tc.agent, tc.model, tc.effort, err)
+		}
+	}
 	buffer := &tailBuffer{limit: 8}
 	_, _ = buffer.Write([]byte(strings.Repeat("a", 100)))
 	_, _ = buffer.Write([]byte("END"))

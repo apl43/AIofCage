@@ -35,6 +35,8 @@ type ConversationInfo struct {
 	ImageInput      bool   `json:"image_input"`
 	Resumed         bool   `json:"resumed"`
 	NativeSessionID string `json:"native_session_id,omitempty"`
+	// Efforts are the reasoning levels the agent's CLI offers, per model for Codex.
+	Efforts runtime.EffortTable `json:"efforts"`
 }
 
 type ConversationOptions struct {
@@ -134,7 +136,8 @@ func (a *App) startConversation(id, sandboxID string, agent session.Agent, recov
 	}
 	return ConversationInfo{ID: id, Agent: agent, ProviderName: p.Name, ProviderID: p.ID, Model: model, Effort: effort,
 		ProviderModel: p.Model, Priced: p.Pricing != nil,
-		ImageInput: agent != session.DSH || p.ImageInput, Resumed: recovery != nil, NativeSessionID: nativeID}, nil
+		ImageInput: agent != session.DSH || p.ImageInput, Resumed: recovery != nil, NativeSessionID: nativeID,
+		Efforts: runtime.AgentEfforts(agent)}, nil
 }
 
 func (a *App) conversation(id string) (*conversation, error) {
@@ -157,11 +160,23 @@ func validateConversationOptions(options ConversationOptions) error {
 		}
 	}
 	switch options.Effort {
-	case "", "low", "medium", "high":
+	case "", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra":
 		return nil
 	default:
 		return errors.New("不支持的思考强度")
 	}
+}
+
+// validateEffort checks the reasoning level against the official levels of the agent's CLI for the
+// model that will run; model is empty when the provider's own model runs.
+func validateEffort(agent session.Agent, p provider.Provider, model, effort string) error {
+	if model == "" {
+		model = p.Model
+	}
+	if !runtime.AgentEfforts(agent).Allows(model, effort) {
+		return fmt.Errorf("「%s」不支持思考强度 %q，请换一档", model, effort)
+	}
+	return nil
 }
 
 // SendConversationMessage 在启动成功后返回；输出通过事件发送，正文不进入终端或审计。
@@ -197,6 +212,12 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 	}
 	if c.nativeID != "" && (c.model != options.Model || c.effort != options.Effort) {
 		return errors.New("请新建会话后更改模型或思考强度，原会话仍保留")
+	}
+	// 继续原生会话时档位已经锁定；换过 CLI 版本后它可能不在当前档位表里，这时不能要求换一档。
+	if c.nativeID == "" {
+		if err := validateEffort(c.agent, c.provider, options.Model, options.Effort); err != nil {
+			return err
+		}
 	}
 	if len(files) > 0 && c.agent == session.DSH && !c.provider.ImageInput {
 		return errors.New("当前供应商未声明图片能力，请在供应商设置中启用并重启沙箱")

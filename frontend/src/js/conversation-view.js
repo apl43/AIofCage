@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { html, call, Icon, agentName } from "./core.js";
 import { ModelPicker } from "./model-picker.js";
+import { effortChoices, effortLabel, keepEffort } from "./effort-levels.js";
 import { withModel } from "./model-list.js";
 
 // 使用 Preact 文本节点显示 Markdown，代码块单独排版，绝不注入模型返回的 HTML。
@@ -41,15 +42,21 @@ export function ConversationView({ session, changed }) {
     loadModels(false);
   }, [session.info]);
   const unpriced = session.info?.priced && session.model && session.model !== session.info.provider_model;
+  const efforts = effortChoices(session.info?.efforts, session.model || session.info?.provider_model);
   return html`<div class="conversation-container">
     <div class="conversation-controls">
       <span class="conversation-provider"><${Icon} name="layers" size=${17} />${session.info?.provider_name || "正在连接…"}</span>
       <span class="conversation-model"><label for=${`model-${session.id}`}>模型</label>
         <${ModelPicker} id=${`model-${session.id}`} label="会话模型" value=${session.model || ""} models=${withModel(session.models, session.info?.provider_model)} loading=${session.loadingModels}
-          disabled=${session.started || !session.info} onChange=${(model) => { session.model = model; changed(); }} onRefresh=${() => loadModels(true)} /></span>
+          disabled=${session.started || !session.info} onChange=${(model) => {
+            session.model = model;
+            session.effort = keepEffort(session.info?.efforts, model || session.info?.provider_model, session.effort);
+            changed();
+          }} onRefresh=${() => loadModels(true)} /></span>
       <label>思考强度<select aria-label="会话思考强度" value=${session.effort || ""} disabled=${session.started || !session.info}
         onChange=${(event) => { session.effort = event.target.value; changed(); }}>
-        <option value="">模型默认</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option>
+        <option value="">模型默认${efforts.default ? `（${effortLabel(efforts.default)}）` : ""}</option>
+        ${efforts.levels.map((level) => html`<option value=${level}>${effortLabel(level)}</option>`)}
       </select></label>
       <span class="conversation-status" role="status">${session.started ? `${session.status} · 新会话可更改模型设置` : "设置在首条消息发送时生效"}</span>
     </div>

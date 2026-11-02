@@ -168,7 +168,13 @@ func dshConfigWithEffort(p provider.Provider, effort string) string {
 		input += ", image"
 	}
 	reasoning, selection := "", ""
-	if effort != "" {
+	switch effort {
+	case "":
+	case "off":
+		// pi-ai 要求至少声明一个思考档位；off 不带值，选中它时请求明确关闭思考。
+		reasoning = "            reasoningEfforts:\n              \"off\":\n              \"low\": \"low\"\n"
+		selection = "    reasoningEffort: \"off\"\n"
+	default:
 		reasoning = fmt.Sprintf("            reasoningEfforts:\n              %s: %s\n", tomlString(effort), tomlString(effort))
 		selection = fmt.Sprintf("    reasoningEffort: %s\n", tomlString(effort))
 	}
