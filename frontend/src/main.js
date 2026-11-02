@@ -197,8 +197,8 @@ function App() {
           <${Icon} class="nav-icon" name=${item.icon} size=${20} /></button>`)}
       </nav>
       <div class="sidebar-footer"><button class="nav-item tutorial-entry" onClick=${tutorial.open} aria-label="使用教程" data-tip="使用教程" data-tip-side="right"><${Icon} name="book" size=${20} /></button>
-        <span class="environment-status" role="status" tabindex="0" aria-label=${environment} data-tip=${environment} data-tip-side="right">
-          <span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span></span></div>
+        <span class="environment-status" role="status" tabindex="0" data-tip=${environment} data-tip-side="right">
+          <span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span><span class="sr-only">${environment}</span></span></div>
     </aside>
     <main id="main-content" tabindex="-1">
       ${quitting && html`<div class="feedback" role="status"><span>正在停止进行中的操作，停完后自动退出。</span></div>`}
