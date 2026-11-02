@@ -65,8 +65,12 @@ type conversation struct {
 	closed   bool
 	stop     func()
 	done     chan struct{}
-	images   []string
+	// batches 是本会话已发送的附件批次；原生历史会引用这些文件，关闭会话时才删除。
+	batches []string
 }
+
+// maxConversationBatches 限制一个会话保存在沙箱里的附件批次（每批最多 4 个附件，共 20 MB）。
+const maxConversationBatches = 32
 
 func (a *App) StartConversation(id, sandboxID string, agent session.Agent) (ConversationInfo, error) {
 	return a.startConversation(id, sandboxID, agent, nil)
@@ -191,24 +195,33 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 	if err := validateConversationOptions(options); err != nil {
 		return err
 	}
-	files, err := decodeTerminalImages(images)
+	attachments, err := decodeConversationAttachments(images)
 	if err != nil {
 		return err
 	}
+	if strings.TrimSpace(text) == "" && len(attachments) == 0 {
+		return errors.New("请输入内容或添加附件")
+	}
 	var pending []string
-	if len(files) > 0 {
+	if len(attachments) > 0 {
 		pending = []string{"/pending.png"}
 	}
 	if _, err := terminalMessage(c.agent, text, pending); err != nil {
 		return err
+	}
+	imageCount := 0
+	for _, attachment := range attachments {
+		if attachment.Extension != "" {
+			imageCount++
+		}
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed || c.busy {
 		return errors.New("会话已关闭或仍在处理上一条任务")
 	}
-	if len(files) > 0 && len(c.images) >= 32 {
-		return errors.New("当前会话的图片附件已达上限，请新建会话")
+	if len(attachments) > 0 && len(c.batches) >= maxConversationBatches {
+		return errors.New("当前会话的附件已达上限，请新建会话")
 	}
 	if c.nativeID != "" && (c.model != options.Model || c.effort != options.Effort) {
 		return errors.New("请新建会话后更改模型或思考强度，原会话仍保留")
@@ -219,7 +232,8 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 			return err
 		}
 	}
-	if len(files) > 0 && c.agent == session.DSH && !c.provider.ImageInput {
+	// 只有图片需要模型的图片能力；普通文件由智能体用自己的工具读取。
+	if imageCount > 0 && c.agent == session.DSH && !c.provider.ImageInput {
 		return errors.New("当前供应商未声明图片能力，请在供应商设置中启用并重启沙箱")
 	}
 	batchID := rand.Text()
@@ -233,19 +247,17 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 			_ = a.manager.RemoveTerminalImages(cleanupContext, c.sandbox.ID, batchID)
 		}
 	}
-	if len(files) > 0 {
+	if len(attachments) > 0 {
 		uploadContext, stop := context.WithTimeout(ctx, 30*time.Second)
-		paths, err = a.manager.WriteTerminalImages(uploadContext, c.sandbox.ID, batchID, files)
+		paths, err = a.manager.WriteTerminalImages(uploadContext, c.sandbox.ID, batchID, attachments)
 		stop()
 		if err != nil {
 			cleanup()
 			return err
 		}
 	}
-	if strings.TrimSpace(text) == "" {
-		text = "请查看这些图片。"
-	}
-	payload, err := json.Marshal(map[string]any{"agent": c.agent, "text": text, "images": paths,
+	shown, prompt, imagePaths := conversationPrompt(text, attachments, paths)
+	payload, err := json.Marshal(map[string]any{"agent": c.agent, "text": prompt, "images": imagePaths,
 		"model": options.Model, "effort": options.Effort, "resume_id": c.nativeID,
 		"dsh_patch": runtime.DSHConversationPatch(c.provider, options.Model, options.Effort)})
 	if err != nil {
@@ -280,9 +292,11 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 	done := make(chan struct{})
 	c.model, c.effort, c.busy, c.stop, c.done = options.Model, options.Effort, true, stopTurn, done
 	if len(paths) > 0 {
-		c.images = append(c.images, batchID)
+		c.batches = append(c.batches, batchID)
 	}
-	a.emit("conversation:event", map[string]any{"id": id, "type": "user", "text": text, "images": len(images)})
+	// 事件只带图片数量和文件的显示名，不带内容或沙箱路径。
+	a.emit("conversation:event", map[string]any{"id": id, "type": "user", "text": shown, "images": imageCount,
+		"files": attachmentNames(attachments)})
 	go func() {
 		defer close(done)
 		scanner := bufio.NewScanner(stdout)
@@ -398,7 +412,7 @@ func (a *App) closeConversation(id string, forget bool) error {
 	}
 	c.mu.Lock()
 	c.closed = true
-	stop, done, batches := c.stop, c.done, c.images
+	stop, done, batches := c.stop, c.done, c.batches
 	c.mu.Unlock()
 	if forget {
 		// Gone from the recovery panel at once: stopping the turn and removing attachments take seconds.

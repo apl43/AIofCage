@@ -102,6 +102,21 @@ print(json.dumps({"data":base64.b64encode(open(p,"rb").read()).decode(),"mode":s
 	if execPython(count) != "1" {
 		t.Fatal("附件数量不正确")
 	}
+	// 普通文件附件只用清理后的基本名，内容与权限要求和图片相同；删除后不留下批次目录。
+	fileBatch, fileData := "FILEBATCH1234567890ABCDEFG", []byte("季度数据\n")
+	filePaths, err := manager.WriteTerminalImages(ctx, s.ID, fileBatch, []runtime.TerminalAttachment{{Data: fileData, Name: runtime.AttachmentName("../../季度 报告.txt")}})
+	if err != nil || len(filePaths) != 1 || filePaths[0] != "/home/agent/.aiofcage/attachments/"+fileBatch+"/1-季度 报告.txt" {
+		t.Fatalf("文件附件写入失败：%v %q", err, filePaths)
+	}
+	if err := json.Unmarshal([]byte(execPython(probe, filePaths[0])), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Data != base64.StdEncoding.EncodeToString(fileData) || result.Mode != 0o600 || result.DirectoryMode != 0o700 {
+		t.Fatal("文件附件内容或权限不正确")
+	}
+	if err := manager.RemoveTerminalImages(ctx, s.ID, fileBatch); err != nil || execPython(count) != "1" {
+		t.Fatalf("文件附件没有删除干净：%v", err)
+	}
 	// PTY 失败会删除本次新保存的附件，成功提交的旧附件仍可被工具读取。
 	_ = writer.Close()
 	if err := app.SendTerminalMessage(term.id, "应失败", input); err == nil {
@@ -119,5 +134,5 @@ print(json.dumps({"data":base64.b64encode(open(p,"rb").read()).decode(),"mode":s
 	if len(entries) != 0 {
 		t.Fatal("符号链接导致项目被写入")
 	}
-	t.Log("真实容器图片字节、权限、项目隔离、失败清理及符号链接防护通过；未调用模型")
+	t.Log("真实容器图片与文件附件的字节、权限、项目隔离、失败清理及符号链接防护通过；未调用模型")
 }
