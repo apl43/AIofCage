@@ -100,7 +100,7 @@ func (*agentController) Tools() []any {
 		tool("list_providers", "列出供应商的 ID、名称、智能体与模型；不返回密钥、钥匙串引用或接口地址", map[string]any{}, []string{}, true),
 		tool("list_sandboxes", "只列出本次控制会话创建的沙箱", map[string]any{}, []string{}, true),
 		tool("create_sandbox", "在新项目中创建停止的沙箱，按供应商确定智能体。每会话最多8个；默认100次请求/100000 token，可调低。可选合成案例 sales/incident/release", map[string]any{"name": str("简短任务名，最多40字"), "provider_id": str("list_providers 返回的 ID"), "case_id": map[string]any{"type": "string", "enum": []string{"sales", "incident", "release"}}, "max_requests": map[string]any{"type": "integer", "minimum": 1, "maximum": 100}, "max_tokens": map[string]any{"type": "integer", "minimum": 1, "maximum": 100000}}, []string{"name", "provider_id"}, false),
-		tool("run_task", "异步启动沙箱并执行官方 CLI 任务，返回 task_id；每会话最多2个并发、16个任务，不复用订阅或其他沙箱凭据。可选传入同一 Agent 的备用供应商顺序；仅认证、限流、超时或网络失败时切换。可用 get_task 查询，cancel_task 取消", map[string]any{"sandbox_id": str("本会话创建的沙箱 ID"), "text": str("任务内容，最多32000字节"), "model": str("可选，覆盖该供应商默认模型"), "effort": map[string]any{"type": "string", "enum": []string{"low", "medium", "high"}}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 600}, "fallback_provider_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 3}}, []string{"sandbox_id", "text"}, false),
+		tool("run_task", "异步启动沙箱并执行官方 CLI 任务，返回 task_id；每会话最多2个并发、16个任务，不复用订阅或其他沙箱凭据。可选传入同一 Agent 的备用供应商顺序；仅认证、限流、超时或网络失败时切换。可用 get_task 查询，cancel_task 取消", map[string]any{"sandbox_id": str("本会话创建的沙箱 ID"), "text": str("任务内容，最多32000字节"), "model": str("可选，覆盖该供应商默认模型"), "effort": map[string]any{"type": "string", "description": "可选，思考强度；可用档位随智能体和模型而定（Codex 按模型，Claude Code 为 low—max，dsh 为 off—max）", "enum": []string{"off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}}, "timeout_seconds": map[string]any{"type": "integer", "minimum": 10, "maximum": 600}, "fallback_provider_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 3}}, []string{"sandbox_id", "text"}, false),
 		tool("get_task", "查询任务状态、最终文本、工具名称与错误；最多保留256KiB答案，超出时标记 truncated", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, true), tool("compare_tasks", "比较本控制会话中多个已完成或进行中的任务，返回 Agent、供应商、模型、耗时、用量、状态和输出摘要；不跨控制会话", map[string]any{"task_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "maxItems": 16}}, []string{}, true),
 		tool("cancel_task", "取消本控制会话的任务", map[string]any{"task_id": str("任务 ID")}, []string{"task_id"}, false),
 		tool("sandbox_usage", "查询本会话沙箱的实时模型用量", map[string]any{"sandbox_id": str("沙箱 ID")}, []string{"sandbox_id"}, true),
@@ -391,6 +391,9 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 		args.Model = p.Model
 	}
 	if err := validateConversationOptions(ConversationOptions{Model: args.Model, Effort: args.Effort}); err != nil {
+		return nil, err
+	}
+	if err := validateEffort(p.Agent, p, args.Model, args.Effort); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
