@@ -1,8 +1,6 @@
-import { useEffect, useRef } from "preact/hooks";
-import { html, call, Icon, agentName } from "./core.js";
-import { ModelPicker } from "./model-picker.js";
-import { effortChoices, effortLabel, keepEffort } from "./effort-levels.js";
-import { withModel } from "./model-list.js";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { html, Icon, agentName } from "./core.js";
+import { activitySummary } from "./conversation-state.js";
 
 // 使用 Preact 文本节点显示 Markdown，代码块单独排版，绝不注入模型返回的 HTML。
 function inlineText(text) {
@@ -20,65 +18,70 @@ function MessageBody({ text }) {
     : block.split(/\n\s*\n/).filter(Boolean).map((paragraph) => html`<p>${inlineText(paragraph)}</p>`))}</div>`;
 }
 
-export function ConversationView({ session, changed }) {
+// 复制回复正文：优先用 Wails 的剪贴板接口，应用里的 WebKit 不一定开放 navigator.clipboard。
+function CopyButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const copy = async () => {
+    try {
+      const done = window.runtime?.ClipboardSetText ? await window.runtime.ClipboardSetText(text) : (await navigator.clipboard.writeText(text), true);
+      if (!done) return;
+      setCopied(true);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 1500);
+    } catch { /* 复制失败时按钮保持原样，用户可以手动选中复制 */ }
+  };
+  return html`<button type="button" class="icon-button message-copy" aria-label=${copied ? "已复制" : "复制回复"} data-tip=${copied ? "已复制" : "复制"}
+    onClick=${copy}><${Icon} name=${copied ? "check" : "copy"} size=${15} /></button>`;
+}
+
+// 回复上方的一行灰字：用时、工具活动、思考过程，点开看详情（照 ChatGPT 桌面端的“Worked for 2m 30s”）。
+function Activity({ message, busy }) {
+  const summary = activitySummary(message, busy);
+  if (!summary) return null;
+  const head = html`${busy && html`<span class="activity-dot" aria-hidden="true"></span>`}<span>${summary}</span>`;
+  if (!message.thinking && !message.tools?.length) return html`<p class="message-activity">${head}</p>`;
+  return html`<details class="message-activity">
+    <summary>${head}<${Icon} name="chevronRight" size=${14} class="activity-chevron" /></summary>
+    ${message.thinking && html`<div class="activity-section"><strong>思考过程</strong><pre>${message.thinking}</pre></div>`}
+    ${message.tools?.length > 0 && html`<div class="activity-section"><strong>工具活动</strong><ul>${message.tools.map((tool, index) => html`<li key=${index}>${tool}</li>`)}</ul></div>`}
+  </details>`;
+}
+
+export function ConversationView({ session }) {
   const viewport = useRef(null);
   const follow = useRef(true);
   const message = session.messages[session.messages.length - 1];
   useEffect(() => { if (follow.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight; }, [session.messages.length, message?.text, message?.thinking, message?.tools?.length, session.busy]);
-  // 打开会话时用供应商页取过的列表；刷新会重新请求，供应商页的列表也随之更新。
-  // 自动读取失败时不提示，模型照样可以手动填写；点刷新才说明原因，取不到时保留原来的列表。
-  const loadModels = async (refresh) => {
-    session.loadingModels = true; session.modelsError = ""; changed();
-    try {
-      const result = await call("ConversationModels", session.id, refresh);
-      if (result.ok) session.models = result.models ?? [];
-      session.modelsError = result.ok || !refresh ? "" : result.message;
-    } catch (error) { if (refresh) session.modelsError = error.message; }
-    finally { session.loadingModels = false; changed(); }
-  };
-  useEffect(() => {
-    if (!session.info || session.started || session.modelsRequested) return;
-    session.modelsRequested = true; // 每个会话只自动读一次，之后靠刷新按钮
-    loadModels(false);
-  }, [session.info]);
-  const unpriced = session.info?.priced && session.model && session.model !== session.info.provider_model;
-  const efforts = effortChoices(session.info?.efforts, session.model || session.info?.provider_model);
+  const name = agentName(session.agent);
   return html`<div class="conversation-container">
-    <div class="conversation-controls">
-      <span class="conversation-provider"><${Icon} name="layers" size=${17} />${session.info?.provider_name || "正在连接…"}</span>
-      <span class="conversation-model"><label for=${`model-${session.id}`}>模型</label>
-        <${ModelPicker} id=${`model-${session.id}`} label="会话模型" value=${session.model || ""} models=${withModel(session.models, session.info?.provider_model)} loading=${session.loadingModels}
-          disabled=${session.started || !session.info} onChange=${(model) => {
-            session.model = model;
-            session.effort = keepEffort(session.info?.efforts, model || session.info?.provider_model, session.effort);
-            changed();
-          }} onRefresh=${() => loadModels(true)} /></span>
-      <label>思考强度<select aria-label="会话思考强度" value=${session.effort || ""} disabled=${session.started || !session.info}
-        onChange=${(event) => { session.effort = event.target.value; changed(); }}>
-        <option value="">模型默认${efforts.default ? `（${effortLabel(efforts.default)}）` : ""}</option>
-        ${efforts.levels.map((level) => html`<option value=${level}>${effortLabel(level)}</option>`)}
-      </select></label>
-      <span class="conversation-status" role="status">${session.started ? `${session.status} · 新会话可更改模型设置` : "设置在首条消息发送时生效"}</span>
-    </div>
-    ${session.modelsError && html`<p class="conversation-notice" role="status">${session.modelsError}</p>`}
-    ${unpriced && !session.started && html`<p class="conversation-notice" role="status">换成「${session.model}」后用量照常统计，但不估算费用：单价只配置了「${session.info.provider_model}」。</p>`}
     <div class="conversation-messages" ref=${viewport} role="region" aria-label="会话消息" tabindex="0"
       onScroll=${() => { const element = viewport.current; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100; }}>
-      ${session.error && html`<div class="conversation-notice error" role="alert">${session.error}</div>`}
-      ${session.diagnostics && html`<div class="conversation-diagnostics" role="status"><strong>链路诊断${session.diagnostics.ready ? "通过" : "未通过"}</strong>
-        ${session.diagnostics.checks.map((check) => html`<div class="conversation-check"><span class=${`pill ${check.status === "passed" ? "ok" : "bad"}`}>${check.status === "passed" ? "通过" : "需处理"}</span><span><strong>${check.name}</strong> · ${check.detail}</span></div>`)}</div>`}
-      ${!session.messages.length && !session.error && html`<div class="conversation-welcome"><span class="conversation-mark"><${Icon} name="sparkles" size=${28} /></span>
-        <h3>${agentName(session.agent)}</h3><p>描述任务，或添加图片开始会话。</p><small>智能体可在当前沙箱权限范围内执行工具；模型与思考强度由供应商支持情况决定。</small></div>`}
-      ${session.messages.map((item, index) => html`<article key=${index} class=${`conversation-message ${item.role}`} aria-label=${item.role === "user" ? "你的消息" : `${agentName(session.agent)} 回复`}>
-        <div class="message-heading"><${Icon} name=${item.role === "user" ? "user" : "sparkles"} size=${17} /><strong>${item.role === "user" ? "你" : agentName(session.agent)}</strong></div>
-        ${item.images > 0 && html`<span class="message-attachments"><${Icon} name="image" size=${16} />${item.images} 张图片</span>`}
-        ${item.thinking && html`<details class="message-thinking"><summary>思考过程</summary><pre>${item.thinking}</pre></details>`}
-        ${item.tools?.length > 0 && html`<details class="message-tools"><summary>${item.tools.length} 次工具活动</summary><ul>${item.tools.map((tool) => html`<li>${tool}</li>`)}</ul></details>`}
-        <${MessageBody} text=${item.text} />
-        ${item.error && html`<p class="message-error" role="alert">${item.error}</p>`}
-        ${item.truncated && html`<small>显示内容已达上限，完整记录保留在智能体原生会话中。</small>`}
-        ${session.busy && index === session.messages.length - 1 && html`<span class="message-working" role="status"><span class="dot ok"></span>智能体正在处理…</span>`}
-      </article>`)}
+      <div class="conversation-column">
+        ${session.error && html`<div class="conversation-notice error" role="alert">${session.error}</div>`}
+        ${session.diagnostics && html`<div class="conversation-diagnostics" role="status"><strong>链路诊断${session.diagnostics.ready ? "通过" : "未通过"}</strong>
+          ${session.diagnostics.checks.map((check) => html`<div class="conversation-check"><span class=${`pill ${check.status === "passed" ? "ok" : "bad"}`}>${check.status === "passed" ? "通过" : "需处理"}</span><span><strong>${check.name}</strong> · ${check.detail}</span></div>`)}</div>`}
+        ${!session.messages.length && !session.error && html`<div class="conversation-welcome">
+          <span class="conversation-mark"><${Icon} name="sparkles" size=${24} /></span>
+          <h3>${session.resumed ? `继续和 ${name} 的会话` : `要让 ${name} 做什么？`}</h3>
+          <p>${session.resumed ? "已恢复原生会话。之前的消息正文不保存，直接发送新任务即可。" : "智能体在当前沙箱的权限范围内执行工具。"}</p></div>`}
+        ${session.messages.map((item, index) => {
+          const working = session.busy && index === session.messages.length - 1;
+          return item.role === "user"
+            ? html`<article key=${index} class="conversation-message user" aria-label="你的消息">
+                ${item.images > 0 && html`<span class="message-attachments"><${Icon} name="image" size=${15} />${item.images} 张图片</span>`}
+                <${MessageBody} text=${item.text} /></article>`
+            : html`<article key=${index} class="conversation-message assistant" aria-label=${`${name} 回复`}>
+                <${Activity} message=${item} busy=${working} />
+                <${MessageBody} text=${item.text} />
+                ${item.error && html`<p class="message-error" role="alert">${item.error}</p>`}
+                ${item.truncated && html`<small class="message-truncated">显示内容已达上限，完整记录保留在智能体原生会话中。</small>`}
+                ${!working && item.text && html`<div class="message-actions"><${CopyButton} text=${item.text} /></div>`}
+              </article>`;
+        })}
+      </div>
     </div>
+    <span class="sr-only" role="status">${session.status}</span>
   </div>`;
 }

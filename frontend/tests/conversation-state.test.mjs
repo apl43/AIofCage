@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyConversationEvent, tabTitle, recoveryPanel } from "../src/js/conversation-state.js";
+import { applyConversationEvent, tabTitle, recoveryPanel, formatElapsed, activitySummary } from "../src/js/conversation-state.js";
 
 test("用户、回复、工具与完整 final 分开保留", () => {
   const session = { messages: [] };
@@ -46,4 +46,33 @@ test("恢复面板只列出真能恢复、还没打开的会话，其余作为�
   assert.deepEqual(ready.map((item) => item.id), ["a"]);
   assert.deepEqual(stale.map((item) => item.id), ["b"]);
   assert.deepEqual(recoveryPanel(undefined, "s1", []), { ready: [], stale: [] });
+});
+
+test("一轮用时写成秒、分、小时", () => {
+  assert.equal(formatElapsed(0), "1 秒");
+  assert.equal(formatElapsed(8400), "8 秒");
+  assert.equal(formatElapsed(72000), "1 分 12 秒");
+  assert.equal(formatElapsed(120000), "2 分");
+  assert.equal(formatElapsed(3780000), "1 小时 3 分");
+  assert.equal(formatElapsed(7200000), "2 小时");
+});
+
+test("回复上方的处理摘要：进行中、用时、工具次数和思考过程", () => {
+  assert.equal(activitySummary({ tools: [], thinking: "" }, true), "正在处理");
+  assert.equal(activitySummary({ tools: ["a", "b"], thinking: "想", startedAt: 1000, endedAt: 73000 }, false), "已处理 1 分 12 秒 · 2 次工具活动 · 思考过程");
+  assert.equal(activitySummary({ tools: [], thinking: "" }, false), "");
+  const session = { messages: [] };
+  applyConversationEvent(session, { type: "user", text: "问" });
+  assert.ok(session.messages[1].startedAt > 0);
+  applyConversationEvent(session, { type: "done" });
+  assert.ok(session.messages[1].endedAt >= session.messages[1].startedAt);
+  assert.match(activitySummary(session.messages[1], false), /^已处理 \d+ 秒$/);
+});
+
+test("沙箱会话中途结束时记下这一轮的结束时间", () => {
+  const session = { messages: [], busy: false };
+  applyConversationEvent(session, { type: "user", text: "问" });
+  applyConversationEvent(session, { type: "closed" });
+  assert.ok(session.messages[1].endedAt > 0);
+  assert.equal(session.exited, true);
 });
