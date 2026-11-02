@@ -191,9 +191,6 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 	if err := validateConversationOptions(options); err != nil {
 		return err
 	}
-	if err := validateEffort(c.agent, c.provider, options.Model, options.Effort); err != nil {
-		return err
-	}
 	files, err := decodeTerminalImages(images)
 	if err != nil {
 		return err
@@ -215,6 +212,12 @@ func (a *App) SendConversationMessage(id, text string, images []TerminalImage, o
 	}
 	if c.nativeID != "" && (c.model != options.Model || c.effort != options.Effort) {
 		return errors.New("请新建会话后更改模型或思考强度，原会话仍保留")
+	}
+	// 继续原生会话时档位已经锁定；换过 CLI 版本后它可能不在当前档位表里，这时不能要求换一档。
+	if c.nativeID == "" {
+		if err := validateEffort(c.agent, c.provider, options.Model, options.Effort); err != nil {
+			return err
+		}
 	}
 	if len(files) > 0 && c.agent == session.DSH && !c.provider.ImageInput {
 		return errors.New("当前供应商未声明图片能力，请在供应商设置中启用并重启沙箱")

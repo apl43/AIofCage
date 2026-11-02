@@ -50,7 +50,7 @@ export function ConversationView({ session, changed }) {
         <${ModelPicker} id=${`model-${session.id}`} label="会话模型" value=${session.model || ""} models=${withModel(session.models, session.info?.provider_model)} loading=${session.loadingModels}
           disabled=${session.started || !session.info} onChange=${(model) => {
             session.model = model;
-            session.effort = keepEffort(session.info?.efforts, model, session.effort);
+            session.effort = keepEffort(session.info?.efforts, model || session.info?.provider_model, session.effort);
             changed();
           }} onRefresh=${() => loadModels(true)} /></span>
       <label>思考强度<select aria-label="会话思考强度" value=${session.effort || ""} disabled=${session.started || !session.info}

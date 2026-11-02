@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -382,6 +383,10 @@ func (c *agentController) run(raw json.RawMessage) (any, error) {
 		}
 		if fallback.Agent != p.Agent {
 			return nil, errors.New("备用供应商必须属于同一个 Agent")
+		}
+		// 没指定模型时换上去的是备用供应商自己的模型，思考强度要按它核对。
+		if err := validateEffort(fallback.Agent, fallback, args.Model, args.Effort); err != nil {
+			return nil, fmt.Errorf("备用供应商「%s」：%w", fallback.Name, err)
 		}
 		seenProviders[providerID] = true
 		providerChain = append(providerChain, providerID)

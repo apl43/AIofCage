@@ -132,3 +132,39 @@ func TestControlFailureHintDoesNotReturnStderr(t *testing.T) {
 		t.Fatalf("控制任务未返回固定处理建议：%q", got)
 	}
 }
+
+// 本机 AI 控制带备用供应商时，思考强度也按备用供应商的模型核对：等主供应商出错、换上去才发现不支持就晚了。
+func TestAgentControlChecksEffortForFallbacks(t *testing.T) {
+	a, _, st := newApp(t)
+	p, err := a.SaveProvider(codexRequest()) // gpt-6.1-sol，支持 max
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := codexRequest()
+	request.Name, request.Model = "备用", "deepseek-flash" // 不在 Codex 模型目录里，只有低、中、高
+	fallback, err := a.SaveProvider(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSandbox(sandbox.Sandbox{ID: "own", Name: "own", Bindings: []sandbox.Binding{{Agent: p.Agent, ProviderID: p.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	c := newAgentController(context.Background(), a)
+	c.owned["own"] = true
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// 先占满并发名额：核对通过的请求会卡在并发上限，不会真的启动沙箱。
+	c.tasks["one"] = &controlTask{ID: "one", SandboxID: "a", State: "running", cancel: cancel}
+	c.tasks["two"] = &controlTask{ID: "two", SandboxID: "b", State: "running", cancel: cancel}
+	defer c.Close()
+	call := func(effort string) error {
+		_, err := c.Call(context.Background(), "run_task", json.RawMessage(`{"sandbox_id":"own","text":"t","effort":"`+effort+`","fallback_provider_ids":["`+fallback.ID+`"]}`))
+		return err
+	}
+	if err := call("max"); err == nil || !strings.Contains(err.Error(), "备用供应商「备用」") {
+		t.Fatalf("备用供应商不支持的档位没有被拒绝：%v", err)
+	}
+	if err := call("high"); err == nil || !strings.Contains(err.Error(), "并发") {
+		t.Fatalf("两边都支持的档位应通过核对：%v", err)
+	}
+}
