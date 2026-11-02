@@ -183,21 +183,22 @@ function App() {
     settings: html`<${SettingsPage} overview=${overview} providers=${providers} notify=${notify}
       onEnvironmentChanged=${async () => setOverview(await call("GetOverview"))} />`,
   }[page];
+  // 左侧导航只显示图标（参考 ChatGPT 桌面端），名字和运行环境状态在鼠标停留或键盘聚焦时显示。
+  const environment = overview ? `${overview.environment.ready ? "运行环境就绪" : "运行环境未就绪"} · v${overview.version}` : "正在检查环境…";
 
   return html`
     <a class="skip-link" href="#main-content" onClick=${(e) => { e.preventDefault(); document.getElementById("main-content").focus(); }}>跳到主要内容</a>
     <aside class="sidebar">
-      <div class="brand"><img class="brand-icon" src="/assets/logo.svg" alt="" aria-hidden="true" width="48" height="48" /><span class="brand-name">Ai of Cage<small>笼中 AI · 沙箱</small></span></div>
+      <div class="brand" data-tip="Ai of Cage · 笼中 AI" data-tip-side="right"><img class="brand-icon" src="/assets/logo.svg" alt="Ai of Cage" width="36" height="36" /></div>
       <nav aria-label="主导航">
         ${PAGES.map((item) => html`<button class=${item.id === page ? "nav-item active" : "nav-item"}
-          title=${item.title} aria-label=${item.title} aria-current=${item.id === page ? "page" : undefined}
+          aria-label=${item.title} aria-current=${item.id === page ? "page" : undefined} data-tip=${item.title} data-tip-side="right"
           onClick=${() => { setLogFilter("all"); setDetail(null); setPage(item.id); location.hash = item.id; }}>
-          <${Icon} class="nav-icon" name=${item.icon} size=${22} /><span class="nav-label">${item.title}</span></button>`)}
+          <${Icon} class="nav-icon" name=${item.icon} size=${20} /></button>`)}
       </nav>
-      <div class="sidebar-footer"><button class="nav-item tutorial-entry" onClick=${tutorial.open} title="使用教程" aria-label="使用教程"><${Icon} name="book" size=${22} /><span class="nav-label">使用教程</span></button>
-        <span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span>
-        <span class="environment-label">${overview ? (overview.environment.ready ? "运行环境就绪" : "运行环境未就绪") : "正在检查环境…"}</span>
-        <small>${overview ? `v${overview.version}` : ""}</small></div>
+      <div class="sidebar-footer"><button class="nav-item tutorial-entry" onClick=${tutorial.open} aria-label="使用教程" data-tip="使用教程" data-tip-side="right"><${Icon} name="book" size=${20} /></button>
+        <span class="environment-status" role="status" tabindex="0" data-tip=${environment} data-tip-side="right">
+          <span class=${overview?.environment?.ready ? "dot ok" : "dot"}></span><span class="sr-only">${environment}</span></span></div>
     </aside>
     <main id="main-content" tabindex="-1">
       ${quitting && html`<div class="feedback" role="status"><span>正在停止进行中的操作，停完后自动退出。</span></div>`}
