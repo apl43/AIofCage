@@ -218,6 +218,7 @@ main:focus { outline: none; }
 .detail-tabs .segment.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 2px #10182814, 0 0 0 1px #1018280d; }
 .detail-tabs .segment:focus-visible { outline-offset: -2px; }
 .project-folder { margin: 0 0 4px; color: var(--muted); }
+.detail > .op-progress, .detail > .op-result, .detail > .demo-task { margin-bottom: 16px; } /* 进度、操作结果和案例任务与下面的内容隔开 */
 .detail-overview { padding: 26px; display: grid; gap: 28px; }
 .detail-overview h3 { margin-bottom: 10px; }
 .detail-overview .section-heading { margin-bottom: 0; }
@@ -404,6 +405,7 @@ details.advanced label:first-of-type { margin-top: 12px; }
 .terminal-tools { display: flex; align-items: center; gap: 2px; margin-left: auto; flex-shrink: 0; }
 .terminal-tools .icon-button { width: 32px; height: 32px; min-width: 32px; min-height: 32px; padding: 0; display: inline-grid; place-items: center; border-radius: 9px; color: var(--muted); }
 .terminal-tools .icon-button:hover:enabled, .terminal-tools .files-toggle.active { background: #e9eef0; color: var(--ink); }
+.terminal-tools .icon-button:disabled, .terminal-menu-choices button:disabled, .attachment-remove:disabled, .terminal-tab button:disabled { background: transparent; }
 .terminal-body { flex: 1; min-height: 0; display: flex; }
 .terminal-main { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .terminal-view { flex: 1; min-height: 0; margin: 10px; padding: 12px 6px 6px 14px; border-radius: 10px; background: #14231e; }
@@ -436,7 +438,8 @@ details.advanced label:first-of-type { margin-top: 12px; }
 .project-entry .collapsed { transform: rotate(-90deg); }
 .project-spacer { width: 14px; flex: none; }
 .project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-files .project-insert { width: 28px; height: 26px; min-height: 26px; padding: 0; display: inline-grid; place-items: center; flex: none; opacity: 0; }
+.project-files .project-insert { width: 28px; height: 26px; min-height: 26px; padding: 0; display: inline-grid; place-items: center; flex: none; opacity: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+.project-files .project-insert:hover:enabled { background: #e3e9eb; color: var(--ink); }
 .project-row:hover .project-insert, .project-row.selected .project-insert, .project-insert:focus-visible { opacity: 1; }
 .project-preview .project-insert { opacity: 1; }
 .project-note { padding: 4px 10px 4px calc(10px + var(--depth, 0) * 14px); color: var(--faint); font-size: var(--text-xs); }
@@ -491,6 +494,7 @@ p.message-activity, .message-activity summary { display: flex; align-items: cent
 .composer-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 8px 14px; border: 1px solid #d5dde1; border-radius: 22px; background: var(--panel); box-shadow: 0 1px 2px #1018280a, 0 6px 20px #1018280d; }
 .composer-card:focus-within { border-color: #aebcc3; }
 .composer textarea { display: block; width: 100%; min-height: 28px; max-height: 220px; padding: 6px 2px 4px; border: 0; outline: 0; resize: none; background: transparent; color: var(--ink); font: inherit; line-height: 1.6; }
+.composer-card:has(textarea.tutorial-target) { outline: 2px solid var(--brand); outline-offset: 3px; } /* 教程高亮整张输入卡片 */
 .composer textarea::placeholder { color: #8a979f; }
 .composer textarea:focus-visible { outline: 0; }
 .composer-actions { display: flex; align-items: center; gap: 6px; }
@@ -530,16 +534,17 @@ p.message-activity, .message-activity summary { display: flex; align-items: cent
 .composer-popover button { width: 100%; min-height: 34px; justify-content: space-between; gap: 10px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: var(--text-sm); text-align: start; }
 .composer-popover button:hover:enabled, .composer-popover button:focus-visible { background: #f1f4f5; }
 .composer-popover button:focus-visible { outline: 0; box-shadow: inset 0 0 0 2px var(--brand); }
-.composer-popover button:disabled { background: transparent; color: var(--faint); }
+.composer-popover button:disabled { background: transparent; color: var(--faint); pointer-events: none; } /* 按在禁用项上由外层接住，不移动焦点、不收起菜单 */
 .composer-popover [role="menuitemradio"] > .ui-icon:last-child { color: var(--brand); }
 .composer-plus-menu { bottom: calc(100% + 8px); left: 0; width: 210px; }
 .composer-plus-menu button { justify-content: flex-start; }
 .composer-plus-menu button .ui-icon { color: var(--muted); }
-.composer-model-menu { bottom: calc(100% + 8px); right: 0; width: 270px; }
+.composer-model-menu { bottom: calc(100% + 8px); right: 0; width: 270px; display: flex; flex-direction: column; }
+.composer-model-menu > :not(.composer-model-list) { flex-shrink: 0; }
 .composer-menu-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 2px 4px 10px; color: var(--muted); font-size: var(--text-xs); }
 .composer-menu-head > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-popover .composer-menu-head .icon-button { width: 28px; height: 28px; min-width: 28px; min-height: 28px; padding: 0; display: inline-grid; place-items: center; border-radius: 7px; color: var(--muted); }
-.composer-model-list { max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
+.composer-model-list { flex: 0 1 auto; min-height: 68px; max-height: 248px; overflow-y: auto; overscroll-behavior: contain; }
 .composer-model-option { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-menu-divider { height: 1px; margin: 5px 6px; background: var(--line-soft); }
 .composer-menu-value { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); }
@@ -547,7 +552,7 @@ p.message-activity, .message-activity summary { display: flex; align-items: cent
 .composer-effort-row[aria-expanded="true"] { background: #f1f4f5; }
 .composer-menu-note { display: flex; align-items: center; gap: 6px; margin: 2px 0 4px; padding: 4px 10px; color: var(--faint); font-size: var(--text-xs); line-height: 1.5; }
 .composer-menu-note.error { color: var(--bad); }
-.composer-effort-menu { right: calc(100% + 6px); bottom: -7px; width: 230px; }
+.composer-effort-menu { right: calc(100% + 6px); bottom: -7px; width: 230px; overflow-y: auto; }
 .composer-effort-menu button > span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
 .composer-effort-menu small { color: var(--faint); font-size: var(--text-xs); }
 .composer-badge { padding: 0 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; line-height: 18px; }
